@@ -13,6 +13,7 @@ export async function GET(
       songs: {
         where: { isPlayed: false },
         orderBy: [{ isPlaying: "desc" }, { sortOrder: "asc" }],
+        include: { votes: { select: { guestId: true, value: true } } },
       },
       host: { select: { name: true, image: true } },
     },

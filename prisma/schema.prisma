@@ -104,8 +104,6 @@ model Vote {
   song      RoomSong @relation(fields: [songId], references: [id], onDelete: Cascade)
   value     Int      // 1 for upvote, -1 for downvote
   createdAt DateTime @default(now())
-
-  @@unique([guestId, songId])
 }
 
 model SongRequest {

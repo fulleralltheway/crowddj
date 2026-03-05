@@ -37,42 +37,32 @@ export async function POST(
     });
   }
 
-  // Check existing vote on this song
-  const existingVote = await prisma.vote.findUnique({
-    where: { guestId_songId: { guestId: guest.id, songId } },
+  // Check if guest has an opposite vote on this song they can undo
+  const oppositeValue = value === 1 ? -1 : 1;
+  const oppositeVote = await prisma.vote.findFirst({
+    where: { guestId: guest.id, songId, value: oppositeValue },
   });
 
-  if (existingVote) {
-    if (existingVote.value === value) {
-      // Remove vote (toggle off)
-      await prisma.vote.delete({ where: { id: existingVote.id } });
-      await prisma.roomSong.update({
-        where: { id: songId },
-        data: value === 1 ? { upvotes: { decrement: 1 } } : { downvotes: { decrement: 1 } },
-      });
-      await prisma.guest.update({
-        where: { id: guest.id },
-        data: { votesUsed: { decrement: 1 } },
-      });
-    } else {
-      // Change vote direction
-      await prisma.vote.update({ where: { id: existingVote.id }, data: { value } });
-      await prisma.roomSong.update({
-        where: { id: songId },
-        data:
-          value === 1
-            ? { upvotes: { increment: 1 }, downvotes: { decrement: 1 } }
-            : { upvotes: { decrement: 1 }, downvotes: { increment: 1 } },
-      });
-      // No change in votesUsed since they already had a vote
-    }
+  if (oppositeVote) {
+    // Undo the opposite vote — delete it, update song counts, refund the vote
+    await prisma.vote.delete({ where: { id: oppositeVote.id } });
+    await prisma.roomSong.update({
+      where: { id: songId },
+      data: oppositeValue === 1
+        ? { upvotes: { decrement: 1 } }
+        : { downvotes: { decrement: 1 } },
+    });
+    await prisma.guest.update({
+      where: { id: guest.id },
+      data: { votesUsed: { decrement: 1 } },
+    });
   } else {
-    // Check vote limit
+    // No opposite vote to undo — this is a new vote, check limit
     if (guest.votesUsed >= room.votesPerUser) {
       return NextResponse.json({ error: "Vote limit reached" }, { status: 429 });
     }
 
-    // Create new vote
+    // Create the vote
     await prisma.vote.create({
       data: { guestId: guest.id, songId, value },
     });
@@ -94,7 +84,6 @@ export async function POST(
 
   const sorted = songs.sort((a, b) => (b.upvotes - b.downvotes) - (a.upvotes - a.downvotes));
 
-  // Find max sortOrder of playing songs to start after
   const playingSong = await prisma.roomSong.findFirst({
     where: { roomId: room.id, isPlaying: true },
   });
@@ -109,5 +98,5 @@ export async function POST(
     )
   );
 
-  return NextResponse.json({ success: true });
+  return NextResponse.json({ success: true, action: oppositeVote ? "undo" : "vote" });
 }

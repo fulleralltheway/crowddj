@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { skipToNext } from "@/lib/spotify";
+import { startPlayback } from "@/lib/spotify";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(
@@ -41,12 +41,13 @@ export async function POST(
       data: { isPlaying: true },
     });
 
+    // Play the specific song URI on Spotify
     try {
-      await skipToNext(accessToken);
+      await startPlayback(accessToken, [nextSong.spotifyUri]);
     } catch {
-      // Spotify skip failed, but we still update our queue
+      // Spotify playback failed (e.g. no active device)
     }
   }
 
-  return NextResponse.json({ success: true });
+  return NextResponse.json({ success: true, song: nextSong });
 }

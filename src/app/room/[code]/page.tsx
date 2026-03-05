@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, use } from "react";
-import { getSocket } from "@/lib/socket";
+import { useState, useEffect, useCallback, useRef, use } from "react";
 import { getFingerprint } from "@/lib/fingerprint";
 
 type Song = {
@@ -40,12 +39,20 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const [searching, setSearching] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [requestStatus, setRequestStatus] = useState("");
+  const lastInteraction = useRef(0);
+  const pendingSongs = useRef<Song[] | null>(null);
 
   const fetchSongs = useCallback(async () => {
     const res = await fetch(`/api/rooms/${code}/songs`);
     if (res.ok) {
       const data = await res.json();
-      setSongs(data);
+      // If user interacted recently, queue the update for later
+      if (Date.now() - lastInteraction.current < 3000) {
+        pendingSongs.current = data;
+      } else {
+        setSongs(data);
+        pendingSongs.current = null;
+      }
     }
   }, [code]);
 
@@ -55,7 +62,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       const data = await res.json();
       setRoom(data);
       setSongs(
-        data.songs.map((s: any) => ({ ...s, netScore: s.upvotes - s.downvotes, votes: [] }))
+        data.songs.map((s: any) => ({ ...s, netScore: s.upvotes - s.downvotes, votes: s.votes || [] }))
       );
     } else {
       const err = await res.json();
@@ -65,54 +72,150 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
 
   useEffect(() => {
     fetchRoom();
-
-    getFingerprint().then((fp) => {
+    getFingerprint().then(async (fp) => {
       setFingerprint(fp);
+      // Fetch guest record to restore guestId and votesUsed
+      const res = await fetch(`/api/rooms/${code}/guest`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fingerprint: fp }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setGuestId(data.guestId);
+        setVotesUsed(data.votesUsed);
+      }
     });
 
-    const socket = getSocket();
-    socket.emit("join-room", code);
-    socket.on("playlist-updated", fetchSongs);
+    const interval = setInterval(() => {
+      fetch(`/api/rooms/${code}/sync`, { method: "POST" });
+      fetchSongs();
+    }, 5000);
+
+    // Flush pending song data once the user stops interacting
+    const flushInterval = setInterval(() => {
+      if (pendingSongs.current && Date.now() - lastInteraction.current >= 3000) {
+        setSongs(pendingSongs.current);
+        pendingSongs.current = null;
+      }
+    }, 1000);
 
     return () => {
-      socket.off("playlist-updated", fetchSongs);
-      socket.emit("leave-room", code);
+      clearInterval(interval);
+      clearInterval(flushInterval);
     };
   }, [code, fetchRoom, fetchSongs]);
 
   const vote = async (songId: string, value: 1 | -1) => {
     if (!fingerprint) return;
 
+    lastInteraction.current = Date.now();
+
+    // Check if there's an opposite vote to undo
+    const song = songs.find((s) => s.id === songId);
+    const myVotes = song?.votes?.filter((v) => v.guestId === guestId) || [];
+    const oppositeValue = value === 1 ? -1 : 1;
+    const hasOpposite = myVotes.some((v) => v.value === oppositeValue);
+
+    if (!hasOpposite && votesUsed >= (room?.votesPerUser ?? 5)) {
+      setRequestStatus("Out of votes! They'll reset soon.");
+      setTimeout(() => setRequestStatus(""), 3000);
+      return;
+    }
+
+    // Optimistic update
+    setSongs((prev) => {
+      const updated = prev.map((s) => {
+        if (s.id !== songId) return s;
+
+        const myVotesOnSong = (s.votes || []).filter((v) => v.guestId === guestId);
+        const oppositeVote = myVotesOnSong.find((v) => v.value === oppositeValue);
+
+        if (oppositeVote) {
+          // Undo one opposite vote — remove it, refund
+          const newVotes = [...(s.votes || [])];
+          const idx = newVotes.findIndex(
+            (v) => v.guestId === guestId && v.value === oppositeValue
+          );
+          newVotes.splice(idx, 1);
+
+          return {
+            ...s,
+            upvotes: s.upvotes - (oppositeValue === 1 ? 1 : 0),
+            downvotes: s.downvotes - (oppositeValue === -1 ? 1 : 0),
+            netScore: s.netScore - oppositeValue,
+            votes: newVotes,
+          };
+        } else {
+          // New vote
+          return {
+            ...s,
+            upvotes: s.upvotes + (value === 1 ? 1 : 0),
+            downvotes: s.downvotes + (value === -1 ? 1 : 0),
+            netScore: s.netScore + value,
+            votes: [...(s.votes || []), { guestId, value }],
+          };
+        }
+      });
+
+      // Don't re-sort — keep the list stable while the user is voting.
+      // The poll flush will reorder once they stop interacting.
+      return updated;
+    });
+
+    // Update vote count optimistically
+    if (hasOpposite) {
+      setVotesUsed((v) => Math.max(0, v - 1));
+    } else {
+      setVotesUsed((v) => Math.min(v + 1, room?.votesPerUser ?? 5));
+    }
+
+    // Fire the API call
     const res = await fetch(`/api/rooms/${code}/vote`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ songId, value, fingerprint }),
     });
 
-    if (res.ok) {
-      const socket = getSocket();
-      socket.emit("vote-update", code);
+    if (!res.ok) {
       fetchSongs();
-    } else {
-      const err = await res.json();
+      if (hasOpposite) {
+        setVotesUsed((v) => v + 1);
+      } else {
+        setVotesUsed((v) => Math.max(0, v - 1));
+      }
       if (res.status === 429) {
-        setRequestStatus("You've used all your votes! They'll reset soon.");
+        setRequestStatus("Out of votes! They'll reset soon.");
         setTimeout(() => setRequestStatus(""), 3000);
       }
     }
   };
 
-  const searchSongs = async () => {
-    if (!searchQuery.trim()) return;
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const searchSongs = useCallback(async (query: string) => {
+    if (!query.trim()) {
+      setSearchResults([]);
+      return;
+    }
     setSearching(true);
-    // Use the room's host search endpoint via a guest-accessible route
     const res = await fetch(
-      `/api/spotify/search?q=${encodeURIComponent(searchQuery)}`
+      `/api/rooms/${code}/search?q=${encodeURIComponent(query)}`
     );
     if (res.ok) {
       setSearchResults(await res.json());
     }
     setSearching(false);
+  }, [code]);
+
+  const onSearchChange = (value: string) => {
+    setSearchQuery(value);
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    if (!value.trim()) {
+      setSearchResults([]);
+      return;
+    }
+    searchTimer.current = setTimeout(() => searchSongs(value), 300);
   };
 
   const requestSong = async (track: any) => {
@@ -127,8 +230,6 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       setRequestStatus(
         data.status === "pending" ? "Request sent! Waiting for host approval." : "Song added to queue!"
       );
-      const socket = getSocket();
-      socket.emit("song-requested", code);
       setShowSearch(false);
       setSearchQuery("");
       setSearchResults([]);
@@ -165,7 +266,8 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     );
   }
 
-  const votesRemaining = room.votesPerUser - votesUsed;
+  const votesRemaining = Math.max(0, room.votesPerUser - votesUsed);
+  const outOfVotes = votesRemaining === 0;
 
   return (
     <div className="min-h-dvh flex flex-col max-w-lg mx-auto">
@@ -200,9 +302,15 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
               />
             ))}
           </div>
-          <span className="text-text-secondary text-xs">
-            {votesRemaining} vote{votesRemaining !== 1 ? "s" : ""} left
-          </span>
+          {outOfVotes ? (
+            <span className="text-downvote text-xs font-medium">
+              Out of votes &middot; resets every {room.voteResetMinutes}min
+            </span>
+          ) : (
+            <span className="text-text-secondary text-xs">
+              {votesRemaining} vote{votesRemaining !== 1 ? "s" : ""} left
+            </span>
+          )}
         </div>
       </div>
 
@@ -216,23 +324,20 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       {/* Search overlay */}
       {showSearch && (
         <div className="px-4 py-3 bg-bg-secondary border-b border-border">
-          <div className="flex gap-2">
+          <div className="relative">
             <input
               type="text"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && searchSongs()}
+              onChange={(e) => onSearchChange(e.target.value)}
               placeholder="Search for a song..."
-              className="flex-1 px-3 py-2.5 bg-bg-card border border-border rounded-xl text-sm focus:outline-none focus:border-accent"
+              className="w-full px-3 py-2.5 bg-bg-card border border-border rounded-xl text-sm focus:outline-none focus:border-accent pr-10"
               autoFocus
             />
-            <button
-              onClick={searchSongs}
-              disabled={searching}
-              className="px-4 py-2.5 bg-accent text-black font-medium rounded-xl text-sm"
-            >
-              {searching ? "..." : "Search"}
-            </button>
+            {searching && (
+              <div className="absolute right-3 top-1/2 -translate-y-1/2 text-text-secondary text-xs">
+                ...
+              </div>
+            )}
           </div>
           {searchResults.length > 0 && (
             <div className="mt-2 max-h-60 overflow-y-auto space-y-1">
@@ -260,9 +365,9 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       {/* Song List */}
       <div className="flex-1 px-4 py-3 space-y-2 pb-20">
         {songs.map((song, i) => {
-          const myVote = song.votes?.find(
-            (v) => v.guestId === guestId
-          );
+          const myVotes = song.votes?.filter((v) => v.guestId === guestId) || [];
+          const myUpvotes = myVotes.filter((v) => v.value === 1).length;
+          const myDownvotes = myVotes.filter((v) => v.value === -1).length;
 
           return (
             <div
@@ -302,11 +407,13 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                 <div className="flex items-center gap-1 flex-shrink-0">
                   <button
                     onClick={() => vote(song.id, 1)}
-                    className="vote-btn p-2 rounded-lg hover:bg-upvote/10"
+                    className={`vote-btn p-2 rounded-lg hover:bg-upvote/10 relative ${
+                      myUpvotes > 0 ? "bg-upvote/10" : ""
+                    }`}
                   >
                     <svg
                       className={`w-4 h-4 ${
-                        myVote?.value === 1 ? "text-upvote" : "text-text-secondary"
+                        myUpvotes > 0 ? "text-upvote" : "text-text-secondary"
                       }`}
                       fill="none"
                       stroke="currentColor"
@@ -314,6 +421,11 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                     >
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
                     </svg>
+                    {myUpvotes > 1 && (
+                      <span className="absolute -top-1 -right-1 w-4 h-4 bg-upvote text-black text-[10px] font-bold rounded-full flex items-center justify-center">
+                        {myUpvotes}
+                      </span>
+                    )}
                   </button>
 
                   <span
@@ -330,11 +442,13 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
 
                   <button
                     onClick={() => vote(song.id, -1)}
-                    className="vote-btn p-2 rounded-lg hover:bg-downvote/10"
+                    className={`vote-btn p-2 rounded-lg hover:bg-downvote/10 relative ${
+                      myDownvotes > 0 ? "bg-downvote/10" : ""
+                    }`}
                   >
                     <svg
                       className={`w-4 h-4 ${
-                        myVote?.value === -1 ? "text-downvote" : "text-text-secondary"
+                        myDownvotes > 0 ? "text-downvote" : "text-text-secondary"
                       }`}
                       fill="none"
                       stroke="currentColor"
@@ -342,6 +456,11 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                     >
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                     </svg>
+                    {myDownvotes > 1 && (
+                      <span className="absolute -top-1 -right-1 w-4 h-4 bg-downvote text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                        {myDownvotes}
+                      </span>
+                    )}
                   </button>
                 </div>
               )}

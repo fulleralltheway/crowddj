@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { getSocket } from "@/lib/socket";
 
 type Playlist = {
   id: string;
@@ -37,6 +36,7 @@ export default function DashboardClient({ user }: { user: any }) {
   const [activeRoom, setActiveRoom] = useState<Room | null>(null);
   const [requests, setRequests] = useState<SongRequest[]>([]);
   const [loading, setLoading] = useState(false);
+  const [playError, setPlayError] = useState("");
 
   // Create room form state
   const [roomName, setRoomName] = useState("");
@@ -53,6 +53,18 @@ export default function DashboardClient({ user }: { user: any }) {
   useEffect(() => {
     fetchRooms();
   }, [fetchRooms]);
+
+  // Poll for song/request updates and auto-advance when managing a room
+  useEffect(() => {
+    if (view !== "manage" || !activeRoom) return;
+    const interval = setInterval(() => {
+      // Sync checks if the current song finished and auto-advances
+      fetch(`/api/rooms/${activeRoom.code}/sync`, { method: "POST" });
+      refreshSongs(activeRoom.code);
+      if (activeRoom.requireApproval) fetchRequests(activeRoom.code);
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [view, activeRoom]);
 
   const fetchPlaylists = async () => {
     const res = await fetch("/api/spotify/playlists");
@@ -89,13 +101,6 @@ export default function DashboardClient({ user }: { user: any }) {
       const data = await res.json();
       setActiveRoom(data);
       setView("manage");
-
-      const socket = getSocket();
-      socket.emit("join-room", room.code);
-
-      socket.on("playlist-updated", () => refreshSongs(room.code));
-      socket.on("request-received", () => fetchRequests(room.code));
-
       if (data.requireApproval) fetchRequests(room.code);
     }
   };
@@ -120,16 +125,24 @@ export default function DashboardClient({ user }: { user: any }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ requestId, action }),
     });
-    const socket = getSocket();
-    socket.emit("request-handled", activeRoom.code);
     fetchRequests(activeRoom.code);
+  };
+
+  const playRoom = async () => {
+    if (!activeRoom) return;
+    setPlayError("");
+    const res = await fetch(`/api/rooms/${activeRoom.code}/play`, { method: "POST" });
+    if (!res.ok) {
+      const data = await res.json();
+      setPlayError(data.error || "Failed to start playback");
+      setTimeout(() => setPlayError(""), 4000);
+    }
+    refreshSongs(activeRoom.code);
   };
 
   const skipSong = async () => {
     if (!activeRoom) return;
     await fetch(`/api/rooms/${activeRoom.code}/skip`, { method: "POST" });
-    const socket = getSocket();
-    socket.emit("song-skipped", activeRoom.code);
     refreshSongs(activeRoom.code);
   };
 
@@ -288,13 +301,13 @@ export default function DashboardClient({ user }: { user: any }) {
             </div>
             <button
               onClick={() => setRequireApproval(!requireApproval)}
-              className={`w-12 h-7 rounded-full transition-colors relative ${
+              className={`w-12 h-7 rounded-full transition-colors flex-shrink-0 flex items-center px-0.5 ${
                 requireApproval ? "bg-accent" : "bg-border"
               }`}
             >
               <span
-                className={`absolute top-0.5 w-6 h-6 bg-white rounded-full transition-transform ${
-                  requireApproval ? "translate-x-5" : "translate-x-0.5"
+                className={`w-6 h-6 bg-white rounded-full transition-transform ${
+                  requireApproval ? "translate-x-5" : "translate-x-0"
                 }`}
               />
             </button>
@@ -361,12 +374,23 @@ export default function DashboardClient({ user }: { user: any }) {
           </div>
 
           {/* Admin Controls */}
+          {playError && (
+            <div className="mb-3 px-4 py-2.5 bg-downvote/10 border border-downvote/30 rounded-xl text-sm text-center text-downvote">
+              {playError}
+            </div>
+          )}
           <div className="flex gap-2 mb-6">
+            <button
+              onClick={playRoom}
+              className="flex-1 py-2.5 bg-accent hover:bg-accent-hover text-black font-semibold rounded-xl transition-colors"
+            >
+              ▶ Play
+            </button>
             <button
               onClick={skipSong}
               className="flex-1 py-2.5 bg-bg-card hover:bg-bg-card-hover border border-border rounded-xl font-medium transition-colors"
             >
-              Skip Song
+              Skip ⏭
             </button>
           </div>
 
