@@ -1,0 +1,123 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  accounts      Account[]
+  sessions      Session[]
+  rooms         Room[]
+}
+
+model Room {
+  id              String   @id @default(cuid())
+  code            String   @unique
+  name            String
+  hostId          String
+  host            User     @relation(fields: [hostId], references: [id], onDelete: Cascade)
+  playlistId      String
+  playlistName    String
+  isActive        Boolean  @default(true)
+  votesPerUser    Int      @default(5)
+  voteResetMinutes Int     @default(30)
+  requireApproval Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  songs           RoomSong[]
+  guests          Guest[]
+  songRequests    SongRequest[]
+}
+
+model RoomSong {
+  id        String @id @default(cuid())
+  roomId    String
+  room      Room   @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  spotifyUri    String
+  trackName     String
+  artistName    String
+  albumArt      String?
+  durationMs    Int
+  sortOrder     Int
+  upvotes       Int    @default(0)
+  downvotes     Int    @default(0)
+  isPlaying     Boolean @default(false)
+  isPlayed      Boolean @default(false)
+  addedBy       String? // fingerprint of who requested it, null if from original playlist
+  createdAt     DateTime @default(now())
+  votes         Vote[]
+}
+
+model Guest {
+  id            String   @id @default(cuid())
+  roomId        String
+  room          Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  fingerprint   String
+  votesUsed     Int      @default(0)
+  lastVoteReset DateTime @default(now())
+  createdAt     DateTime @default(now())
+  votes         Vote[]
+
+  @@unique([roomId, fingerprint])
+}
+
+model Vote {
+  id        String   @id @default(cuid())
+  guestId   String
+  guest     Guest    @relation(fields: [guestId], references: [id], onDelete: Cascade)
+  songId    String
+  song      RoomSong @relation(fields: [songId], references: [id], onDelete: Cascade)
+  value     Int      // 1 for upvote, -1 for downvote
+  createdAt DateTime @default(now())
+
+  @@unique([guestId, songId])
+}
+
+model SongRequest {
+  id         String   @id @default(cuid())
+  roomId     String
+  room       Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  spotifyUri String
+  trackName  String
+  artistName String
+  albumArt   String?
+  durationMs Int
+  requestedBy String // fingerprint
+  status      String  @default("pending") // pending, approved, rejected
+  createdAt   DateTime @default(now())
+}
