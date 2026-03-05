@@ -7,7 +7,7 @@ export async function GET() {
     const url = process.env.TURSO_DATABASE_URL || "file:prisma/dev.db";
     const authToken = process.env.TURSO_AUTH_TOKEN;
     const adapter = new PrismaLibSql(authToken ? { url, authToken } : { url });
-    const prisma = new PrismaClient({ adapter });
+    const prisma = new PrismaClient({ adapter, datasourceUrl: "file:placeholder.db" });
     const userCount = await prisma.user.count();
     await prisma.$disconnect();
     return NextResponse.json({ ok: true, userCount });
