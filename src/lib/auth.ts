@@ -14,6 +14,8 @@ const scopes = [
 ].join(" ");
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
+  trustHost: true,
+  basePath: "/api/auth",
   adapter: PrismaAdapter(prisma),
   providers: [
     SpotifyProvider({
