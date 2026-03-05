@@ -1,5 +1,7 @@
 "use client";
 
+import { signIn } from "next-auth/react";
+
 export default function LoginPage() {
   return (
     <div className="min-h-dvh flex flex-col items-center justify-center px-4">
@@ -17,9 +19,7 @@ export default function LoginPage() {
         </div>
 
         <button
-          onClick={() => {
-            window.location.href = "/api/auth/signin/spotify";
-          }}
+          onClick={() => signIn("spotify", { callbackUrl: "/dashboard" })}
           className="w-full py-3.5 bg-[#1DB954] hover:bg-[#1ed760] text-black font-semibold rounded-xl transition-colors flex items-center justify-center gap-3"
         >
           <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
