@@ -1,10 +1,10 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { startPlayback } from "@/lib/spotify";
+import { startPlayback, pausePlayback, resumePlayback, getCurrentPlayback } from "@/lib/spotify";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ code: string }> }
 ) {
   const { code } = await params;
@@ -17,35 +17,51 @@ export async function POST(
     return NextResponse.json({ error: "Not authorized" }, { status: 403 });
   }
 
-  // Find currently playing song, or get the first unplayed song
-  let song = await prisma.roomSong.findFirst({
-    where: { roomId: room.id, isPlaying: true },
-  });
+  // Check current Spotify playback state
+  try {
+    const playback = await getCurrentPlayback(accessToken);
 
-  if (!song) {
-    song = await prisma.roomSong.findFirst({
-      where: { roomId: room.id, isPlayed: false },
-      orderBy: { sortOrder: "asc" },
+    if (playback?.is_playing) {
+      // Currently playing — pause it
+      await pausePlayback(accessToken);
+      return NextResponse.json({ success: true, action: "paused" });
+    }
+
+    // Not playing — check if we have a song queued
+    const currentSong = await prisma.roomSong.findFirst({
+      where: { roomId: room.id, isPlaying: true },
     });
 
-    if (song) {
-      await prisma.roomSong.update({
-        where: { id: song.id },
-        data: { isPlaying: true },
-      });
+    if (currentSong && playback?.item?.uri === currentSong.spotifyUri) {
+      // Same song is loaded but paused — just resume
+      await resumePlayback(accessToken);
+      return NextResponse.json({ success: true, action: "resumed" });
     }
-  }
 
-  if (!song) {
-    return NextResponse.json({ error: "No songs in queue" }, { status: 404 });
-  }
+    // No current song or different song — start from queue
+    let song = currentSong;
+    if (!song) {
+      song = await prisma.roomSong.findFirst({
+        where: { roomId: room.id, isPlayed: false },
+        orderBy: { sortOrder: "asc" },
+      });
+      if (song) {
+        await prisma.roomSong.update({
+          where: { id: song.id },
+          data: { isPlaying: true },
+        });
+      }
+    }
 
-  try {
+    if (!song) {
+      return NextResponse.json({ error: "No songs in queue" }, { status: 404 });
+    }
+
     await startPlayback(accessToken, [song.spotifyUri]);
-    return NextResponse.json({ success: true, song });
+    return NextResponse.json({ success: true, action: "playing", song });
   } catch (e: any) {
     return NextResponse.json(
-      { error: e.message || "Failed to start playback. Make sure Spotify is open on a device." },
+      { error: e.message || "Make sure Spotify is open on a device." },
       { status: 502 }
     );
   }

@@ -6,7 +6,7 @@ export async function POST(
   { params }: { params: Promise<{ code: string }> }
 ) {
   const { code } = await params;
-  const { spotifyUri, trackName, artistName, albumArt, durationMs, fingerprint } = await req.json();
+  const { spotifyUri, trackName, artistName, albumArt, durationMs, fingerprint, isExplicit } = await req.json();
 
   if (!spotifyUri || !trackName || !fingerprint) {
     return NextResponse.json({ error: "Missing fields" }, { status: 400 });
@@ -17,6 +17,21 @@ export async function POST(
     return NextResponse.json({ error: "Room not found" }, { status: 404 });
   }
 
+  // Explicit filter
+  if (room.explicitFilter && isExplicit) {
+    return NextResponse.json({ error: "Explicit songs are not allowed in this room" }, { status: 403 });
+  }
+
+  // Max songs per guest
+  if (room.maxSongsPerGuest > 0) {
+    const guestSongCount = await prisma.roomSong.count({
+      where: { roomId: room.id, addedBy: fingerprint, isPlayed: false },
+    });
+    if (guestSongCount >= room.maxSongsPerGuest) {
+      return NextResponse.json({ error: `You can only add ${room.maxSongsPerGuest} songs` }, { status: 429 });
+    }
+  }
+
   // Check if song already exists in room
   const existing = await prisma.roomSong.findFirst({
     where: { roomId: room.id, spotifyUri, isPlayed: false },
@@ -24,6 +39,12 @@ export async function POST(
   if (existing) {
     return NextResponse.json({ error: "Song already in queue" }, { status: 409 });
   }
+
+  // Look up guest name
+  const guest = await prisma.guest.findUnique({
+    where: { roomId_fingerprint: { roomId: room.id, fingerprint } },
+  });
+  const guestName = guest?.name || "";
 
   if (room.requireApproval) {
     // Create a pending request
@@ -36,6 +57,7 @@ export async function POST(
         albumArt,
         durationMs,
         requestedBy: fingerprint,
+        requestedByName: guestName,
       },
     });
     return NextResponse.json({ status: "pending", request });
@@ -56,6 +78,7 @@ export async function POST(
         durationMs,
         sortOrder: (maxOrder?.sortOrder ?? -1) + 1,
         addedBy: fingerprint,
+        addedByName: guestName,
       },
     });
     return NextResponse.json({ status: "added", song });

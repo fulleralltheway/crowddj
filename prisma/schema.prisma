@@ -56,8 +56,12 @@ model Room {
   isActive        Boolean  @default(true)
   votesPerUser    Int      @default(5)
   voteResetMinutes Int     @default(30)
-  requireApproval Boolean  @default(false)
-  createdAt       DateTime @default(now())
+  requireApproval  Boolean  @default(false)
+  votingPaused     Boolean  @default(false)
+  maxSongsPerGuest Int      @default(0) // 0 = unlimited
+  explicitFilter   Boolean  @default(false)
+  autoShuffle      Boolean  @default(true)
+  createdAt        DateTime @default(now())
   updatedAt       DateTime @updatedAt
   songs           RoomSong[]
   guests          Guest[]
@@ -78,7 +82,9 @@ model RoomSong {
   downvotes     Int    @default(0)
   isPlaying     Boolean @default(false)
   isPlayed      Boolean @default(false)
+  isLocked      Boolean @default(false)
   addedBy       String? // fingerprint of who requested it, null if from original playlist
+  addedByName   String?
   createdAt     DateTime @default(now())
   votes         Vote[]
 }
@@ -88,6 +94,7 @@ model Guest {
   roomId        String
   room          Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
   fingerprint   String
+  name          String   @default("")
   votesUsed     Int      @default(0)
   lastVoteReset DateTime @default(now())
   createdAt     DateTime @default(now())
@@ -115,7 +122,8 @@ model SongRequest {
   artistName String
   albumArt   String?
   durationMs Int
-  requestedBy String // fingerprint
+  requestedBy     String // fingerprint
+  requestedByName String @default("")
   status      String  @default("pending") // pending, approved, rejected
   createdAt   DateTime @default(now())
 }

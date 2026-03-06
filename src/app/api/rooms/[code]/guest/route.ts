@@ -6,7 +6,7 @@ export async function POST(
   { params }: { params: Promise<{ code: string }> }
 ) {
   const { code } = await params;
-  const { fingerprint } = await req.json();
+  const { fingerprint, name } = await req.json();
 
   if (!fingerprint) {
     return NextResponse.json({ error: "Missing fingerprint" }, { status: 400 });
@@ -24,7 +24,13 @@ export async function POST(
 
   if (!guest) {
     guest = await prisma.guest.create({
-      data: { roomId: room.id, fingerprint },
+      data: { roomId: room.id, fingerprint, name: name || "" },
+    });
+  } else if (name && name !== guest.name) {
+    // Update name if provided and different
+    guest = await prisma.guest.update({
+      where: { id: guest.id },
+      data: { name },
     });
   }
 
@@ -41,5 +47,6 @@ export async function POST(
     guestId: guest.id,
     votesUsed: guest.votesUsed,
     lastVoteReset: guest.lastVoteReset,
+    name: guest.name,
   });
 }

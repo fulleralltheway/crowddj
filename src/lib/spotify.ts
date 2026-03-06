@@ -67,6 +67,7 @@ export async function searchTracks(accessToken: string, query: string) {
     artistName: track.artists.map((a: any) => a.name).join(", "),
     albumArt: track.album.images?.[0]?.url || null,
     durationMs: track.duration_ms,
+    isExplicit: track.explicit ?? false,
   }));
 }
 
@@ -89,6 +90,22 @@ export async function startPlayback(
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error?.message || "Failed to start playback");
   }
+}
+
+export async function pausePlayback(accessToken: string) {
+  const res = await fetch(`${SPOTIFY_API}/me/player/pause`, {
+    method: "PUT",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok && res.status !== 204) throw new Error("Failed to pause");
+}
+
+export async function resumePlayback(accessToken: string) {
+  const res = await fetch(`${SPOTIFY_API}/me/player/play`, {
+    method: "PUT",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok && res.status !== 204) throw new Error("Failed to resume");
 }
 
 export async function skipToNext(accessToken: string) {

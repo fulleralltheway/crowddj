@@ -64,6 +64,7 @@ export async function PATCH(
         durationMs: songRequest.durationMs,
         sortOrder: (maxOrder?.sortOrder ?? -1) + 1,
         addedBy: songRequest.requestedBy,
+        addedByName: songRequest.requestedByName,
       },
     });
   }

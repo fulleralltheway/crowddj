@@ -122,7 +122,7 @@ export async function POST(
       return NextResponse.json({ synced: true, queueEmpty: true });
     }
 
-    return NextResponse.json({ synced: true, playing: true });
+    return NextResponse.json({ synced: true, playing: true, spotifyPlaying: !!playback?.is_playing });
   } catch {
     return NextResponse.json({ synced: false });
   }

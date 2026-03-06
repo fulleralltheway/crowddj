@@ -17,6 +17,10 @@ export async function POST(
     return NextResponse.json({ error: "Room not found or inactive" }, { status: 404 });
   }
 
+  if (room.votingPaused) {
+    return NextResponse.json({ error: "Voting is paused by the DJ" }, { status: 403 });
+  }
+
   // Get or create guest
   let guest = await prisma.guest.findUnique({
     where: { roomId_fingerprint: { roomId: room.id, fingerprint } },
@@ -35,6 +39,12 @@ export async function POST(
       where: { id: guest.id },
       data: { votesUsed: 0, lastVoteReset: new Date() },
     });
+  }
+
+  // Check if song is locked
+  const songRecord = await prisma.roomSong.findFirst({ where: { id: songId, roomId: room.id } });
+  if (songRecord?.isLocked) {
+    return NextResponse.json({ error: "This song is locked by the DJ" }, { status: 403 });
   }
 
   // Check if guest has an opposite vote on this song they can undo
@@ -76,21 +86,42 @@ export async function POST(
     });
   }
 
-  // Reorder songs based on votes (skip currently playing)
+  // Reorder songs based on votes (skip playing and locked songs)
   const songs = await prisma.roomSong.findMany({
     where: { roomId: room.id, isPlayed: false, isPlaying: false },
     orderBy: { sortOrder: "asc" },
   });
 
-  const sorted = songs.sort((a, b) => (b.upvotes - b.downvotes) - (a.upvotes - a.downvotes));
+  const locked = songs.filter((s) => s.isLocked);
+  const unlocked = songs.filter((s) => !s.isLocked);
+  const sortedUnlocked = unlocked.sort((a, b) => (b.upvotes - b.downvotes) - (a.upvotes - a.downvotes));
 
   const playingSong = await prisma.roomSong.findFirst({
     where: { roomId: room.id, isPlaying: true },
   });
   const startOrder = playingSong ? playingSong.sortOrder + 1 : 0;
 
+  // Build final order: locked songs keep their positions, unlocked fill around them
+  // First, assign locked songs their current relative positions
+  const lockedPositions = new Map<number, typeof locked[0]>();
+  locked.forEach((s) => {
+    const relPos = songs.indexOf(s);
+    lockedPositions.set(relPos, s);
+  });
+
+  // Merge: place locked songs at their positions, fill gaps with sorted unlocked
+  const merged: typeof songs = [];
+  let unlockedIdx = 0;
+  for (let i = 0; i < songs.length; i++) {
+    if (lockedPositions.has(i)) {
+      merged.push(lockedPositions.get(i)!);
+    } else if (unlockedIdx < sortedUnlocked.length) {
+      merged.push(sortedUnlocked[unlockedIdx++]);
+    }
+  }
+
   await Promise.all(
-    sorted.map((song, i) =>
+    merged.map((song, i) =>
       prisma.roomSong.update({
         where: { id: song.id },
         data: { sortOrder: startOrder + i },
