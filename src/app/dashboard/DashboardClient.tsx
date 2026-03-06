@@ -1,7 +1,31 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, Component, type ReactNode } from "react";
 import { QRCodeSVG } from "qrcode.react";
+
+class DashboardErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null };
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="min-h-dvh flex items-center justify-center p-4">
+          <div className="text-center space-y-4 max-w-md">
+            <p className="text-2xl font-bold">Something went wrong</p>
+            <p className="text-text-secondary text-sm break-all">{this.state.error.message}</p>
+            <button
+              onClick={() => { this.setState({ error: null }); window.location.reload(); }}
+              className="px-6 py-2.5 bg-accent hover:bg-accent-hover text-black font-semibold rounded-xl transition-colors"
+            >
+              Reload
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 type Playlist = {
   id: string;
@@ -85,6 +109,14 @@ function ToggleSwitch({ enabled, onToggle, label, description }: { enabled: bool
 }
 
 export default function DashboardClient({ user }: { user: any }) {
+  return (
+    <DashboardErrorBoundary>
+      <DashboardInner user={user} />
+    </DashboardErrorBoundary>
+  );
+}
+
+function DashboardInner({ user }: { user: any }) {
   const [view, setView] = useState<"rooms" | "create" | "manage">("rooms");
   const [rooms, setRooms] = useState<Room[]>([]);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
@@ -625,18 +657,21 @@ export default function DashboardClient({ user }: { user: any }) {
 
   return (
     <div className="min-h-dvh p-4 max-w-2xl mx-auto">
-      <button
-        onClick={() => {
-          setView("rooms");
-          setActiveRoom(null);
-        }}
-        className="text-text-secondary hover:text-white mb-6 mt-4 flex items-center gap-1 transition-colors"
-      >
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-        </svg>
-        Back to rooms
-      </button>
+      <div className="flex items-center justify-between mb-6 mt-4">
+        <button
+          onClick={() => {
+            setView("rooms");
+            setActiveRoom(null);
+          }}
+          className="text-text-secondary hover:text-white flex items-center gap-1 transition-colors"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+          Back to rooms
+        </button>
+        <span className="text-text-secondary/30 text-[10px]">v2</span>
+      </div>
 
       {activeRoom && (
         <>
