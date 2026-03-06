@@ -34,9 +34,10 @@ export async function POST(
     });
   }
 
-  // Check vote reset
+  // Check vote reset — clear old votes so guest gets a fresh slate
   const resetMs = room.voteResetMinutes * 60 * 1000;
   if (Date.now() - guest.lastVoteReset.getTime() > resetMs) {
+    await prisma.vote.deleteMany({ where: { guestId: guest.id } });
     guest = await prisma.guest.update({
       where: { id: guest.id },
       data: { votesUsed: 0, lastVoteReset: new Date() },

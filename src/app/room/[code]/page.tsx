@@ -182,6 +182,13 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         setResetCountdown("");
         setVotesUsed(0);
         setLastVoteReset(Date.now());
+        // Clear vote indicators — old votes are locked in, fresh slate visually
+        setSongs((prev) =>
+          prev.map((s) => ({
+            ...s,
+            votes: s.votes.filter((v) => v.guestId !== guestId),
+          }))
+        );
       } else {
         const mins = Math.floor(remaining / 60000);
         const secs = Math.floor((remaining % 60000) / 1000);
