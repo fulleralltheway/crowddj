@@ -63,15 +63,21 @@ export async function GET(
   try {
     const tracks = await searchTracks(accessToken, q);
 
-    // Only check against displayed queue songs (not the full queue beyond the limit)
+    // Check against displayed songs: base playlist (limited) + all requested
     const limit = room.queueDisplaySize || 50;
-    const queueUris = await prisma.roomSong.findMany({
-      where: { roomId: room.id, isPlayed: false },
-      orderBy: [{ isPlaying: "desc" }, { sortOrder: "asc" }],
-      take: limit,
-      select: { spotifyUri: true },
-    });
-    const uriSet = new Set(queueUris.map((s) => s.spotifyUri));
+    const [baseUris, requestedUris] = await Promise.all([
+      prisma.roomSong.findMany({
+        where: { roomId: room.id, isPlayed: false, isRequested: false },
+        orderBy: [{ isPlaying: "desc" }, { sortOrder: "asc" }],
+        take: limit,
+        select: { spotifyUri: true },
+      }),
+      prisma.roomSong.findMany({
+        where: { roomId: room.id, isPlayed: false, isRequested: true },
+        select: { spotifyUri: true },
+      }),
+    ]);
+    const uriSet = new Set([...baseUris, ...requestedUris].map((s) => s.spotifyUri));
 
     const enriched = tracks.map((t: any) => ({
       ...t,

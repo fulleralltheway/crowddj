@@ -84,6 +84,7 @@ model RoomSong {
   isPlaying     Boolean @default(false)
   isPlayed      Boolean @default(false)
   isLocked      Boolean @default(false)
+  isRequested   Boolean @default(false) // true if guest-requested (always shown in display)
   addedBy       String? // fingerprint of who requested it, null if from original playlist
   addedByName   String?
   createdAt     DateTime @default(now())

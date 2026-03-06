@@ -50,20 +50,41 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const lastInteraction = useRef(0);
   const pendingSongs = useRef<Song[] | null>(null);
+  const inFlightVotes = useRef(0);
+  const [movedSongs, setMovedSongs] = useState<Record<string, "up" | "down">>({});
   const knownApproved = useRef<Set<string>>(new Set());
+
+  const applySongs = useCallback((data: Song[]) => {
+    setSongs((prev) => {
+      const prevOrder = prev.filter((s) => !s.isPlaying).map((s) => s.id);
+      const newOrder = data.filter((s: Song) => !s.isPlaying).map((s: Song) => s.id);
+      const moved: Record<string, "up" | "down"> = {};
+      prevOrder.forEach((id, oldIdx) => {
+        const newIdx = newOrder.indexOf(id);
+        if (newIdx !== -1 && newIdx !== oldIdx) {
+          moved[id] = newIdx < oldIdx ? "up" : "down";
+        }
+      });
+      if (Object.keys(moved).length > 0) {
+        setMovedSongs(moved);
+        setTimeout(() => setMovedSongs({}), 700);
+      }
+      return data;
+    });
+  }, []);
 
   const fetchSongs = useCallback(async () => {
     const res = await fetch(`/api/rooms/${code}/songs`);
     if (res.ok) {
       const data = await res.json();
-      if (Date.now() - lastInteraction.current < 3000) {
+      if (inFlightVotes.current > 0 || Date.now() - lastInteraction.current < 3000) {
         pendingSongs.current = data;
       } else {
-        setSongs(data);
+        applySongs(data);
         pendingSongs.current = null;
       }
     }
-  }, [code]);
+  }, [code, applySongs]);
 
   const fetchRoom = useCallback(async () => {
     const res = await fetch(`/api/rooms/${code}`);
@@ -107,8 +128,8 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     }, 5000);
 
     const flushInterval = setInterval(() => {
-      if (pendingSongs.current && Date.now() - lastInteraction.current >= 3000) {
-        setSongs(pendingSongs.current);
+      if (pendingSongs.current && inFlightVotes.current === 0 && Date.now() - lastInteraction.current >= 3000) {
+        applySongs(pendingSongs.current);
         pendingSongs.current = null;
       }
     }, 1000);
@@ -235,23 +256,29 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       setVotesUsed((v) => Math.min(v + 1, room?.votesPerUser ?? 5));
     }
 
-    const res = await fetch(`/api/rooms/${code}/vote`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ songId, value, fingerprint }),
-    });
+    inFlightVotes.current++;
+    try {
+      const res = await fetch(`/api/rooms/${code}/vote`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ songId, value, fingerprint }),
+      });
 
-    if (!res.ok) {
-      fetchSongs();
-      if (hasOpposite) {
-        setVotesUsed((v) => v + 1);
-      } else {
-        setVotesUsed((v) => Math.max(0, v - 1));
+      if (!res.ok) {
+        fetchSongs();
+        if (hasOpposite) {
+          setVotesUsed((v) => v + 1);
+        } else {
+          setVotesUsed((v) => Math.max(0, v - 1));
+        }
+        if (res.status === 429) {
+          setRequestStatus("Out of votes! They'll reset soon.");
+          setTimeout(() => setRequestStatus(""), 3000);
+        }
       }
-      if (res.status === 429) {
-        setRequestStatus("Out of votes! They'll reset soon.");
-        setTimeout(() => setRequestStatus(""), 3000);
-      }
+    } finally {
+      inFlightVotes.current--;
+      lastInteraction.current = Date.now();
     }
   };
 
@@ -294,13 +321,15 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       setRequestStatus(
         data.status === "pending" ? "Request sent! Waiting for host approval." : "Song added to queue!"
       );
-      // Refresh songs list
-      const songsRes = await fetch(`/api/rooms/${code}/songs`);
-      if (songsRes.ok) setSongs(await songsRes.json());
-      // Mark track as in queue in search results so it shows as disabled
-      setSearchResults((prev) => prev.map((t: any) =>
-        t.spotifyUri === track.spotifyUri ? { ...t, inQueue: true } : t
-      ));
+      if (data.status !== "pending") {
+        // Refresh songs list (only if actually added, not pending approval)
+        const songsRes = await fetch(`/api/rooms/${code}/songs`);
+        if (songsRes.ok) applySongs(await songsRes.json());
+        // Mark track as in queue in search results so it shows as disabled
+        setSearchResults((prev) => prev.map((t: any) =>
+          t.spotifyUri === track.spotifyUri ? { ...t, inQueue: true } : t
+        ));
+      }
     } else {
       setRequestStatus(data.error || "Failed to request song");
     }
@@ -626,9 +655,13 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
           return (
             <div
               key={song.id}
-              className={`song-card flex items-center gap-3 p-3 rounded-xl border ${
+              className={`song-card flex items-center gap-3 p-3 rounded-xl border transition-all duration-500 ${
                 song.isLocked
                   ? "bg-yellow-500/5 border-yellow-500/30"
+                  : movedSongs[song.id] === "up"
+                  ? "bg-upvote/10 border-upvote/30"
+                  : movedSongs[song.id] === "down"
+                  ? "bg-downvote/10 border-downvote/30"
                   : "bg-bg-card border-border"
               }`}
             >

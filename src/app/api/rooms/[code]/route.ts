@@ -10,25 +10,36 @@ export async function GET(
 ) {
   const { code } = await params;
 
-  // First get room to read queueDisplaySize, then get songs with that limit
-  const roomBase = await prisma.room.findUnique({ where: { code } });
-  if (!roomBase) return NextResponse.json({ error: "Room not found" }, { status: 404 });
-
-  const limit = roomBase.queueDisplaySize || 50;
   const room = await prisma.room.findUnique({
     where: { code },
-    include: {
-      songs: {
-        where: { isPlayed: false },
-        orderBy: [{ isPlaying: "desc" }, { sortOrder: "asc" }],
-        take: limit,
-        include: { votes: { select: { guestId: true, value: true } } },
-      },
-      host: { select: { name: true, image: true } },
-    },
+    include: { host: { select: { name: true, image: true } } },
   });
-
   if (!room) return NextResponse.json({ error: "Room not found" }, { status: 404 });
+
+  const limit = room.queueDisplaySize || 50;
+
+  // Base playlist songs (limited) + all guest-requested songs (always shown)
+  const [baseSongs, requestedSongs] = await Promise.all([
+    prisma.roomSong.findMany({
+      where: { roomId: room.id, isPlayed: false, isRequested: false },
+      orderBy: [{ isPlaying: "desc" }, { sortOrder: "asc" }],
+      take: limit,
+      include: { votes: { select: { guestId: true, value: true } } },
+    }),
+    prisma.roomSong.findMany({
+      where: { roomId: room.id, isPlayed: false, isRequested: true },
+      orderBy: [{ isPlaying: "desc" }, { sortOrder: "asc" }],
+      include: { votes: { select: { guestId: true, value: true } } },
+    }),
+  ]);
+
+  const seenIds = new Set(baseSongs.map((s) => s.id));
+  const songs = [...baseSongs, ...requestedSongs.filter((s) => !seenIds.has(s.id))];
+  songs.sort((a, b) => {
+    if (a.isPlaying && !b.isPlaying) return -1;
+    if (!a.isPlaying && b.isPlaying) return 1;
+    return a.sortOrder - b.sortOrder;
+  });
 
   // Auto-expire rooms older than 24 hours
   if (room.isActive && Date.now() - room.createdAt.getTime() > ROOM_EXPIRY_MS) {
@@ -41,7 +52,7 @@ export async function GET(
 
   if (!room.isActive) return NextResponse.json({ error: "Room is closed" }, { status: 410 });
 
-  return NextResponse.json(room);
+  return NextResponse.json({ ...room, songs });
 }
 
 export async function PATCH(

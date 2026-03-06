@@ -49,24 +49,39 @@ export async function PATCH(
   });
 
   if (action === "approve") {
+    // Check if the song already exists in the queue (e.g. beyond display limit)
+    const existing = await prisma.roomSong.findFirst({
+      where: { roomId: room.id, spotifyUri: songRequest.spotifyUri, isPlayed: false },
+    });
+
     const maxOrder = await prisma.roomSong.findFirst({
       where: { roomId: room.id },
       orderBy: { sortOrder: "desc" },
     });
+    const newOrder = (maxOrder?.sortOrder ?? -1) + 1;
 
-    await prisma.roomSong.create({
-      data: {
-        roomId: room.id,
-        spotifyUri: songRequest.spotifyUri,
-        trackName: songRequest.trackName,
-        artistName: songRequest.artistName,
-        albumArt: songRequest.albumArt,
-        durationMs: songRequest.durationMs,
-        sortOrder: (maxOrder?.sortOrder ?? -1) + 1,
-        addedBy: songRequest.requestedBy,
-        addedByName: songRequest.requestedByName,
-      },
-    });
+    if (existing) {
+      // Bump existing song into visible queue
+      await prisma.roomSong.update({
+        where: { id: existing.id },
+        data: { isRequested: true, sortOrder: newOrder },
+      });
+    } else {
+      await prisma.roomSong.create({
+        data: {
+          roomId: room.id,
+          spotifyUri: songRequest.spotifyUri,
+          trackName: songRequest.trackName,
+          artistName: songRequest.artistName,
+          albumArt: songRequest.albumArt,
+          durationMs: songRequest.durationMs,
+          sortOrder: newOrder,
+          isRequested: true,
+          addedBy: songRequest.requestedBy,
+          addedByName: songRequest.requestedByName,
+        },
+      });
+    }
   }
 
   return NextResponse.json({ success: true });
