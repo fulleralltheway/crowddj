@@ -117,17 +117,29 @@ export default function DashboardClient({ user }: { user: any }) {
 }
 
 function DashboardInner({ user }: { user: any }) {
-  const [debugMsg, setDebugMsg] = useState("");
-  const [view, _setView] = useState<"rooms" | "create" | "manage">("rooms");
-  const setView = (v: "rooms" | "create" | "manage") => {
-    if (v === "rooms" && _viewRef.current === "manage") {
-      // Log when going back to rooms from manage — helps debug the crash
-      setDebugMsg(`view changed to rooms at ${new Date().toLocaleTimeString()}`);
+  const [crashLog, setCrashLog] = useState("");
+  const [view, setView] = useState<"rooms" | "create" | "manage">("rooms");
+
+  // Persist errors to localStorage so they survive a full page reload
+  useEffect(() => {
+    const saved = localStorage.getItem("crowddj_crash");
+    if (saved) {
+      setCrashLog(saved);
+      localStorage.removeItem("crowddj_crash");
     }
-    _setView(v);
-  };
-  const _viewRef = useRef(view);
-  _viewRef.current = view;
+    const onError = (e: ErrorEvent) => {
+      localStorage.setItem("crowddj_crash", `JS Error: ${e.message} at ${e.filename}:${e.lineno}`);
+    };
+    const onReject = (e: PromiseRejectionEvent) => {
+      localStorage.setItem("crowddj_crash", `Unhandled rejection: ${e.reason}`);
+    };
+    window.addEventListener("error", onError);
+    window.addEventListener("unhandledrejection", onReject);
+    return () => {
+      window.removeEventListener("error", onError);
+      window.removeEventListener("unhandledrejection", onReject);
+    };
+  }, []);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [activeRoom, setActiveRoom] = useState<Room | null>(null);
@@ -493,9 +505,10 @@ function DashboardInner({ user }: { user: any }) {
   if (view === "rooms") {
     return (
       <div className="min-h-dvh p-4 max-w-2xl mx-auto">
-        {debugMsg && (
-          <div className="mb-2 p-2 bg-yellow-500/20 text-yellow-400 text-xs rounded-lg">
-            DEBUG: {debugMsg}
+        {crashLog && (
+          <div className="mb-2 p-2 bg-red-500/20 text-red-400 text-xs rounded-lg break-all">
+            CRASH LOG: {crashLog}
+            <button onClick={() => setCrashLog("")} className="ml-2 underline">dismiss</button>
           </div>
         )}
         <div className="flex items-center justify-between mb-8 pt-4">
@@ -691,7 +704,7 @@ function DashboardInner({ user }: { user: any }) {
           </svg>
           Back to rooms
         </button>
-        <span className="text-text-secondary/30 text-[10px]">v3</span>
+        <span className="text-text-secondary/30 text-[10px]">v4</span>
       </div>
 
       {activeRoom && (
