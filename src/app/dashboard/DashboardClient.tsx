@@ -47,6 +47,7 @@ type Room = {
   maxSongsPerGuest: number;
   explicitFilter: boolean;
   autoShuffle: boolean;
+  queueDisplaySize: number;
   songs: any[];
 };
 
@@ -859,6 +860,13 @@ function DashboardInner({ user }: { user: any }) {
                 min={0}
                 max={50}
                 onSave={(v) => saveSettings({ maxSongsPerGuest: v } as any)}
+              />
+              <NumInput
+                label="Queue Display Size"
+                value={activeRoom.queueDisplaySize ?? 50}
+                min={10}
+                max={500}
+                onSave={(v) => saveSettings({ queueDisplaySize: v } as any)}
               />
               <ToggleSwitch
                 enabled={activeRoom.requireApproval}

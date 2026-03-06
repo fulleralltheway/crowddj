@@ -32,12 +32,36 @@ export async function POST(
     }
   }
 
-  // Check if song already exists in room
-  const existing = await prisma.roomSong.findFirst({
+  // Check if song already exists in the displayed queue
+  const displayLimit = room.queueDisplaySize || 50;
+  const displayedSongs = await prisma.roomSong.findMany({
+    where: { roomId: room.id, isPlayed: false },
+    orderBy: [{ isPlaying: "desc" }, { sortOrder: "asc" }],
+    take: displayLimit,
+    select: { id: true, spotifyUri: true },
+  });
+  const inDisplayedQueue = displayedSongs.some((s) => s.spotifyUri === spotifyUri);
+  if (inDisplayedQueue) {
+    return NextResponse.json({ error: "Song already in queue" }, { status: 409 });
+  }
+
+  // If the song exists beyond the display limit, move it to the end of the displayed queue
+  const existingBeyond = await prisma.roomSong.findFirst({
     where: { roomId: room.id, spotifyUri, isPlayed: false },
   });
-  if (existing) {
-    return NextResponse.json({ error: "Song already in queue" }, { status: 409 });
+  if (existingBeyond) {
+    // Move it to right after the last displayed song
+    const lastDisplayed = displayedSongs[displayedSongs.length - 1];
+    if (lastDisplayed) {
+      const lastSong = await prisma.roomSong.findUnique({ where: { id: lastDisplayed.id } });
+      if (lastSong) {
+        await prisma.roomSong.update({
+          where: { id: existingBeyond.id },
+          data: { sortOrder: lastSong.sortOrder + 1 },
+        });
+      }
+    }
+    return NextResponse.json({ status: "added", song: existingBeyond, bumped: true });
   }
 
   // Look up guest name

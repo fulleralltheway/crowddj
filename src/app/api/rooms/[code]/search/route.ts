@@ -63,9 +63,12 @@ export async function GET(
   try {
     const tracks = await searchTracks(accessToken, q);
 
-    // Get all queue URIs to mark which tracks are already in the queue
+    // Only check against displayed queue songs (not the full queue beyond the limit)
+    const limit = room.queueDisplaySize || 50;
     const queueUris = await prisma.roomSong.findMany({
       where: { roomId: room.id, isPlayed: false },
+      orderBy: [{ isPlaying: "desc" }, { sortOrder: "asc" }],
+      take: limit,
       select: { spotifyUri: true },
     });
     const uriSet = new Set(queueUris.map((s) => s.spotifyUri));

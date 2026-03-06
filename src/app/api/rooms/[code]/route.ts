@@ -10,13 +10,18 @@ export async function GET(
 ) {
   const { code } = await params;
 
+  // First get room to read queueDisplaySize, then get songs with that limit
+  const roomBase = await prisma.room.findUnique({ where: { code } });
+  if (!roomBase) return NextResponse.json({ error: "Room not found" }, { status: 404 });
+
+  const limit = roomBase.queueDisplaySize || 50;
   const room = await prisma.room.findUnique({
     where: { code },
     include: {
       songs: {
         where: { isPlayed: false },
         orderBy: [{ isPlaying: "desc" }, { sortOrder: "asc" }],
-        take: 50,
+        take: limit,
         include: { votes: { select: { guestId: true, value: true } } },
       },
       host: { select: { name: true, image: true } },
@@ -62,6 +67,7 @@ export async function PATCH(
   if (body.maxSongsPerGuest !== undefined) updates.maxSongsPerGuest = Number(body.maxSongsPerGuest);
   if (body.explicitFilter !== undefined) updates.explicitFilter = Boolean(body.explicitFilter);
   if (body.autoShuffle !== undefined) updates.autoShuffle = Boolean(body.autoShuffle);
+  if (body.queueDisplaySize !== undefined) updates.queueDisplaySize = Number(body.queueDisplaySize);
 
   const updated = await prisma.room.update({
     where: { id: room.id },
