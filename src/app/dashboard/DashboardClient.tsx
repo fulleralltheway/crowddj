@@ -1009,7 +1009,7 @@ function DashboardInner({ user }: { user: any }) {
                   <>
                     <p className="text-text-secondary text-xs font-medium px-1 pt-2">Add from Spotify</p>
                     {searchResults.map((track: any) => {
-                      const inQueue = activeRoom?.songs?.some((s: any) => s.spotifyUri === track.spotifyUri && !s.isPlayed);
+                      const inQueue = track.inQueue;
                       return (
                         <button
                           key={track.spotifyUri}

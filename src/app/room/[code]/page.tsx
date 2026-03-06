@@ -294,12 +294,13 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       setRequestStatus(
         data.status === "pending" ? "Request sent! Waiting for host approval." : "Song added to queue!"
       );
-      // Refresh songs so the newly added song appears in queue matches
+      // Refresh songs list
       const songsRes = await fetch(`/api/rooms/${code}/songs`);
       if (songsRes.ok) setSongs(await songsRes.json());
-      // Remove it from Spotify results so it shows in queue section instead
-      setSearchResults((prev) => prev.filter((t: any) => t.spotifyUri !== track.spotifyUri));
-      setSearchResults([]);
+      // Mark track as in queue in search results so it shows as disabled
+      setSearchResults((prev) => prev.map((t: any) =>
+        t.spotifyUri === track.spotifyUri ? { ...t, inQueue: true } : t
+      ));
     } else {
       setRequestStatus(data.error || "Failed to request song");
     }
@@ -502,12 +503,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
             (s.trackName.toLowerCase().includes(q) ||
               s.artistName.toLowerCase().includes(q))
         );
-        // Filter Spotify results to exclude songs already in queue
-        const filteredSpotify = searchResults.filter(
-          (track: any) => !songs.some((s) => s.spotifyUri === track.spotifyUri)
-        );
-
-        if (queueMatches.length === 0 && filteredSpotify.length === 0 && !searching) return null;
+        if (queueMatches.length === 0 && searchResults.length === 0 && !searching) return null;
 
         return (
           <div className="mx-4 mt-2 bg-bg-card border border-border rounded-xl overflow-hidden shadow-lg">
@@ -561,14 +557,17 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                 </div>
               )}
 
-              {filteredSpotify.length > 0 && (
+              {searchResults.length > 0 && (
                 <div className="p-2 space-y-1">
-                  <p className="text-text-secondary text-[10px] font-semibold uppercase tracking-wider px-1">Add from Spotify</p>
-                  {filteredSpotify.map((track: any) => (
+                  <p className="text-text-secondary text-[10px] font-semibold uppercase tracking-wider px-1">From Spotify</p>
+                  {searchResults.map((track: any) => (
                     <button
                       key={track.spotifyUri}
-                      onClick={() => requestSong(track)}
-                      className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-bg-card-hover text-left transition-colors"
+                      onClick={() => !track.inQueue && requestSong(track)}
+                      disabled={track.inQueue}
+                      className={`w-full flex items-center gap-3 p-2 rounded-lg text-left transition-colors ${
+                        track.inQueue ? "opacity-50 cursor-default" : "hover:bg-bg-card-hover"
+                      }`}
                     >
                       {track.albumArt && (
                         <img src={track.albumArt} alt="" className="w-9 h-9 rounded-md" />
@@ -582,7 +581,9 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                         </p>
                         <p className="text-text-secondary text-xs truncate">{track.artistName}</p>
                       </div>
-                      <span className="text-accent text-xs font-medium">+ Add</span>
+                      <span className={`text-xs font-medium ${track.inQueue ? "text-text-secondary" : "text-accent"}`}>
+                        {track.inQueue ? "In queue" : "+ Add"}
+                      </span>
                     </button>
                   ))}
                 </div>

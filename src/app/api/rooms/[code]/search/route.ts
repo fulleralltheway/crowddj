@@ -62,7 +62,20 @@ export async function GET(
 
   try {
     const tracks = await searchTracks(accessToken, q);
-    return NextResponse.json(tracks);
+
+    // Get all queue URIs to mark which tracks are already in the queue
+    const queueUris = await prisma.roomSong.findMany({
+      where: { roomId: room.id, isPlayed: false },
+      select: { spotifyUri: true },
+    });
+    const uriSet = new Set(queueUris.map((s) => s.spotifyUri));
+
+    const enriched = tracks.map((t: any) => ({
+      ...t,
+      inQueue: uriSet.has(t.spotifyUri),
+    }));
+
+    return NextResponse.json(enriched);
   } catch {
     return NextResponse.json({ error: "Failed to search" }, { status: 500 });
   }
