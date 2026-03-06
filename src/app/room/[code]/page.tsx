@@ -52,6 +52,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const pendingSongs = useRef<Song[] | null>(null);
   const inFlightVotes = useRef(0);
   const [movedSongs, setMovedSongs] = useState<Record<string, "up" | "down">>({});
+  const postVoteSyncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const knownApproved = useRef<Set<string>>(new Set());
 
   const applySongs = useCallback((data: Song[]) => {
@@ -286,6 +287,15 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     } finally {
       inFlightVotes.current--;
       lastInteraction.current = Date.now();
+      // When all votes have settled, sync with server after a brief pause
+      if (inFlightVotes.current === 0) {
+        if (postVoteSyncTimer.current) clearTimeout(postVoteSyncTimer.current);
+        postVoteSyncTimer.current = setTimeout(async () => {
+          lastInteraction.current = 0; // Allow the fetch to apply
+          const res = await fetch(`/api/rooms/${code}/songs`);
+          if (res.ok) applySongs(await res.json());
+        }, 1500);
+      }
     }
   };
 
