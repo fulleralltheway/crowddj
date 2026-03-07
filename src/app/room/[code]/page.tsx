@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, use } from "react";
+import { useAutoAnimate } from "@formkit/auto-animate/react";
 import { getFingerprint } from "@/lib/fingerprint";
 
 type Song = {
@@ -51,27 +52,12 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const lastInteraction = useRef(0);
   const pendingSongs = useRef<Song[] | null>(null);
   const inFlightVotes = useRef(0);
-  const [movedSongs, setMovedSongs] = useState<Record<string, "up" | "down">>({});
   const postVoteSyncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [songListRef] = useAutoAnimate({ duration: 300 });
   const knownApproved = useRef<Set<string>>(new Set());
 
   const applySongs = useCallback((data: Song[]) => {
-    setSongs((prev) => {
-      const prevOrder = prev.filter((s) => !s.isPlaying).map((s) => s.id);
-      const newOrder = data.filter((s: Song) => !s.isPlaying).map((s: Song) => s.id);
-      const moved: Record<string, "up" | "down"> = {};
-      prevOrder.forEach((id, oldIdx) => {
-        const newIdx = newOrder.indexOf(id);
-        if (newIdx !== -1 && newIdx !== oldIdx) {
-          moved[id] = newIdx < oldIdx ? "up" : "down";
-        }
-      });
-      if (Object.keys(moved).length > 0) {
-        setMovedSongs(moved);
-        setTimeout(() => setMovedSongs({}), 700);
-      }
-      return data;
-    });
+    setSongs(data);
   }, []);
 
   const fetchSongs = useCallback(async () => {
@@ -271,7 +257,27 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         }
       });
 
-      return updated;
+      // Sort client-side: playing first, then locked in place, unlocked by net score
+      const playing = updated.filter((s) => s.isPlaying);
+      const rest = updated.filter((s) => !s.isPlaying);
+      const locked = rest.filter((s) => s.isLocked);
+      const unlocked = rest.filter((s) => !s.isLocked);
+      unlocked.sort((a, b) => (b.upvotes - b.downvotes) - (a.upvotes - a.downvotes));
+
+      // Merge locked back into their original relative positions
+      const merged: typeof rest = [];
+      let unlockedIdx = 0;
+      const lockedPositions = new Map<number, typeof locked[0]>();
+      rest.forEach((s, i) => { if (s.isLocked) lockedPositions.set(i, s); });
+      for (let i = 0; i < rest.length; i++) {
+        if (lockedPositions.has(i)) {
+          merged.push(lockedPositions.get(i)!);
+        } else if (unlockedIdx < unlocked.length) {
+          merged.push(unlocked[unlockedIdx++]);
+        }
+      }
+
+      return [...playing, ...merged];
     });
 
     if (hasOpposite) {
@@ -682,7 +688,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       )}
 
       {/* Song List */}
-      <div className="flex-1 px-4 py-3 space-y-2 pb-8">
+      <div ref={songListRef} className="flex-1 px-4 py-3 space-y-2 pb-8">
         {songs.filter(s => !s.isPlaying).map((song, i) => {
           const myVotes = song.votes?.filter((v) => v.guestId === guestId) || [];
           const myUpvotes = myVotes.filter((v) => v.value === 1).length;
@@ -691,13 +697,9 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
           return (
             <div
               key={song.id}
-              className={`song-card flex items-center gap-3 p-3 rounded-xl border transition-all duration-500 ${
+              className={`song-card flex items-center gap-3 p-3 rounded-xl border ${
                 song.isLocked
                   ? "bg-yellow-500/5 border-yellow-500/30"
-                  : movedSongs[song.id] === "up"
-                  ? "bg-upvote/10 border-upvote/30"
-                  : movedSongs[song.id] === "down"
-                  ? "bg-downvote/10 border-downvote/30"
                   : "bg-bg-card border-border"
               }`}
             >
