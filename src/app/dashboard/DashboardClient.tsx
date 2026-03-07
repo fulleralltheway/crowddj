@@ -387,28 +387,37 @@ function DashboardInner({ user }: { user: any }) {
 
   const commitReorder = async (songs: any[], movedSongId: string) => {
     if (!activeRoom) return;
-    // Optimistically mark the moved song as locked
-    setActiveRoom((prev) => {
-      if (!prev) return null;
-      return {
-        ...prev,
-        songs: prev.songs.map((s: any) =>
-          s.id === movedSongId ? { ...s, isLocked: true } : s
-        ),
-      };
-    });
+    // Optimistically mark the moved song as locked (only if it has votes)
+    const movedForLock = songs.find((s: any) => s.id === movedSongId);
+    const shouldLock = movedForLock && (movedForLock.upvotes - movedForLock.downvotes) !== 0;
+    if (shouldLock) {
+      setActiveRoom((prev) => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          songs: prev.songs.map((s: any) =>
+            s.id === movedSongId ? { ...s, isLocked: true } : s
+          ),
+        };
+      });
+    }
     const orderedIds = songs.filter((s: any) => !s.isPlaying).map((s: any) => s.id);
     await fetch(`/api/rooms/${activeRoom.code}/reorder`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ orderedIds }),
     });
-    // Auto-lock the moved song (forceLock so it doesn't toggle off if already locked)
-    await fetch(`/api/rooms/${activeRoom.code}/lock`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ songId: movedSongId, forceLock: true }),
-    });
+    // Only auto-lock if the song has votes (non-zero score) — zero-vote songs
+    // can be freely reordered by the host without locking
+    const movedSong = songs.find((s: any) => s.id === movedSongId);
+    const hasVotes = movedSong && (movedSong.upvotes - movedSong.downvotes) !== 0;
+    if (hasVotes || movedSong?.isLocked) {
+      await fetch(`/api/rooms/${activeRoom.code}/lock`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ songId: movedSongId, forceLock: true }),
+      });
+    }
     refreshSongs(activeRoom.code);
   };
 
@@ -691,7 +700,6 @@ function DashboardInner({ user }: { user: any }) {
           </svg>
           Back to rooms
         </button>
-        <span className="text-text-secondary/30 text-[10px]">v5</span>
       </div>
 
       {activeRoom && (
@@ -716,9 +724,12 @@ function DashboardInner({ user }: { user: any }) {
                   {guestCount}
                 </button>
               )}
-              <div className="bg-bg-card border border-border rounded-lg px-3 py-1.5">
+              <button
+                onClick={() => setShowQR(!showQR)}
+                className={`bg-bg-card border rounded-lg px-3 py-1.5 transition-colors ${showQR ? "border-accent/50" : "border-border hover:border-accent/30"}`}
+              >
                 <p className="font-mono text-lg text-accent leading-none">{activeRoom.code}</p>
-              </div>
+              </button>
             </div>
           </div>
 
@@ -845,6 +856,7 @@ function DashboardInner({ user }: { user: any }) {
                 level="M"
               />
               <p className="text-text-secondary text-sm mt-3">Scan to join</p>
+              <p className="font-mono text-2xl text-accent font-bold mt-1">{activeRoom.code}</p>
               <div className="flex items-center gap-3 mt-3">
                 <button
                   onClick={() => {
@@ -1398,7 +1410,7 @@ function DashboardInner({ user }: { user: any }) {
                     <p className="font-medium text-sm truncate">{song.trackName}</p>
                     <p className="text-text-secondary text-xs truncate">{song.artistName}</p>
                     {song.addedByName && (
-                      <p className="text-accent text-xs truncate">{song.addedByName}</p>
+                      <p className="text-accent text-xs truncate">Requested by {song.addedByName}</p>
                     )}
                   </div>
                   <div className="flex items-center gap-1.5">

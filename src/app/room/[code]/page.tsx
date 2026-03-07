@@ -53,6 +53,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const [lastVoteReset, setLastVoteReset] = useState<number>(Date.now());
   const [resetCountdown, setResetCountdown] = useState("");
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  const [showNotifGuide, setShowNotifGuide] = useState(false);
   const [inAppNotif, setInAppNotif] = useState<{ title: string; body: string; art?: string } | null>(null);
   const lastInteraction = useRef(0);
   const pendingSongs = useRef<Song[] | null>(null);
@@ -493,7 +494,15 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
           {/* Notification bell + Votes remaining */}
           <div className="ml-3 flex-shrink-0 flex items-center gap-2">
             <button
-              onClick={() => setNotificationsEnabled((prev) => !prev)}
+              onClick={() => {
+                if (notificationsEnabled) {
+                  setNotificationsEnabled(false);
+                  setShowNotifGuide(false);
+                } else {
+                  setNotificationsEnabled(true);
+                  setShowNotifGuide(true);
+                }
+              }}
               className={`p-1.5 rounded-lg transition-colors ${
                 notificationsEnabled
                   ? "text-accent bg-accent/15"
@@ -537,6 +546,39 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
           </div>
           </div>
         </div>
+
+        {/* Notification / Add to Home Screen guide */}
+        {showNotifGuide && (
+          <div className="mx-0 mb-2 p-3 bg-accent/5 border border-accent/20 rounded-xl">
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-accent mb-1">Get Notifications</p>
+                <p className="text-xs text-text-secondary mb-2">
+                  Add this page to your home screen for the best experience with real-time notifications.
+                </p>
+                <div className="space-y-1.5 text-xs text-text-secondary">
+                  <div className="flex items-start gap-2">
+                    <span className="text-accent font-bold mt-px">1</span>
+                    <p>Tap the <span className="inline-flex items-center"><svg className="w-3.5 h-3.5 inline mx-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg></span> <strong>Share</strong> button in your browser</p>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="text-accent font-bold mt-px">2</span>
+                    <p>Select <strong>&quot;Add to Home Screen&quot;</strong></p>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="text-accent font-bold mt-px">3</span>
+                    <p>Open from your home screen to get notified when your songs are approved!</p>
+                  </div>
+                </div>
+              </div>
+              <button onClick={() => setShowNotifGuide(false)} className="text-text-secondary hover:text-white p-0.5 flex-shrink-0">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Persistent search bar */}
         <div className="relative">
