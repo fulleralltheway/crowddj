@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { getCurrentPlayback, startPlayback } from "@/lib/spotify";
+import { getCurrentPlayback, startPlayback, addToQueue } from "@/lib/spotify";
 import { NextRequest, NextResponse } from "next/server";
 
 async function getAccessToken(account: any) {
@@ -70,40 +70,51 @@ export async function POST(
   try {
     const playback = await getCurrentPlayback(accessToken);
 
-    // Determine if we should advance to the next song
-    let shouldAdvance = false;
-
-    if (!playback) {
-      // No playback state at all — player closed or song ended
-      shouldAdvance = true;
-    } else if (!playback.item) {
-      // Playback object exists but no track — idle state after song ended
-      shouldAdvance = true;
-    } else if (playback.item.uri === currentSong.spotifyUri) {
-      // Our track is loaded — check if it finished
-      if (!playback.is_playing && playback.progress_ms > playback.item.duration_ms - 3000) {
-        shouldAdvance = true;
-      }
-      // Also catch when progress is 0 and not playing (Spotify resets after track ends)
-      if (!playback.is_playing && playback.progress_ms === 0 && playback.item.duration_ms > 0) {
-        shouldAdvance = true;
-      }
-    } else if (playback.item.uri !== currentSong.spotifyUri) {
-      // Spotify is playing a different track — user changed songs externally
-      // Just clear our "now playing" without auto-advancing (don't fight the user)
+    if (!playback || !playback.item) {
+      // No playback state or no track — Spotify is idle/closed
+      // Just clear our "now playing" — don't auto-advance (host can hit Play to resume)
       await prisma.roomSong.update({
         where: { id: currentSong.id },
         data: { isPlaying: false },
       });
-      return NextResponse.json({ synced: true, playing: false, externalOverride: true });
+      return NextResponse.json({ synced: true, playing: false, reason: "no_playback" });
     }
 
-    if (shouldAdvance) {
+    if (playback.item.uri !== currentSong.spotifyUri) {
+      // Spotify is playing a different track — user changed songs externally
+      // Clear our "now playing" without advancing
+      await prisma.roomSong.update({
+        where: { id: currentSong.id },
+        data: { isPlaying: false },
+      });
+      return NextResponse.json({ synced: true, playing: false, reason: "external_override" });
+    }
+
+    // Our track is loaded — check if it finished
+    const isFinished =
+      (!playback.is_playing && playback.progress_ms > playback.item.duration_ms - 3000) ||
+      (!playback.is_playing && playback.progress_ms === 0 && playback.item.duration_ms > 0);
+
+    if (isFinished) {
+      // Debounce: don't advance if another sync already did within the last 10 seconds
+      const timeSinceLastAdvance = Date.now() - room.lastSyncAdvance.getTime();
+      if (timeSinceLastAdvance < 10000) {
+        return NextResponse.json({ synced: true, playing: false, reason: "debounced" });
+      }
+
+      // Claim the advance by updating the timestamp
+      await prisma.room.update({
+        where: { id: room.id },
+        data: { lastSyncAdvance: new Date() },
+      });
+
+      // Mark current song as played
       await prisma.roomSong.update({
         where: { id: currentSong.id },
         data: { isPlaying: false, isPlayed: true },
       });
 
+      // Find and play the next song
       const nextSong = await prisma.roomSong.findFirst({
         where: { roomId: room.id, isPlayed: false, isPlaying: false },
         orderBy: { sortOrder: "asc" },
@@ -117,6 +128,8 @@ export async function POST(
 
         try {
           await startPlayback(accessToken, [nextSong.spotifyUri]);
+          // Queue the song after that for gapless playback
+          await queueNextSong(room.id, nextSong.id, accessToken);
         } catch {
           // Device might not be available
         }
@@ -127,8 +140,29 @@ export async function POST(
       return NextResponse.json({ synced: true, queueEmpty: true });
     }
 
-    return NextResponse.json({ synced: true, playing: true, spotifyPlaying: !!playback?.is_playing });
+    // Song is still playing — check if we should pre-queue the next song
+    // Queue when we're in the last 30 seconds of the track
+    const remaining = playback.item.duration_ms - playback.progress_ms;
+    if (playback.is_playing && remaining < 30000 && remaining > 25000) {
+      await queueNextSong(room.id, currentSong.id, accessToken);
+    }
+
+    return NextResponse.json({ synced: true, playing: true, spotifyPlaying: !!playback.is_playing });
   } catch {
     return NextResponse.json({ synced: false });
+  }
+}
+
+async function queueNextSong(roomId: string, currentSongId: string, accessToken: string) {
+  try {
+    const nextSong = await prisma.roomSong.findFirst({
+      where: { roomId, isPlayed: false, isPlaying: false, id: { not: currentSongId } },
+      orderBy: { sortOrder: "asc" },
+    });
+    if (nextSong) {
+      await addToQueue(accessToken, nextSong.spotifyUri);
+    }
+  } catch {
+    // Silently fail — queuing is best-effort
   }
 }

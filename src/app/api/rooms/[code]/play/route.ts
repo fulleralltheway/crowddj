@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { startPlayback, pausePlayback, resumePlayback, getCurrentPlayback } from "@/lib/spotify";
+import { startPlayback, pausePlayback, resumePlayback, getCurrentPlayback, addToQueue } from "@/lib/spotify";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(
@@ -58,6 +58,20 @@ export async function POST(
     }
 
     await startPlayback(accessToken, [song.spotifyUri]);
+
+    // Pre-queue the next song for gapless playback
+    try {
+      const nextSong = await prisma.roomSong.findFirst({
+        where: { roomId: room.id, isPlayed: false, isPlaying: false, id: { not: song.id } },
+        orderBy: { sortOrder: "asc" },
+      });
+      if (nextSong) {
+        await addToQueue(accessToken, nextSong.spotifyUri);
+      }
+    } catch {
+      // Best-effort
+    }
+
     return NextResponse.json({ success: true, action: "playing", song });
   } catch (e: any) {
     return NextResponse.json(
