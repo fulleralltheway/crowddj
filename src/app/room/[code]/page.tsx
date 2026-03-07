@@ -210,6 +210,11 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     }
 
     lastInteraction.current = Date.now();
+    // Cancel any pending post-vote sync since we're voting again
+    if (postVoteSyncTimer.current) {
+      clearTimeout(postVoteSyncTimer.current);
+      postVoteSyncTimer.current = null;
+    }
 
     const song = songs.find((s) => s.id === songId);
     const myVotes = song?.votes?.filter((v) => v.guestId === guestId) || [];
@@ -291,7 +296,9 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       if (inFlightVotes.current === 0) {
         if (postVoteSyncTimer.current) clearTimeout(postVoteSyncTimer.current);
         postVoteSyncTimer.current = setTimeout(async () => {
+          if (inFlightVotes.current > 0) return; // User started voting again
           lastInteraction.current = 0; // Allow the fetch to apply
+          pendingSongs.current = null; // Discard any stale pending data
           const res = await fetch(`/api/rooms/${code}/songs`);
           if (res.ok) applySongs(await res.json());
         }, 1500);
@@ -717,7 +724,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                     >
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
                     </svg>
-                    {myUpvotes > 1 && (
+                    {myUpvotes > 0 && (
                       <span className="absolute -top-1 -right-1 w-4 h-4 bg-upvote text-black text-[10px] font-bold rounded-full flex items-center justify-center">
                         {myUpvotes}
                       </span>
@@ -752,7 +759,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                     >
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                     </svg>
-                    {myDownvotes > 1 && (
+                    {myDownvotes > 0 && (
                       <span className="absolute -top-1 -right-1 w-4 h-4 bg-downvote text-white text-[10px] font-bold rounded-full flex items-center justify-center">
                         {myDownvotes}
                       </span>
