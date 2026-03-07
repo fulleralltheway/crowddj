@@ -574,7 +574,8 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       )}
 
       {/* Header */}
-      <div className="sticky top-0 z-10 bg-bg-primary/80 backdrop-blur-xl border-b border-border px-4 py-3">
+      <div className="relative z-10">
+      <div className="bg-bg-primary/80 backdrop-blur-xl border-b border-border px-4 py-3">
         <div className="flex items-center justify-between mb-2">
           <div className="min-w-0 flex-1">
             <p className="text-accent text-xs font-medium">
@@ -714,65 +715,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         </div>
       </div>
 
-      {/* Status toast */}
-      {requestStatus && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none px-8">
-          <div className="px-6 py-4 bg-bg-card border border-accent/30 rounded-2xl text-sm text-center shadow-lg backdrop-blur-sm pointer-events-auto">
-            {requestStatus}
-          </div>
-        </div>
-      )}
-
-      {/* Scrollable content area */}
-      <div
-        ref={scrollRef}
-        className="flex-1 overflow-y-auto overscroll-contain"
-        onTouchStart={(e) => {
-          if (scrollRef.current && scrollRef.current.scrollTop <= 0) {
-            pullStartY.current = e.touches[0].clientY;
-          } else {
-            pullStartY.current = 0;
-          }
-        }}
-        onTouchMove={(e) => {
-          if (!pullStartY.current || pullRefreshing) return;
-          const delta = e.touches[0].clientY - pullStartY.current;
-          if (delta > 0 && scrollRef.current && scrollRef.current.scrollTop <= 0) {
-            setPullDistance(Math.min(delta * 0.5, 80));
-          } else {
-            setPullDistance(0);
-          }
-        }}
-        onTouchEnd={() => {
-          if (pullDistance >= PULL_THRESHOLD && !pullRefreshing) {
-            setPullRefreshing(true);
-            setPullDistance(PULL_THRESHOLD);
-            fetchSongs().finally(() => {
-              setPullRefreshing(false);
-              setPullDistance(0);
-            });
-          } else {
-            setPullDistance(0);
-          }
-          pullStartY.current = 0;
-        }}
-      >
-      {/* Pull-to-refresh indicator */}
-      {pullDistance > 0 && (
-        <div className="flex justify-center py-2" style={{ height: pullDistance }}>
-          <div className={`text-accent text-xs font-medium flex items-center gap-2 ${pullRefreshing ? "animate-pulse" : ""}`}>
-            {pullRefreshing ? (
-              <><div className="w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" /> Refreshing...</>
-            ) : pullDistance >= PULL_THRESHOLD ? (
-              "Release to refresh"
-            ) : (
-              "Pull to refresh"
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Search results dropdown */}
+      {/* Search results dropdown — overlays content from below header */}
       {showSearch && searchQuery.trim() && (() => {
         const q = searchQuery.trim().toLowerCase();
         const queueMatches = songs.filter(
@@ -784,7 +727,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         if (queueMatches.length === 0 && searchResults.length === 0 && !searching) return null;
 
         return (
-          <div className="mx-4 mt-2 bg-bg-card border border-border rounded-xl overflow-hidden shadow-lg">
+          <div className="absolute left-0 right-0 mx-4 mt-1 bg-bg-card border border-border rounded-xl overflow-hidden shadow-2xl">
             <div className="max-h-72 overflow-y-auto divide-y divide-border/50">
               {queueMatches.length > 0 && (
                 <div className="p-2 space-y-1">
@@ -795,10 +738,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                     const myDown = myVotes.filter((v) => v.value === -1).length;
 
                     return (
-                      <div
-                        key={song.id}
-                        className="flex items-center gap-3 p-2 rounded-lg"
-                      >
+                      <div key={song.id} className="flex items-center gap-3 p-2 rounded-lg">
                         {song.albumArt && (
                           <img src={song.albumArt} alt="" className="w-9 h-9 rounded-md" />
                         )}
@@ -873,7 +813,6 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                 <div className="p-3 text-center text-text-secondary text-xs">Searching...</div>
               )}
 
-              {/* Contextual setting hints in search */}
               {searchResults.length > 0 && (room.requireApproval || room.maxSongsPerGuest > 0) && (
                 <div className="px-3 py-2 border-t border-border/50 flex flex-wrap gap-x-3 gap-y-0.5">
                   {room.requireApproval && (
@@ -888,6 +827,65 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
           </div>
         );
       })()}
+      </div>
+
+      {/* Status toast */}
+      {requestStatus && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none px-8">
+          <div className="px-6 py-4 bg-bg-card border border-accent/30 rounded-2xl text-sm text-center shadow-lg backdrop-blur-sm pointer-events-auto">
+            {requestStatus}
+          </div>
+        </div>
+      )}
+
+      {/* Scrollable content area */}
+      <div
+        ref={scrollRef}
+        className="flex-1 overflow-y-auto overscroll-contain"
+        onTouchStart={(e) => {
+          if (scrollRef.current && scrollRef.current.scrollTop <= 0) {
+            pullStartY.current = e.touches[0].clientY;
+          } else {
+            pullStartY.current = 0;
+          }
+        }}
+        onTouchMove={(e) => {
+          if (!pullStartY.current || pullRefreshing) return;
+          const delta = e.touches[0].clientY - pullStartY.current;
+          if (delta > 0 && scrollRef.current && scrollRef.current.scrollTop <= 0) {
+            setPullDistance(Math.min(delta * 0.5, 80));
+          } else {
+            setPullDistance(0);
+          }
+        }}
+        onTouchEnd={() => {
+          if (pullDistance >= PULL_THRESHOLD && !pullRefreshing) {
+            setPullRefreshing(true);
+            setPullDistance(PULL_THRESHOLD);
+            fetchSongs().finally(() => {
+              setPullRefreshing(false);
+              setPullDistance(0);
+            });
+          } else {
+            setPullDistance(0);
+          }
+          pullStartY.current = 0;
+        }}
+      >
+      {/* Pull-to-refresh indicator */}
+      {pullDistance > 0 && (
+        <div className="flex justify-center py-2" style={{ height: pullDistance }}>
+          <div className={`text-accent text-xs font-medium flex items-center gap-2 ${pullRefreshing ? "animate-pulse" : ""}`}>
+            {pullRefreshing ? (
+              <><div className="w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" /> Refreshing...</>
+            ) : pullDistance >= PULL_THRESHOLD ? (
+              "Release to refresh"
+            ) : (
+              "Pull to refresh"
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Now Playing */}
       {nowPlaying && (

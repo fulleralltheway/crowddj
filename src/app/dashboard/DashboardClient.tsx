@@ -703,24 +703,29 @@ function DashboardInner({ user }: { user: any }) {
   const nowPlaying = activeRoom?.songs?.find((s: any) => s.isPlaying);
 
   return (
-    <div className="min-h-dvh p-4 max-w-6xl mx-auto">
-      <div className="flex items-center justify-between mb-6 mt-4">
-        <button
-          onClick={() => {
-            setView("rooms");
-            setActiveRoom(null);
-          }}
-          className="text-text-secondary hover:text-white flex items-center gap-1 transition-colors"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
-          Back to rooms
-        </button>
+    <div className="h-dvh flex flex-col max-w-6xl mx-auto overflow-hidden">
+      {/* Fixed header area */}
+      <div className="flex-shrink-0 px-4 pt-4">
+        <div className="flex items-center justify-between mb-4 mt-2">
+          <button
+            onClick={() => {
+              setView("rooms");
+              setActiveRoom(null);
+            }}
+            className="text-text-secondary hover:text-white flex items-center gap-1 transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+            Back to rooms
+          </button>
+        </div>
       </div>
 
       {activeRoom && (
         <>
+          {/* Sticky room header + search */}
+          <div className="flex-shrink-0 px-4">
           {/* Room Header */}
           <div className="flex items-start justify-between mb-4">
             <div>
@@ -749,6 +754,65 @@ function DashboardInner({ user }: { user: any }) {
               </button>
             </div>
           </div>
+
+          {/* Search bar + action buttons */}
+          <div className="flex gap-2 mb-4">
+            <div className="flex-1 relative">
+              <svg className="w-4 h-4 text-text-secondary absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => onSearchChange(e.target.value)}
+                onFocus={() => { setShowSearch(true); setShowQR(false); setShowSettings(false); setShowGuests(false); setSelectedGuest(null); }}
+                placeholder="Search queue or add songs..."
+                className="w-full pl-9 pr-9 py-2.5 bg-bg-card border border-border rounded-xl text-sm focus:outline-none focus:border-accent"
+              />
+              {searchQuery ? (
+                <button
+                  onClick={() => {
+                    onSearchChange("");
+                    setShowSearch(false);
+                  }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-text-secondary hover:text-white transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              ) : searching ? (
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 text-text-secondary text-xs">...</div>
+              ) : null}
+            </div>
+            <button
+              onClick={() => { setShowQR(!showQR); setShowSettings(false); setShowGuests(false); setSelectedGuest(null); setShowSearch(false); onSearchChange(""); }}
+              className={`p-2.5 rounded-xl transition-colors ${
+                showQR ? "bg-accent/15 text-accent border border-accent/30" : "bg-bg-card hover:bg-bg-card-hover border border-border"
+              }`}
+              title="Share Room"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+              </svg>
+            </button>
+            <button
+              onClick={() => { setShowSettings(!showSettings); setShowQR(false); setShowGuests(false); setSelectedGuest(null); setShowSearch(false); onSearchChange(""); }}
+              className={`p-2.5 rounded-xl transition-colors ${
+                showSettings ? "bg-accent/15 text-accent border border-accent/30" : "bg-bg-card hover:bg-bg-card-hover border border-border"
+              }`}
+              title="Settings"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            </button>
+          </div>
+          </div>
+
+          {/* Scrollable content area */}
+          <div className="flex-1 overflow-y-auto overscroll-contain px-4 pb-4">
 
           <div className="lg:grid lg:grid-cols-[1fr_1.5fr] lg:gap-6">
           {/* Left column: Now Playing, Controls, Panels */}
@@ -809,61 +873,6 @@ function DashboardInner({ user }: { user: any }) {
                 Skip
               </button>
             </div>
-          </div>
-
-          {/* Search bar + action buttons */}
-          <div className="flex gap-2 mb-4">
-            <div className="flex-1 relative">
-              <svg className="w-4 h-4 text-text-secondary absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => onSearchChange(e.target.value)}
-                onFocus={() => { setShowSearch(true); setShowQR(false); setShowSettings(false); setShowGuests(false); setSelectedGuest(null); }}
-                placeholder="Search queue or add songs..."
-                className="w-full pl-9 pr-9 py-2.5 bg-bg-card border border-border rounded-xl text-sm focus:outline-none focus:border-accent"
-              />
-              {searchQuery ? (
-                <button
-                  onClick={() => {
-                    onSearchChange("");
-                    setShowSearch(false);
-                  }}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-text-secondary hover:text-white transition-colors"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              ) : searching ? (
-                <div className="absolute right-3 top-1/2 -translate-y-1/2 text-text-secondary text-xs">...</div>
-              ) : null}
-            </div>
-            <button
-              onClick={() => { setShowQR(!showQR); setShowSettings(false); setShowGuests(false); setSelectedGuest(null); setShowSearch(false); onSearchChange(""); }}
-              className={`p-2.5 rounded-xl transition-colors ${
-                showQR ? "bg-accent/15 text-accent border border-accent/30" : "bg-bg-card hover:bg-bg-card-hover border border-border"
-              }`}
-              title="Share Room"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
-              </svg>
-            </button>
-            <button
-              onClick={() => { setShowSettings(!showSettings); setShowQR(false); setShowGuests(false); setSelectedGuest(null); setShowSearch(false); onSearchChange(""); }}
-              className={`p-2.5 rounded-xl transition-colors ${
-                showSettings ? "bg-accent/15 text-accent border border-accent/30" : "bg-bg-card hover:bg-bg-card-hover border border-border"
-              }`}
-              title="Settings"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-            </button>
           </div>
 
           {/* QR Code / Share panel */}
@@ -1588,6 +1597,7 @@ function DashboardInner({ user }: { user: any }) {
             </div>
           )}
 
+          </div>
           </div>
           </div>
         </>
