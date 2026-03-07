@@ -1076,11 +1076,11 @@ function DashboardInner({ user }: { user: any }) {
                       <img src={req.albumArt} alt="" className="w-10 h-10 rounded-lg" />
                     )}
                     <div className="flex-1 min-w-0">
-                      <p className="font-medium truncate">{req.trackName}</p>
-                      <p className="text-text-secondary text-sm truncate">
-                        {req.artistName}
-                        {req.requestedByName && <span className="text-accent"> &middot; {req.requestedByName}</span>}
-                      </p>
+                      <p className="font-medium text-sm truncate">{req.trackName}</p>
+                      <p className="text-text-secondary text-xs truncate">{req.artistName}</p>
+                      {req.requestedByName && (
+                        <p className="text-accent text-xs truncate">{req.requestedByName}</p>
+                      )}
                     </div>
                     <div className="flex gap-2">
                       <button
@@ -1227,11 +1227,11 @@ function DashboardInner({ user }: { user: any }) {
                     <img src={song.albumArt} alt="" className="w-10 h-10 rounded-lg" />
                   )}
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium truncate">{song.trackName}</p>
-                    <p className="text-text-secondary text-sm truncate">
-                      {song.artistName}
-                      {song.addedByName && <span className="text-accent"> &middot; {song.addedByName}</span>}
-                    </p>
+                    <p className="font-medium text-sm truncate">{song.trackName}</p>
+                    <p className="text-text-secondary text-xs truncate">{song.artistName}</p>
+                    {song.addedByName && (
+                      <p className="text-accent text-xs truncate">{song.addedByName}</p>
+                    )}
                   </div>
                   <div className="flex items-center gap-1.5">
                     <div className="text-right text-sm mr-1">
