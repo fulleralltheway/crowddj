@@ -1236,10 +1236,15 @@ function DashboardInner({ user }: { user: any }) {
                     )}
                   </div>
                   <div className="flex items-center gap-1.5">
-                    <div className="text-right text-sm mr-1">
-                      <span className="text-upvote">+{song.upvotes}</span>
-                      {" / "}
-                      <span className="text-downvote">-{song.downvotes}</span>
+                    <div className="text-right mr-1">
+                      <span className={`text-sm font-semibold ${song.upvotes - song.downvotes > 0 ? "text-upvote" : song.upvotes - song.downvotes < 0 ? "text-downvote" : "text-text-secondary"}`}>
+                        {song.upvotes - song.downvotes > 0 ? "+" : ""}{song.upvotes - song.downvotes}
+                      </span>
+                      <p className="text-[10px] text-text-secondary">
+                        <span className="text-upvote/70">{song.upvotes}&#x2191;</span>
+                        {" "}
+                        <span className="text-downvote/70">{song.downvotes}&#x2193;</span>
+                      </p>
                     </div>
                     {/* Lock button */}
                     <button
