@@ -342,64 +342,28 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       postVoteSyncTimer.current = null;
     }
 
-    const song = songs.find((s) => s.id === songId);
-    const myVotes = song?.votes?.filter((v) => v.guestId === guestId) || [];
-    const oppositeValue = value === 1 ? -1 : 1;
-    const hasOpposite = myVotes.some((v) => v.value === oppositeValue);
-
     const limit = room?.votesPerUser ?? 5;
 
     // Use ref for gate check — synchronous, no React batching delay
-    if (!hasOpposite && votesUsedRef.current >= limit) {
+    if (votesUsedRef.current >= limit) {
       setRequestStatus("Out of votes! They'll reset soon.");
       setTimeout(() => setRequestStatus(""), 3000);
       return;
     }
 
     // Update ref immediately (synchronous — blocks rapid taps)
-    if (hasOpposite) {
-      votesUsedRef.current = Math.max(0, votesUsedRef.current - 1);
-    } else {
-      votesUsedRef.current = Math.min(votesUsedRef.current + 1, limit);
-    }
-
-    // Optimistic update
-    setSongs((prev) => {
-      const updated = prev.map((s) => {
-        if (s.id !== songId) return s;
-
-        const myVotesOnSong = (s.votes || []).filter((v) => v.guestId === guestId);
-        const oppositeVote = myVotesOnSong.find((v) => v.value === oppositeValue);
-
-        if (oppositeVote) {
-          const newVotes = [...(s.votes || [])];
-          const idx = newVotes.findIndex(
-            (v) => v.guestId === guestId && v.value === oppositeValue
-          );
-          newVotes.splice(idx, 1);
-
-          return {
-            ...s,
-            upvotes: s.upvotes - (oppositeValue === 1 ? 1 : 0),
-            downvotes: s.downvotes - (oppositeValue === -1 ? 1 : 0),
-            netScore: s.netScore - oppositeValue,
-            votes: newVotes,
-          };
-        } else {
-          return {
-            ...s,
-            upvotes: s.upvotes + (value === 1 ? 1 : 0),
-            downvotes: s.downvotes + (value === -1 ? 1 : 0),
-            netScore: s.netScore + value,
-            votes: [...(s.votes || []), { guestId, value }],
-          };
-        }
-      });
-
-      return updated;
-    });
-
+    votesUsedRef.current = Math.min(votesUsedRef.current + 1, limit);
     setVotesUsed(votesUsedRef.current);
+
+    // Minimal optimistic update: mark vote for visual highlighting only
+    // (button turns green immediately; actual numbers come from server sync)
+    setSongs((prev) =>
+      prev.map((s) =>
+        s.id === songId
+          ? { ...s, votes: [...(s.votes || []), { guestId, value }] }
+          : s
+      )
+    );
 
     // Schedule reorder sync 800ms from THIS click (resets on each click)
     if (postVoteSyncTimer.current) clearTimeout(postVoteSyncTimer.current);
@@ -422,28 +386,10 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         body: JSON.stringify({ songId, value, fingerprint, guestId }),
       });
 
-      if (res.ok) {
-        const data = await res.json();
-        if (typeof data.votesUsed === "number") {
-          votesUsedRef.current = data.votesUsed;
-          setVotesUsed(data.votesUsed);
-        }
-      } else {
-        // Sync from server error response if it includes votesUsed
-        const errData = await res.json().catch(() => ({}));
-        if (typeof errData.votesUsed === "number") {
-          votesUsedRef.current = errData.votesUsed;
-          setVotesUsed(errData.votesUsed);
-        } else {
-          // Revert the optimistic ref update
-          if (hasOpposite) {
-            votesUsedRef.current = Math.min(votesUsedRef.current + 1, room?.votesPerUser ?? 5);
-          } else {
-            votesUsedRef.current = Math.max(0, votesUsedRef.current - 1);
-          }
-          setVotesUsed(votesUsedRef.current);
-        }
-        fetchSongs();
+      if (!res.ok) {
+        // Revert the optimistic ref update
+        votesUsedRef.current = Math.max(0, votesUsedRef.current - 1);
+        setVotesUsed(votesUsedRef.current);
         if (res.status === 429) {
           setRequestStatus("Out of votes! They'll reset soon.");
           setTimeout(() => setRequestStatus(""), 3000);
