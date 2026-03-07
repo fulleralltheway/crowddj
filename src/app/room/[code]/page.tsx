@@ -53,6 +53,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const [lastVoteReset, setLastVoteReset] = useState<number>(Date.now());
   const [resetCountdown, setResetCountdown] = useState("");
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  const [inAppNotif, setInAppNotif] = useState<{ title: string; body: string; art?: string } | null>(null);
   const lastInteraction = useRef(0);
   const pendingSongs = useRef<Song[] | null>(null);
   const inFlightVotes = useRef(0);
@@ -143,7 +144,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     };
   }, [code, fetchRoom, fetchSongs]);
 
-  // Poll for request approvals to send notifications
+  // Poll for request approvals to send in-app notifications
   const notifSeeded = useRef(false);
   useEffect(() => {
     if (!notificationsEnabled || !fingerprint) return;
@@ -154,7 +155,6 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       if (!res.ok) return;
       const reqs = await res.json();
       if (!notifSeeded.current) {
-        // First load — seed known approved without notifying
         for (const r of reqs) {
           if (r.status === "approved") knownApproved.current.add(r.id);
         }
@@ -164,10 +164,12 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       for (const r of reqs) {
         if (r.status === "approved" && !knownApproved.current.has(r.id)) {
           knownApproved.current.add(r.id);
-          new Notification("Song Approved!", {
+          setInAppNotif({
+            title: "Song Approved!",
             body: `"${r.trackName}" by ${r.artistName} was added to the queue`,
-            icon: r.albumArt || undefined,
+            art: r.albumArt || undefined,
           });
+          setTimeout(() => setInAppNotif(null), 4000);
         }
       }
     };
@@ -459,6 +461,26 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const nowPlaying = songs.find((s) => s.isPlaying);
   return (
     <div className="min-h-dvh flex flex-col max-w-lg mx-auto">
+      {/* In-app notification toast */}
+      {inAppNotif && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 w-[90%] max-w-sm animate-[slideDown_0.3s_ease-out]">
+          <div className="flex items-center gap-3 p-3 bg-bg-card border border-accent/30 rounded-xl shadow-xl">
+            {inAppNotif.art && (
+              <img src={inAppNotif.art} alt="" className="w-10 h-10 rounded-lg" />
+            )}
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-accent">{inAppNotif.title}</p>
+              <p className="text-xs text-text-secondary truncate">{inAppNotif.body}</p>
+            </div>
+            <button onClick={() => setInAppNotif(null)} className="text-text-secondary hover:text-white p-1">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="sticky top-0 z-10 bg-bg-primary/80 backdrop-blur-xl border-b border-border px-4 py-3">
         <div className="flex items-center justify-between mb-2">
@@ -471,14 +493,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
           {/* Notification bell + Votes remaining */}
           <div className="ml-3 flex-shrink-0 flex items-center gap-2">
             <button
-              onClick={async () => {
-                if (notificationsEnabled) {
-                  setNotificationsEnabled(false);
-                } else if ("Notification" in window) {
-                  const perm = await Notification.requestPermission();
-                  setNotificationsEnabled(perm === "granted");
-                }
-              }}
+              onClick={() => setNotificationsEnabled((prev) => !prev)}
               className={`p-1.5 rounded-lg transition-colors ${
                 notificationsEnabled
                   ? "text-accent bg-accent/15"
@@ -522,23 +537,6 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
           </div>
           </div>
         </div>
-
-        {/* Active settings indicators */}
-        {(() => {
-          const tags: { label: string; color: string }[] = [];
-          if (room.autoShuffle) tags.push({ label: "Sorted by votes", color: "text-accent/70" });
-          if (!room.autoShuffle) tags.push({ label: "DJ-ordered queue", color: "text-yellow-500/70" });
-          if (room.explicitFilter) tags.push({ label: "Clean mode", color: "text-accent/70" });
-          if (room.requireApproval) tags.push({ label: "Requests need approval", color: "text-yellow-500/70" });
-          if (room.maxSongsPerGuest > 0) tags.push({ label: `${room.maxSongsPerGuest} song${room.maxSongsPerGuest === 1 ? "" : "s"} per person`, color: "text-text-secondary" });
-          return tags.length > 0 ? (
-            <div className="flex flex-wrap gap-x-2 gap-y-0.5 px-1 pb-1">
-              {tags.map((t) => (
-                <span key={t.label} className={`text-[10px] ${t.color}`}>{t.label}</span>
-              ))}
-            </div>
-          ) : null;
-        })()}
 
         {/* Persistent search bar */}
         <div className="relative">
@@ -685,6 +683,18 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
               {searching && (
                 <div className="p-3 text-center text-text-secondary text-xs">Searching...</div>
               )}
+
+              {/* Contextual setting hints in search */}
+              {searchResults.length > 0 && (room.requireApproval || room.maxSongsPerGuest > 0) && (
+                <div className="px-3 py-2 border-t border-border/50 flex flex-wrap gap-x-3 gap-y-0.5">
+                  {room.requireApproval && (
+                    <span className="text-[10px] text-yellow-500/80">Requests need host approval</span>
+                  )}
+                  {room.maxSongsPerGuest > 0 && (
+                    <span className="text-[10px] text-text-secondary">Limit: {room.maxSongsPerGuest} song{room.maxSongsPerGuest === 1 ? "" : "s"} per person</span>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         );
@@ -710,7 +720,13 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       )}
 
       {/* Song List */}
-      <div ref={songListRef} className="flex-1 px-4 py-3 space-y-2 pb-8">
+      <div className="flex items-center justify-between px-4 pt-3 pb-1">
+        <p className="text-text-secondary text-[10px] font-semibold uppercase tracking-wider">Up Next</p>
+        <p className="text-text-secondary text-[10px]">
+          {room.autoShuffle ? "Sorted by votes" : "DJ-ordered"}
+        </p>
+      </div>
+      <div ref={songListRef} className="flex-1 px-4 py-1 space-y-2 pb-8">
         {songs.filter(s => !s.isPlaying).map((song, i) => {
           const myVotes = song.votes?.filter((v) => v.guestId === guestId) || [];
           const myUpvotes = myVotes.filter((v) => v.value === 1).length;
