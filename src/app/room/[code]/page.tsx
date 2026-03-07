@@ -183,13 +183,24 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         setResetCountdown("");
         setVotesUsed(0);
         setLastVoteReset(Date.now());
-        // Clear vote indicators — old votes are locked in, fresh slate visually
+        // Clear vote indicators locally
         setSongs((prev) =>
           prev.map((s) => ({
             ...s,
             votes: s.votes.filter((v) => v.guestId !== guestId),
           }))
         );
+        // Trigger server-side vote cleanup, then refresh songs so poll doesn't restore old badges
+        if (fingerprint) {
+          fetch(`/api/rooms/${code}/guest`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ fingerprint }),
+          }).then(async () => {
+            const res = await fetch(`/api/rooms/${code}/songs`);
+            if (res.ok) applySongs(await res.json());
+          });
+        }
       } else {
         const mins = Math.floor(remaining / 60000);
         const secs = Math.floor((remaining % 60000) / 1000);
