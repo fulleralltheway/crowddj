@@ -95,7 +95,12 @@ export async function POST(
 
   const locked = songs.filter((s) => s.isLocked);
   const unlocked = songs.filter((s) => !s.isLocked);
-  const sortedUnlocked = unlocked.sort((a, b) => (b.upvotes - b.downvotes) - (a.upvotes - a.downvotes));
+  const sortedUnlocked = unlocked.sort((a, b) => {
+    const scoreA = a.upvotes - a.downvotes;
+    const scoreB = b.upvotes - b.downvotes;
+    if (scoreB !== scoreA) return scoreB - scoreA; // Higher score first
+    return a.sortOrder - b.sortOrder; // Same score: keep existing order
+  });
 
   const playingSong = await prisma.roomSong.findFirst({
     where: { roomId: room.id, isPlaying: true },
