@@ -773,11 +773,23 @@ function DashboardInner({ user }: { user: any }) {
                 onChange={(e) => onSearchChange(e.target.value)}
                 onFocus={() => setShowSearch(true)}
                 placeholder="Search queue or add songs..."
-                className="w-full pl-9 pr-3 py-2.5 bg-bg-card border border-border rounded-xl text-sm focus:outline-none focus:border-accent"
+                className="w-full pl-9 pr-9 py-2.5 bg-bg-card border border-border rounded-xl text-sm focus:outline-none focus:border-accent"
               />
-              {searching && (
+              {searchQuery ? (
+                <button
+                  onClick={() => {
+                    onSearchChange("");
+                    setShowSearch(false);
+                  }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-text-secondary hover:text-white transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              ) : searching ? (
                 <div className="absolute right-3 top-1/2 -translate-y-1/2 text-text-secondary text-xs">...</div>
-              )}
+              ) : null}
             </div>
             <button
               onClick={() => setShowQR(!showQR)}
