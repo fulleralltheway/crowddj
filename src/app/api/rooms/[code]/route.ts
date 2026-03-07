@@ -79,6 +79,7 @@ export async function PATCH(
   if (body.explicitFilter !== undefined) updates.explicitFilter = Boolean(body.explicitFilter);
   if (body.autoShuffle !== undefined) updates.autoShuffle = Boolean(body.autoShuffle);
   if (body.queueDisplaySize !== undefined) updates.queueDisplaySize = Number(body.queueDisplaySize);
+  if (body.allowDuplicates !== undefined) updates.allowDuplicates = Boolean(body.allowDuplicates);
 
   const updated = await prisma.room.update({
     where: { id: room.id },

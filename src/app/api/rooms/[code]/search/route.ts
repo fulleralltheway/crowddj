@@ -79,9 +79,20 @@ export async function GET(
     ]);
     const uriSet = new Set([...baseUris, ...requestedUris].map((s) => s.spotifyUri));
 
+    // Check for already-played songs (if replays are disabled)
+    let playedSet = new Set<string>();
+    if (!room.allowDuplicates) {
+      const playedSongs = await prisma.roomSong.findMany({
+        where: { roomId: room.id, isPlayed: true },
+        select: { spotifyUri: true },
+      });
+      playedSet = new Set(playedSongs.map((s) => s.spotifyUri));
+    }
+
     const enriched = tracks.map((t: any) => ({
       ...t,
       inQueue: uriSet.has(t.spotifyUri),
+      alreadyPlayed: playedSet.has(t.spotifyUri),
     }));
 
     return NextResponse.json(enriched);

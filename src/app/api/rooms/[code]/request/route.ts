@@ -32,6 +32,16 @@ export async function POST(
     }
   }
 
+  // Block replays of already-played songs (unless allowDuplicates is on)
+  if (!room.allowDuplicates) {
+    const alreadyPlayed = await prisma.roomSong.findFirst({
+      where: { roomId: room.id, spotifyUri, isPlayed: true },
+    });
+    if (alreadyPlayed) {
+      return NextResponse.json({ error: "This song has already been played" }, { status: 409 });
+    }
+  }
+
   // Check if song is already visible (in base display OR already requested)
   const displayLimit = room.queueDisplaySize || 50;
   const [baseSongs, requestedSongs] = await Promise.all([

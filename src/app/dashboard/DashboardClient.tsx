@@ -48,6 +48,7 @@ type Room = {
   explicitFilter: boolean;
   autoShuffle: boolean;
   queueDisplaySize: number;
+  allowDuplicates: boolean;
   songs: any[];
 };
 
@@ -891,6 +892,12 @@ function DashboardInner({ user }: { user: any }) {
                 onToggle={() => saveSettings({ autoShuffle: !(activeRoom.autoShuffle ?? true) } as any)}
                 label="Auto-Shuffle by Votes"
                 description="Reorder queue based on vote scores"
+              />
+              <ToggleSwitch
+                enabled={activeRoom.allowDuplicates ?? false}
+                onToggle={() => saveSettings({ allowDuplicates: !(activeRoom.allowDuplicates ?? false) } as any)}
+                label="Allow Replays"
+                description="Let songs be added again after being played"
               />
               <ToggleSwitch
                 enabled={notificationsEnabled}

@@ -62,6 +62,7 @@ model Room {
   explicitFilter   Boolean  @default(false)
   autoShuffle      Boolean  @default(true)
   queueDisplaySize Int      @default(50)
+  allowDuplicates  Boolean  @default(false) // allow songs to be replayed after being played
   createdAt        DateTime @default(now())
   updatedAt       DateTime @updatedAt
   songs           RoomSong[]

@@ -346,13 +346,12 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         data.status === "pending" ? "Request sent! Waiting for host approval." : "Song added to queue!"
       );
       if (data.status !== "pending") {
-        // Refresh songs list (only if actually added, not pending approval)
+        // Refresh songs list and close search so they can see/vote on it
         const songsRes = await fetch(`/api/rooms/${code}/songs`);
         if (songsRes.ok) applySongs(await songsRes.json());
-        // Mark track as in queue in search results so it shows as disabled
-        setSearchResults((prev) => prev.map((t: any) =>
-          t.spotifyUri === track.spotifyUri ? { ...t, inQueue: true } : t
-        ));
+        setSearchQuery("");
+        setSearchResults([]);
+        setShowSearch(false);
       }
     } else {
       setRequestStatus(data.error || "Failed to request song");
@@ -616,10 +615,10 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                   {searchResults.map((track: any) => (
                     <button
                       key={track.spotifyUri}
-                      onClick={() => !track.inQueue && requestSong(track)}
-                      disabled={track.inQueue}
+                      onClick={() => !track.inQueue && !track.alreadyPlayed && requestSong(track)}
+                      disabled={track.inQueue || track.alreadyPlayed}
                       className={`w-full flex items-center gap-3 p-2 rounded-lg text-left transition-colors ${
-                        track.inQueue ? "opacity-50 cursor-default" : "hover:bg-bg-card-hover"
+                        track.inQueue || track.alreadyPlayed ? "opacity-50 cursor-default" : "hover:bg-bg-card-hover"
                       }`}
                     >
                       {track.albumArt && (
@@ -634,8 +633,10 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                         </p>
                         <p className="text-text-secondary text-xs truncate">{track.artistName}</p>
                       </div>
-                      <span className={`text-xs font-medium ${track.inQueue ? "text-text-secondary" : "text-accent"}`}>
-                        {track.inQueue ? "In queue" : "+ Add"}
+                      <span className={`text-xs font-medium ${
+                        track.alreadyPlayed ? "text-text-secondary" : track.inQueue ? "text-text-secondary" : "text-accent"
+                      }`}>
+                        {track.alreadyPlayed ? "Played" : track.inQueue ? "In queue" : "+ Add"}
                       </span>
                     </button>
                   ))}
