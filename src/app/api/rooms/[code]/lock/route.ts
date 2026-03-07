@@ -30,8 +30,9 @@ export async function POST(
     data: { isLocked: newLocked },
   });
 
-  // Re-sort when unlocking (or locking) if autoShuffle is on
-  if (room.autoShuffle) {
+  // Re-sort on unlock (song needs to find its vote-based position)
+  // Skip on forceLock (triggered by drag — order was already set by reorder endpoint)
+  if (room.autoShuffle && !newLocked && !forceLock) {
     await reorderByVotes(room.id, room.queueDisplaySize || 50);
   }
 
