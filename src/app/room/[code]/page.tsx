@@ -266,6 +266,19 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       setVotesUsed((v) => Math.min(v + 1, room?.votesPerUser ?? 5));
     }
 
+    // Schedule reorder sync 800ms from THIS click (resets on each click)
+    if (postVoteSyncTimer.current) clearTimeout(postVoteSyncTimer.current);
+    postVoteSyncTimer.current = setTimeout(async () => {
+      // Wait for any in-flight API calls to finish
+      while (inFlightVotes.current > 0) {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      lastInteraction.current = 0;
+      pendingSongs.current = null;
+      const res = await fetch(`/api/rooms/${code}/songs`);
+      if (res.ok) applySongs(await res.json());
+    }, 800);
+
     inFlightVotes.current++;
     try {
       const res = await fetch(`/api/rooms/${code}/vote`, {
@@ -288,15 +301,6 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       }
     } finally {
       inFlightVotes.current--;
-      // Schedule reorder sync after voting settles
-      if (postVoteSyncTimer.current) clearTimeout(postVoteSyncTimer.current);
-      postVoteSyncTimer.current = setTimeout(async () => {
-        if (inFlightVotes.current > 0) return; // Still voting
-        lastInteraction.current = 0;
-        pendingSongs.current = null;
-        const res = await fetch(`/api/rooms/${code}/songs`);
-        if (res.ok) applySongs(await res.json());
-      }, 800);
       lastInteraction.current = Date.now();
     }
   };
