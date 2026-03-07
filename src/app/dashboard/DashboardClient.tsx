@@ -1013,16 +1013,6 @@ function DashboardInner({ user }: { user: any }) {
                               >
                                 {song.isLocked ? "\u{1F513}" : "\u{1F512}"}
                               </button>
-                              {/* Remove */}
-                              <button
-                                onClick={() => handleRemoveClick(song.id, song.trackName)}
-                                className="p-1.5 rounded-lg text-text-secondary hover:text-downvote hover:bg-downvote/10 transition-colors"
-                                title="Remove"
-                              >
-                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                              </button>
                             </div>
                           </div>
                         );
