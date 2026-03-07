@@ -60,6 +60,20 @@ function saveGuestName(code: string, name: string) {
   setCookie(`crowddj_name_${code}`, name);
 }
 
+function getSavedGuestId(code: string): string {
+  if (typeof window === "undefined") return "";
+  try {
+    return localStorage.getItem(`crowddj_guestid_${code}`) || getCookie(`crowddj_guestid_${code}`) || "";
+  } catch {
+    return getCookie(`crowddj_guestid_${code}`);
+  }
+}
+
+function saveGuestId(code: string, id: string) {
+  try { localStorage.setItem(`crowddj_guestid_${code}`, id); } catch {}
+  setCookie(`crowddj_guestid_${code}`, id);
+}
+
 export default function RoomPage({ params }: { params: Promise<{ code: string }> }) {
   const { code } = use(params);
   const savedName = getSavedGuestName(code);
@@ -116,12 +130,13 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       throw new Error(err.error || "Room not found");
     });
 
+    const storedGuestId = getSavedGuestId(code);
     const guestPromise = getFingerprint().then(async (fp) => {
       setFingerprint(fp);
       const res = await fetch(`/api/rooms/${code}/guest`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fingerprint: fp }),
+        body: JSON.stringify({ fingerprint: fp, ...(storedGuestId && { guestId: storedGuestId }) }),
       });
       if (res.ok) return res.json();
       return null;
@@ -134,6 +149,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       );
       if (guestData) {
         setGuestId(guestData.guestId);
+        saveGuestId(code, guestData.guestId);
         setVotesUsed(guestData.votesUsed);
         setLastVoteReset(new Date(guestData.lastVoteReset).getTime());
         if (guestData.name) {
@@ -457,6 +473,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       if (res.ok) {
         const data = await res.json();
         setGuestId(data.guestId);
+        saveGuestId(code, data.guestId);
       }
     }
   };

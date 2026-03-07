@@ -6,7 +6,7 @@ export async function POST(
   { params }: { params: Promise<{ code: string }> }
 ) {
   const { code } = await params;
-  const { fingerprint, name } = await req.json();
+  const { fingerprint, name, guestId } = await req.json();
 
   if (!fingerprint) {
     return NextResponse.json({ error: "Missing fingerprint" }, { status: 400 });
@@ -21,6 +21,20 @@ export async function POST(
   let guest = await prisma.guest.findUnique({
     where: { roomId_fingerprint: { roomId: room.id, fingerprint } },
   });
+
+  if (!guest && guestId) {
+    // Fingerprint changed but client has a stored guestId — try to reconcile
+    const existingGuest = await prisma.guest.findFirst({
+      where: { id: guestId, roomId: room.id },
+    });
+    if (existingGuest) {
+      // Reassign the new fingerprint to the existing guest
+      guest = await prisma.guest.update({
+        where: { id: existingGuest.id },
+        data: { fingerprint },
+      });
+    }
+  }
 
   if (!guest) {
     guest = await prisma.guest.create({
