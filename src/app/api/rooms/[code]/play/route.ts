@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { startPlayback, pausePlayback, resumePlayback, getCurrentPlayback, addToQueue } from "@/lib/spotify";
+import { startPlayback, pausePlayback, resumePlayback, getCurrentPlayback, addToQueue, getDevices } from "@/lib/spotify";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(
@@ -57,7 +57,29 @@ export async function POST(
       return NextResponse.json({ error: "No songs in queue" }, { status: 404 });
     }
 
-    await startPlayback(accessToken, [song.spotifyUri]);
+    // Try to start playback, auto-selecting a device if needed
+    try {
+      await startPlayback(accessToken, [song.spotifyUri]);
+    } catch {
+      // No active device — try to find one and play on it
+      const devices = await getDevices(accessToken);
+      if (devices.length === 0) {
+        return NextResponse.json({
+          error: "No Spotify devices found. Open Spotify on your phone, computer, or speaker and try again.",
+          noDevice: true,
+        }, { status: 502 });
+      }
+      // Pick the active device, or the first available one
+      const target = devices.find((d: any) => d.is_active) || devices[0];
+      try {
+        await startPlayback(accessToken, [song.spotifyUri], target.id);
+      } catch (e2: any) {
+        return NextResponse.json({
+          error: `Couldn't play on ${target.name}. Make sure Spotify is unlocked and ready.`,
+          devices: devices.map((d: any) => ({ name: d.name, type: d.type })),
+        }, { status: 502 });
+      }
+    }
 
     // Pre-queue the next song for gapless playback
     try {
@@ -74,9 +96,24 @@ export async function POST(
 
     return NextResponse.json({ success: true, action: "playing", song });
   } catch (e: any) {
-    return NextResponse.json(
-      { error: e.message || "Make sure Spotify is open on a device." },
-      { status: 502 }
-    );
+    // Fallback — try to list devices for a helpful message
+    try {
+      const devices = await getDevices(accessToken);
+      if (devices.length === 0) {
+        return NextResponse.json({
+          error: "No Spotify devices found. Open Spotify on your phone, computer, or speaker and try again.",
+          noDevice: true,
+        }, { status: 502 });
+      }
+      return NextResponse.json({
+        error: `Playback failed. Available devices: ${devices.map((d: any) => d.name).join(", ")}. Make sure one is active.`,
+        devices: devices.map((d: any) => ({ name: d.name, type: d.type })),
+      }, { status: 502 });
+    } catch {
+      return NextResponse.json(
+        { error: "Open Spotify on a device and try again." },
+        { status: 502 }
+      );
+    }
   }
 }

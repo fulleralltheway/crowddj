@@ -328,8 +328,8 @@ function DashboardInner({ user }: { user: any }) {
       setIsPlaying(data.action === "playing" || data.action === "resumed");
     } else {
       const data = await res.json();
-      setPlayError(data.error || "Failed. Make sure Spotify is open.");
-      setTimeout(() => setPlayError(""), 4000);
+      setPlayError(data.error || "Open Spotify on a device and try again.");
+      setTimeout(() => setPlayError(""), 6000);
     }
     refreshSongs(activeRoom.code);
   };
@@ -686,7 +686,7 @@ function DashboardInner({ user }: { user: any }) {
   const nowPlaying = activeRoom?.songs?.find((s: any) => s.isPlaying);
 
   return (
-    <div className="min-h-dvh p-4 max-w-2xl mx-auto">
+    <div className="min-h-dvh p-4 max-w-6xl mx-auto">
       <div className="flex items-center justify-between mb-6 mt-4">
         <button
           onClick={() => {
@@ -732,6 +732,10 @@ function DashboardInner({ user }: { user: any }) {
               </button>
             </div>
           </div>
+
+          <div className="lg:grid lg:grid-cols-[1fr_1.5fr] lg:gap-6">
+          {/* Left column: Now Playing, Controls, Panels */}
+          <div>
 
           {/* Now Playing + Playback Controls — unified card */}
           <div className="mb-4 bg-bg-card border border-border rounded-xl overflow-hidden">
@@ -1240,6 +1244,10 @@ function DashboardInner({ user }: { user: any }) {
           </div>
           )}
 
+          </div>
+          {/* Right column: Pending Requests + Queue */}
+          <div>
+
           {/* Pending Requests */}
           {activeRoom.requireApproval && requests.length > 0 && (
             <div className="mb-6">
@@ -1534,6 +1542,9 @@ function DashboardInner({ user }: { user: any }) {
               </div>
             </div>
           )}
+
+          </div>
+          </div>
         </>
       )}
     </div>

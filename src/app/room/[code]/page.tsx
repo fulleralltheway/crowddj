@@ -461,7 +461,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const outOfVotes = votesRemaining === 0;
   const nowPlaying = songs.find((s) => s.isPlaying);
   return (
-    <div className="min-h-dvh flex flex-col max-w-lg mx-auto">
+    <div className="min-h-dvh flex flex-col max-w-lg lg:max-w-3xl mx-auto">
       {/* In-app notification toast */}
       {inAppNotif && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 w-[90%] max-w-sm animate-[slideDown_0.3s_ease-out]">
@@ -768,7 +768,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
           {room.autoShuffle ? "Sorted by votes" : "DJ-ordered"}
         </p>
       </div>
-      <div ref={songListRef} className="flex-1 px-4 py-1 space-y-2 pb-8">
+      <div ref={songListRef} className="flex-1 px-4 py-1 space-y-2 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0 pb-8">
         {songs.filter(s => !s.isPlaying).map((song, i) => {
           const myVotes = song.votes?.filter((v) => v.guestId === guestId) || [];
           const myUpvotes = myVotes.filter((v) => v.value === 1).length;

@@ -127,6 +127,15 @@ export async function addToQueue(accessToken: string, uri: string) {
   if (!res.ok && res.status !== 204) throw new Error("Failed to add to queue");
 }
 
+export async function getDevices(accessToken: string) {
+  const res = await fetch(`${SPOTIFY_API}/me/player/devices`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.devices || [];
+}
+
 export async function getCurrentPlayback(accessToken: string) {
   const res = await fetch(`${SPOTIFY_API}/me/player`, {
     headers: { Authorization: `Bearer ${accessToken}` },
