@@ -131,12 +131,17 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     });
 
     const storedGuestId = getSavedGuestId(code);
+    const storedName = getSavedGuestName(code);
     const guestPromise = getFingerprint().then(async (fp) => {
       setFingerprint(fp);
       const res = await fetch(`/api/rooms/${code}/guest`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fingerprint: fp, ...(storedGuestId && { guestId: storedGuestId }) }),
+        body: JSON.stringify({
+          fingerprint: fp,
+          ...(storedGuestId && { guestId: storedGuestId }),
+          ...(storedName && { name: storedName }),
+        }),
       });
       if (res.ok) return res.json();
       return null;
