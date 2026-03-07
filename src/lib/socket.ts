@@ -16,11 +16,19 @@ export function getSocket(): Socket {
         connect: () => {},
         disconnect: () => {},
         connected: false,
+        id: "",
       } as unknown as Socket;
     }
     socket = io(url, {
       transports: ["websocket", "polling"],
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      reconnectionAttempts: Infinity,
     });
   }
   return socket;
+}
+
+export function isSocketConnected(): boolean {
+  return !!socket?.connected;
 }

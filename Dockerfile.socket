@@ -1,0 +1,16 @@
+FROM node:20-slim
+
+WORKDIR /app
+
+COPY package.json package-lock.json* ./
+RUN npm ci --omit=dev --ignore-scripts
+
+COPY socket-server.ts ./
+COPY tsconfig.json ./
+
+# Install tsx for running TypeScript directly
+RUN npm install -g tsx
+
+EXPOSE 3001
+
+CMD ["tsx", "socket-server.ts"]

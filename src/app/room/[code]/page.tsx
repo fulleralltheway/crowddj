@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef, use } from "react";
 import { useAutoAnimate } from "@formkit/auto-animate/react";
 import { getFingerprint } from "@/lib/fingerprint";
+import { getSocket } from "@/lib/socket";
 
 type Song = {
   id: string;
@@ -117,6 +118,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const pendingSongs = useRef<Song[] | null>(null);
   const inFlightVotes = useRef(0);
   const votesUsedRef = useRef(0);
+  const serverTimeOffset = useRef(0); // serverTime - localTime, for timer sync
   const postVoteSyncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [songListRef] = useAutoAnimate({ duration: 300 });
   const knownApproved = useRef<Set<string>>(new Set());
@@ -202,21 +204,47 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       setPageStatus("need_name");
     });
 
-    // Poll songs every 5s, refresh room settings every 30s
+    // Socket.io real-time connection
+    const socket = getSocket();
+    socket.emit("join-room", code);
+
+    const handleSongsUpdate = (songs: any[]) => {
+      const mapped = songs.map((s: any) => ({
+        ...s,
+        netScore: s.upvotes - s.downvotes,
+        votes: s.votes || [],
+      }));
+      if (inFlightVotes.current > 0 || Date.now() - lastInteraction.current < 2000) {
+        pendingSongs.current = mapped;
+      } else {
+        applySongs(mapped);
+        pendingSongs.current = null;
+      }
+    };
+
+    const handleRoomUpdate = (data: any) => {
+      setRoom(data);
+    };
+
+    const handleServerTime = (serverTime: number) => {
+      serverTimeOffset.current = serverTime - Date.now();
+    };
+
+    socket.on("songs-update", handleSongsUpdate);
+    socket.on("room-update", handleRoomUpdate);
+    socket.on("server-time", handleServerTime);
+
+    // Fallback polling (slower) in case Socket.io is down
     let pollCount = 0;
     const interval = setInterval(() => {
       fetch(`/api/rooms/${code}/sync`, { method: "POST" });
-      fetchSongs();
+      if (!socket.connected) fetchSongs();
       pollCount++;
       if (pollCount % 6 === 0) {
-        // Refresh room settings (voting paused, auto shuffle, etc.)
+        fetchSongs(); // Periodic full refresh even with sockets
         fetch(`/api/rooms/${code}`).then(async (res) => {
-          if (res.ok) {
-            const data = await res.json();
-            setRoom(data);
-          }
+          if (res.ok) setRoom(await res.json());
         }).catch(() => {});
-        // Refresh guest vote status (catches cross-session vote usage)
         if (fingerprint) {
           const storedGid = getSavedGuestId(code);
           fetch(`/api/rooms/${code}/guest`, {
@@ -247,10 +275,14 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     }, 1000);
 
     return () => {
+      socket.emit("leave-room", code);
+      socket.off("songs-update", handleSongsUpdate);
+      socket.off("room-update", handleRoomUpdate);
+      socket.off("server-time", handleServerTime);
       clearInterval(interval);
       clearInterval(flushInterval);
     };
-  }, [code, fetchSongs]);
+  }, [code, fetchSongs, applySongs]);
 
   // Poll for request approvals to send in-app notifications
   const notifSeeded = useRef(false);
@@ -374,6 +406,8 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       }
       lastInteraction.current = 0;
       pendingSongs.current = null;
+      // Notify Socket.io server to broadcast fresh data to all clients
+      getSocket().emit("vote-update", code);
       const res = await fetch(`/api/rooms/${code}/songs`);
       if (res.ok) applySongs(await res.json());
     }, 800);
@@ -442,6 +476,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       );
       if (data.status !== "pending") {
         // Refresh songs list and close search so they can see/vote on it
+        getSocket().emit("song-requested", code);
         const songsRes = await fetch(`/api/rooms/${code}/songs`);
         if (songsRes.ok) applySongs(await songsRes.json());
         setSearchQuery("");

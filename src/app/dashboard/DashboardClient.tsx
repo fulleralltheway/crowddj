@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef, Component, type ReactNode } from "react";
 import { useAutoAnimate } from "@formkit/auto-animate/react";
 import { QRCodeSVG } from "qrcode.react";
+import { getSocket } from "@/lib/socket";
 
 class DashboardErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state = { error: null as Error | null };
@@ -190,11 +191,31 @@ function DashboardInner({ user }: { user: any }) {
     }
   }, [fetchRooms]);
 
-  // Poll for song/request updates and auto-advance when managing a room
+  // Socket.io + fallback polling for real-time updates when managing a room
   useEffect(() => {
     if (view !== "manage" || !activeRoom) return;
     const code = activeRoom.code;
     const needsApproval = activeRoom.requireApproval;
+
+    // Socket.io: join room and listen for real-time updates
+    const socket = getSocket();
+    socket.emit("join-room", code);
+
+    const handleSongsUpdate = (songs: any[]) => {
+      setActiveRoom((prev) => (prev ? { ...prev, songs } : null));
+    };
+    const handleGuestCount = (count: number) => {
+      setGuestCount(count);
+    };
+    const handleRequestReceived = () => {
+      if (needsApproval) fetchRequests(code);
+    };
+
+    socket.on("songs-update", handleSongsUpdate);
+    socket.on("guest-count", handleGuestCount);
+    socket.on("request-received", handleRequestReceived);
+
+    // Fallback polling (slower when socket is connected, full speed when not)
     const interval = setInterval(async () => {
       try {
         const syncRes = await fetch(`/api/rooms/${code}/sync`, { method: "POST" });
@@ -206,14 +227,21 @@ function DashboardInner({ user }: { user: any }) {
             setIsPlaying(false);
           }
         }
-        refreshSongs(code);
+        if (!socket.connected) {
+          refreshSongs(code);
+          fetchGuestCount(code);
+        }
         if (needsApproval) fetchRequests(code);
-        fetchGuestCount(code);
-      } catch {
-        // Network error during poll — ignore
-      }
+      } catch {}
     }, 5000);
-    return () => clearInterval(interval);
+
+    return () => {
+      socket.emit("leave-room", code);
+      socket.off("songs-update", handleSongsUpdate);
+      socket.off("guest-count", handleGuestCount);
+      socket.off("request-received", handleRequestReceived);
+      clearInterval(interval);
+    };
   }, [view, activeRoom?.code, activeRoom?.requireApproval]);
 
   const fetchPlaylists = async () => {
@@ -355,6 +383,7 @@ function DashboardInner({ user }: { user: any }) {
   const skipSong = async () => {
     if (!activeRoom) return;
     await fetch(`/api/rooms/${activeRoom.code}/skip`, { method: "POST" });
+    getSocket().emit("song-skipped", activeRoom.code);
     refreshSongs(activeRoom.code);
   };
 
