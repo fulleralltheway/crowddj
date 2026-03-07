@@ -814,6 +814,7 @@ function DashboardInner({ user }: { user: any }) {
           </div>
 
           {/* Search bar + action buttons */}
+          <div className="relative z-20">
           <div className="flex gap-2 mb-4">
             <div className="flex-1 relative">
               <svg className="w-4 h-4 text-text-secondary absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -866,6 +867,85 @@ function DashboardInner({ user }: { user: any }) {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
             </button>
+          </div>
+          {/* Search results overlay */}
+          {showSearch && searchQuery && (searchResults.length > 0 || searching) && (
+            <div className="absolute left-0 right-0 mx-4 mt-1 bg-bg-card border border-border rounded-xl overflow-hidden shadow-2xl z-50">
+              <div className="max-h-72 overflow-y-auto divide-y divide-border/50">
+                {/* Queue matches */}
+                {(() => {
+                  const q = searchQuery.toLowerCase();
+                  const queueMatches = (activeRoom?.songs || []).filter((s: any) =>
+                    !s.isPlaying &&
+                    (s.trackName.toLowerCase().includes(q) ||
+                     s.artistName.toLowerCase().includes(q))
+                  );
+                  if (queueMatches.length === 0) return null;
+                  return (
+                    <div className="p-2 space-y-1">
+                      <p className="text-text-secondary text-[10px] font-semibold uppercase tracking-wider px-1">In Queue</p>
+                      {queueMatches.map((song: any) => (
+                        <div key={song.id} className="flex items-center gap-3 p-2 rounded-lg">
+                          {song.albumArt && (
+                            <img src={song.albumArt} alt="" className="w-9 h-9 rounded-md" />
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate">{song.trackName}</p>
+                            <p className="text-text-secondary text-xs truncate">{song.artistName}</p>
+                          </div>
+                          <span className="text-xs text-text-secondary">In queue</span>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+
+                {searchResults.length > 0 && (
+                  <div className="p-2 space-y-1">
+                    <p className="text-text-secondary text-[10px] font-semibold uppercase tracking-wider px-1">From Spotify</p>
+                    {searchResults.map((track: any) => {
+                      const inQueue = (activeRoom?.songs || []).some(
+                        (s: any) => s.spotifyUri === track.spotifyUri
+                      );
+                      return (
+                        <button
+                          key={track.spotifyUri}
+                          onClick={() => !inQueue && addSongToQueue(track)}
+                          disabled={inQueue}
+                          className={`w-full flex items-center gap-3 p-2 rounded-lg text-left transition-colors ${
+                            inQueue ? "opacity-50 cursor-default" : "hover:bg-bg-card-hover"
+                          }`}
+                        >
+                          {track.albumArt && (
+                            <img src={track.albumArt} alt="" className="w-9 h-9 rounded-md" />
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate">
+                              {track.trackName}
+                              {track.isExplicit && (
+                                <span className="ml-1 text-[10px] text-text-secondary bg-text-secondary/20 px-1 rounded">E</span>
+                              )}
+                            </p>
+                            <p className="text-text-secondary text-xs truncate">{track.artistName}</p>
+                          </div>
+                          <span className={`text-xs font-medium ${inQueue ? "text-text-secondary" : "text-accent"}`}>
+                            {inQueue ? "In queue" : "+ Add"}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {searching && (
+                  <div className="p-3 text-center text-text-secondary text-xs">Searching...</div>
+                )}
+              </div>
+              {searchStatus && (
+                <div className="px-3 py-2 border-t border-border/50 text-center text-xs text-accent">{searchStatus}</div>
+              )}
+            </div>
+          )}
           </div>
           </div>
 
@@ -1196,133 +1276,6 @@ function DashboardInner({ user }: { user: any }) {
                 </button>
               </div>
             </div>
-          )}
-
-          {/* Search results — shown when search bar has content */}
-          {showSearch && searchQuery.trim() && (
-            <div className="mb-4 bg-bg-card border border-border rounded-xl overflow-hidden">
-              {searchStatus && (
-                <p className="text-accent text-xs py-2 text-center border-b border-border">{searchStatus}</p>
-              )}
-              <div className="max-h-80 overflow-y-auto divide-y divide-border">
-                {/* Queue matches */}
-                {(() => {
-                  const q = searchQuery.trim().toLowerCase();
-                  const queueSongs = activeRoom?.songs?.filter((s: any) => !s.isPlaying) || [];
-                  const matches = q
-                    ? queueSongs.filter(
-                        (s: any) =>
-                          s.trackName.toLowerCase().includes(q) ||
-                          s.artistName.toLowerCase().includes(q)
-                      )
-                    : [];
-                  if (matches.length === 0) return null;
-                  return (
-                    <>
-                      <p className="text-text-secondary text-xs font-medium px-1 pt-1">In Queue</p>
-                      {matches.map((song: any) => {
-                        const queueIdx = queueSongs.findIndex((s: any) => s.id === song.id);
-                        return (
-                          <div
-                            key={song.id}
-                            className={`flex items-center gap-3 p-2.5 rounded-xl ${
-                              song.isLocked ? "bg-yellow-500/5 border border-yellow-500/30" : "bg-bg-primary"
-                            }`}
-                          >
-                            {song.albumArt && (
-                              <img src={song.albumArt} alt="" className="w-10 h-10 rounded-lg" />
-                            )}
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium truncate">{song.trackName}</p>
-                              <p className="text-text-secondary text-xs truncate">
-                                {song.artistName} &middot; #{queueIdx + 1} in queue
-                              </p>
-                            </div>
-                            <div className="flex items-center gap-1 flex-shrink-0">
-                              {/* Move to position */}
-                              <select
-                                className="bg-bg-card border border-border rounded-lg text-xs px-1.5 py-1 focus:outline-none focus:border-accent"
-                                value=""
-                                onChange={(e) => {
-                                  const targetPos = Number(e.target.value);
-                                  if (!targetPos || !activeRoom) return;
-                                  // Build new order with this song moved to targetPos
-                                  const arr = [...queueSongs];
-                                  const fromIdx = arr.findIndex((s: any) => s.id === song.id);
-                                  const [moved] = arr.splice(fromIdx, 1);
-                                  arr.splice(targetPos - 1, 0, moved);
-                                  setActiveRoom((prev) => {
-                                    if (!prev) return null;
-                                    const playing = prev.songs?.filter((s: any) => s.isPlaying) || [];
-                                    return { ...prev, songs: [...playing, ...arr] };
-                                  });
-                                  saveOrder(arr, song.id);
-                                }}
-                              >
-                                <option value="">Move to...</option>
-                                {queueSongs.map((_: any, idx: number) => (
-                                  <option key={idx} value={idx + 1}>#{idx + 1}</option>
-                                ))}
-                              </select>
-                              {/* Lock toggle */}
-                              <button
-                                onClick={() => lockSong(song.id)}
-                                className={`p-1.5 rounded-lg text-xs transition-colors ${
-                                  song.isLocked
-                                    ? "bg-yellow-500/20 text-yellow-500"
-                                    : "bg-bg-card-hover text-text-secondary hover:text-white"
-                                }`}
-                                title={song.isLocked ? "Unlock" : "Lock"}
-                              >
-                                {song.isLocked ? "\u{1F513}" : "\u{1F512}"}
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </>
-                  );
-                })()}
-
-                {/* Spotify results for adding */}
-                {searchResults.length > 0 && (
-                  <>
-                    <p className="text-text-secondary text-xs font-medium px-1 pt-2">Add from Spotify</p>
-                    {searchResults.map((track: any) => {
-                      const inQueue = track.inQueue;
-                      return (
-                        <button
-                          key={track.spotifyUri}
-                          onClick={() => !inQueue && addSongToQueue(track)}
-                          disabled={!!inQueue}
-                          className={`w-full flex items-center gap-3 p-2.5 rounded-xl text-left transition-colors ${
-                            inQueue
-                              ? "bg-bg-primary/50 opacity-50 cursor-default"
-                              : "bg-bg-primary hover:bg-bg-card-hover"
-                          }`}
-                        >
-                          {track.albumArt && (
-                            <img src={track.albumArt} alt="" className="w-10 h-10 rounded-lg" />
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium truncate">
-                              {track.trackName}
-                              {track.isExplicit && (
-                                <span className="ml-1 text-[10px] text-text-secondary bg-text-secondary/20 px-1 rounded">E</span>
-                              )}
-                            </p>
-                            <p className="text-text-secondary text-xs truncate">{track.artistName}</p>
-                          </div>
-                          <span className={`text-xs font-medium flex-shrink-0 ${inQueue ? "text-text-secondary" : "text-accent"}`}>
-                            {inQueue ? "In queue" : "+ Add"}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </>
-                )}
-              </div>
-          </div>
           )}
 
           </div>
