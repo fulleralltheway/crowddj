@@ -796,7 +796,7 @@ function DashboardInner({ user }: { user: any }) {
               </button>
               <button
                 onClick={skipSong}
-                className="flex-1 py-3 text-center font-medium transition-colors hover:bg-bg-card-hover text-text-secondary flex items-center justify-center gap-2"
+                className="flex-1 py-3 text-center font-semibold transition-colors hover:bg-bg-card-hover flex items-center justify-center gap-2"
               >
                 <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
                   <path d="M5 4v16l10-8zm12 0v16h2V4z" />
