@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { reorderByVotes } from "@/lib/reorder";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(
@@ -89,63 +90,7 @@ export async function POST(
 
   // Only reorder if autoShuffle is enabled
   if (room.autoShuffle) {
-    // Reorder only VISIBLE songs (not the full 1800+ queue)
-    const displayLimit = room.queueDisplaySize || 50;
-
-    const [baseSongs, requestedSongs] = await Promise.all([
-      prisma.roomSong.findMany({
-        where: { roomId: room.id, isPlayed: false, isPlaying: false, isRequested: false },
-        orderBy: { sortOrder: "asc" },
-        take: displayLimit,
-      }),
-      prisma.roomSong.findMany({
-        where: { roomId: room.id, isPlayed: false, isPlaying: false, isRequested: true },
-        orderBy: { sortOrder: "asc" },
-      }),
-    ]);
-
-    const seenIds = new Set(baseSongs.map((s) => s.id));
-    const songs = [...baseSongs, ...requestedSongs.filter((s) => !seenIds.has(s.id))];
-
-    const locked = songs.filter((s) => s.isLocked);
-    const unlocked = songs.filter((s) => !s.isLocked);
-    const sortedUnlocked = unlocked.sort((a, b) => {
-      const scoreA = a.upvotes - a.downvotes;
-      const scoreB = b.upvotes - b.downvotes;
-      if (scoreB !== scoreA) return scoreB - scoreA;
-      return a.sortOrder - b.sortOrder;
-    });
-
-    const playingSong = await prisma.roomSong.findFirst({
-      where: { roomId: room.id, isPlaying: true },
-    });
-    const startOrder = playingSong ? playingSong.sortOrder + 1 : 0;
-
-    const lockedPositions = new Map<number, typeof locked[0]>();
-    locked.forEach((s) => {
-      const relPos = songs.indexOf(s);
-      lockedPositions.set(relPos, s);
-    });
-
-    const merged: typeof songs = [];
-    let unlockedIdx = 0;
-    for (let i = 0; i < songs.length; i++) {
-      if (lockedPositions.has(i)) {
-        merged.push(lockedPositions.get(i)!);
-      } else if (unlockedIdx < sortedUnlocked.length) {
-        merged.push(sortedUnlocked[unlockedIdx++]);
-      }
-    }
-
-    // Batch update with a single transaction for speed
-    await prisma.$transaction(
-      merged.map((song, i) =>
-        prisma.roomSong.update({
-          where: { id: song.id },
-          data: { sortOrder: startOrder + i },
-        })
-      )
-    );
+    await reorderByVotes(room.id, room.queueDisplaySize || 50);
   }
 
   return NextResponse.json({ success: true, action: oppositeVote ? "undo" : "vote" });

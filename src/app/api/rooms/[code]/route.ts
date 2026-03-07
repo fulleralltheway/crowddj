@@ -1,5 +1,6 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { reorderByVotes } from "@/lib/reorder";
 import { NextRequest, NextResponse } from "next/server";
 
 const ROOM_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -86,6 +87,11 @@ export async function PATCH(
     where: { id: room.id },
     data: updates,
   });
+
+  // If autoShuffle was just turned ON, immediately re-sort the queue
+  if (body.autoShuffle === true && !room.autoShuffle) {
+    await reorderByVotes(room.id, updated.queueDisplaySize || 50);
+  }
 
   return NextResponse.json(updated);
 }

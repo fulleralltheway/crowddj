@@ -1,5 +1,6 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { reorderByVotes } from "@/lib/reorder";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(
@@ -28,6 +29,11 @@ export async function POST(
     where: { id: songId },
     data: { isLocked: newLocked },
   });
+
+  // Re-sort when unlocking (or locking) if autoShuffle is on
+  if (room.autoShuffle) {
+    await reorderByVotes(room.id, room.queueDisplaySize || 50);
+  }
 
   return NextResponse.json({ success: true, locked: newLocked });
 }
