@@ -64,7 +64,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     const res = await fetch(`/api/rooms/${code}/songs`);
     if (res.ok) {
       const data = await res.json();
-      if (inFlightVotes.current > 0 || Date.now() - lastInteraction.current < 3000) {
+      if (inFlightVotes.current > 0 || Date.now() - lastInteraction.current < 2000) {
         pendingSongs.current = data;
       } else {
         applySongs(data);
@@ -115,7 +115,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     }, 5000);
 
     const flushInterval = setInterval(() => {
-      if (pendingSongs.current && inFlightVotes.current === 0 && Date.now() - lastInteraction.current >= 3000) {
+      if (pendingSongs.current && inFlightVotes.current === 0 && Date.now() - lastInteraction.current >= 2000) {
         applySongs(pendingSongs.current);
         pendingSongs.current = null;
       }
@@ -288,18 +288,16 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       }
     } finally {
       inFlightVotes.current--;
+      // Schedule reorder sync after voting settles
+      if (postVoteSyncTimer.current) clearTimeout(postVoteSyncTimer.current);
+      postVoteSyncTimer.current = setTimeout(async () => {
+        if (inFlightVotes.current > 0) return; // Still voting
+        lastInteraction.current = 0;
+        pendingSongs.current = null;
+        const res = await fetch(`/api/rooms/${code}/songs`);
+        if (res.ok) applySongs(await res.json());
+      }, 800);
       lastInteraction.current = Date.now();
-      // When all votes have settled, sync with server after a brief pause
-      if (inFlightVotes.current === 0) {
-        if (postVoteSyncTimer.current) clearTimeout(postVoteSyncTimer.current);
-        postVoteSyncTimer.current = setTimeout(async () => {
-          if (inFlightVotes.current > 0) return; // User started voting again
-          lastInteraction.current = 0; // Allow the fetch to apply
-          pendingSongs.current = null; // Discard any stale pending data
-          const res = await fetch(`/api/rooms/${code}/songs`);
-          if (res.ok) applySongs(await res.json());
-        }, 1500);
-      }
     }
   };
 
