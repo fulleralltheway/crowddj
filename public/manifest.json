@@ -4,6 +4,7 @@
   "description": "Crowd-powered playlist voting",
   "start_url": "/",
   "display": "standalone",
+  "orientation": "portrait",
   "background_color": "#0a0a0a",
   "theme_color": "#1db954",
   "icons": [

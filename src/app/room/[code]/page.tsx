@@ -49,15 +49,23 @@ function setCookie(name: string, value: string, days = 365) {
 function getSavedGuestName(code: string): string {
   if (typeof window === "undefined") return "";
   try {
-    return localStorage.getItem(`crowddj_name_${code}`) || getCookie(`crowddj_name_${code}`) || "";
+    return localStorage.getItem(`crowddj_name_${code}`)
+      || getCookie(`crowddj_name_${code}`)
+      || localStorage.getItem("crowddj_name_global")
+      || getCookie("crowddj_name_global")
+      || "";
   } catch {
-    return getCookie(`crowddj_name_${code}`);
+    return getCookie(`crowddj_name_${code}`) || getCookie("crowddj_name_global");
   }
 }
 
 function saveGuestName(code: string, name: string) {
-  try { localStorage.setItem(`crowddj_name_${code}`, name); } catch {}
+  try {
+    localStorage.setItem(`crowddj_name_${code}`, name);
+    localStorage.setItem("crowddj_name_global", name);
+  } catch {}
   setCookie(`crowddj_name_${code}`, name);
+  setCookie("crowddj_name_global", name);
 }
 
 function getSavedGuestId(code: string): string {
@@ -539,7 +547,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const outOfVotes = votesRemaining === 0;
   const nowPlaying = songs.find((s) => s.isPlaying);
   return (
-    <div className="min-h-dvh flex flex-col max-w-lg lg:max-w-3xl mx-auto">
+    <div className="h-dvh flex flex-col max-w-lg lg:max-w-3xl mx-auto overflow-hidden">
       {/* In-app notification toast */}
       {inAppNotif && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 w-[90%] max-w-sm animate-[slideDown_0.3s_ease-out]">
@@ -709,6 +717,9 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
           </div>
         </div>
       )}
+
+      {/* Scrollable content area */}
+      <div className="flex-1 overflow-y-auto overscroll-contain">
 
       {/* Search results dropdown */}
       {showSearch && searchQuery.trim() && (() => {
@@ -949,6 +960,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
             </div>
           );
         })}
+      </div>
       </div>
 
     </div>
