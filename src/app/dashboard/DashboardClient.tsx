@@ -386,33 +386,29 @@ function DashboardInner({ user }: { user: any }) {
   const dragStartY = useRef(0);
   const dragItemHeight = useRef(0);
 
-  const commitReorder = async (songs: any[], movedSongId: string) => {
+  const commitReorder = async (songs: any[], movedSongId: string, forceLockOverride = false) => {
     if (!activeRoom) return;
-    // Optimistically mark the moved song as locked (only if it has votes)
-    const movedForLock = songs.find((s: any) => s.id === movedSongId);
-    const shouldLock = movedForLock && (movedForLock.upvotes - movedForLock.downvotes) !== 0;
-    if (shouldLock) {
-      setActiveRoom((prev) => {
-        if (!prev) return null;
-        return {
-          ...prev,
-          songs: prev.songs.map((s: any) =>
-            s.id === movedSongId ? { ...s, isLocked: true } : s
-          ),
-        };
-      });
-    }
+    // Optimistically mark the moved song as locked
+    setActiveRoom((prev) => {
+      if (!prev) return null;
+      return {
+        ...prev,
+        songs: prev.songs.map((s: any) =>
+          s.id === movedSongId ? { ...s, isLocked: true } : s
+        ),
+      };
+    });
     const orderedIds = songs.filter((s: any) => !s.isPlaying).map((s: any) => s.id);
     await fetch(`/api/rooms/${activeRoom.code}/reorder`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ orderedIds }),
     });
-    // Only auto-lock if the song has votes (non-zero score) — zero-vote songs
-    // can be freely reordered by the host without locking
+    // Lock the song: always lock if user confirmed "Move & Lock" (forceLockOverride),
+    // otherwise only auto-lock songs with votes
     const movedSong = songs.find((s: any) => s.id === movedSongId);
     const hasVotes = movedSong && (movedSong.upvotes - movedSong.downvotes) !== 0;
-    if (hasVotes || movedSong?.isLocked) {
+    if (forceLockOverride || hasVotes || movedSong?.isLocked) {
       await fetch(`/api/rooms/${activeRoom.code}/lock`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -430,7 +426,7 @@ function DashboardInner({ user }: { user: any }) {
     if (isAutoShuffle && !movedSong?.isLocked && !skipReorderConfirm) {
       setConfirmReorder({ songs, movedSongId });
     } else {
-      commitReorder(songs, movedSongId);
+      commitReorder(songs, movedSongId, isAutoShuffle && skipReorderConfirm);
     }
   };
 
@@ -714,7 +710,7 @@ function DashboardInner({ user }: { user: any }) {
             <div className="flex items-center gap-3">
               {guestCount > 0 && (
                 <button
-                  onClick={() => { setShowGuests(!showGuests); setShowQR(false); setShowSettings(false); if (!showGuests) fetchGuestDetails(); }}
+                  onClick={() => { setShowGuests(!showGuests); setShowQR(false); setShowSettings(false); setShowSearch(false); onSearchChange(""); if (!showGuests) fetchGuestDetails(); }}
                   className={`flex items-center gap-1.5 text-sm px-2 py-1 rounded-lg transition-colors ${
                     showGuests ? "text-accent bg-accent/15" : "text-text-secondary hover:text-white"
                   }`}
@@ -726,7 +722,7 @@ function DashboardInner({ user }: { user: any }) {
                 </button>
               )}
               <button
-                onClick={() => { setShowQR(!showQR); setShowSettings(false); setShowGuests(false); setSelectedGuest(null); }}
+                onClick={() => { setShowQR(!showQR); setShowSettings(false); setShowGuests(false); setSelectedGuest(null); setShowSearch(false); onSearchChange(""); }}
                 className={`bg-bg-card border rounded-lg px-3 py-1.5 transition-colors ${showQR ? "border-accent/50" : "border-border hover:border-accent/30"}`}
               >
                 <p className="font-mono text-lg text-accent leading-none">{activeRoom.code}</p>
@@ -805,7 +801,7 @@ function DashboardInner({ user }: { user: any }) {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => onSearchChange(e.target.value)}
-                onFocus={() => setShowSearch(true)}
+                onFocus={() => { setShowSearch(true); setShowQR(false); setShowSettings(false); setShowGuests(false); setSelectedGuest(null); }}
                 placeholder="Search queue or add songs..."
                 className="w-full pl-9 pr-9 py-2.5 bg-bg-card border border-border rounded-xl text-sm focus:outline-none focus:border-accent"
               />
@@ -826,7 +822,7 @@ function DashboardInner({ user }: { user: any }) {
               ) : null}
             </div>
             <button
-              onClick={() => { setShowQR(!showQR); setShowSettings(false); setShowGuests(false); setSelectedGuest(null); }}
+              onClick={() => { setShowQR(!showQR); setShowSettings(false); setShowGuests(false); setSelectedGuest(null); setShowSearch(false); onSearchChange(""); }}
               className={`p-2.5 rounded-xl transition-colors ${
                 showQR ? "bg-accent/15 text-accent border border-accent/30" : "bg-bg-card hover:bg-bg-card-hover border border-border"
               }`}
@@ -837,7 +833,7 @@ function DashboardInner({ user }: { user: any }) {
               </svg>
             </button>
             <button
-              onClick={() => { setShowSettings(!showSettings); setShowQR(false); setShowGuests(false); setSelectedGuest(null); }}
+              onClick={() => { setShowSettings(!showSettings); setShowQR(false); setShowGuests(false); setSelectedGuest(null); setShowSearch(false); onSearchChange(""); }}
               className={`p-2.5 rounded-xl transition-colors ${
                 showSettings ? "bg-accent/15 text-accent border border-accent/30" : "bg-bg-card hover:bg-bg-card-hover border border-border"
               }`}
@@ -1518,7 +1514,7 @@ function DashboardInner({ user }: { user: any }) {
                   </button>
                   <button
                     onClick={() => {
-                      commitReorder(confirmReorder.songs, confirmReorder.movedSongId);
+                      commitReorder(confirmReorder.songs, confirmReorder.movedSongId, true);
                       setConfirmReorder(null);
                     }}
                     className="flex-1 py-2.5 bg-accent text-black rounded-xl text-sm font-semibold transition-colors"

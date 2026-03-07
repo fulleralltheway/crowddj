@@ -99,7 +99,7 @@ export async function GET(
   }
 
   const count = await prisma.guest.count({
-    where: { roomId: room.id },
+    where: { roomId: room.id, name: { not: "" } },
   });
 
   return NextResponse.json({ count });
