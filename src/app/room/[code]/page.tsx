@@ -86,48 +86,45 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     }
   }, [code, applySongs]);
 
-  const fetchRoom = useCallback(async () => {
-    const res = await fetch(`/api/rooms/${code}`);
-    if (res.ok) {
-      const data = await res.json();
-      setRoom(data);
-      setSongs(
-        data.songs.map((s: any) => ({ ...s, netScore: s.upvotes - s.downvotes, votes: s.votes || [] }))
-      );
-    } else {
-      const err = await res.json();
-      setError(err.error || "Room not found");
-    }
-  }, [code]);
-
   useEffect(() => {
-    fetchRoom();
-    getFingerprint().then(async (fp) => {
+    // Run both room fetch and fingerprint check in parallel,
+    // only update state once both are done to prevent any flash
+    const roomPromise = fetch(`/api/rooms/${code}`).then(async (res) => {
+      if (res.ok) return res.json();
+      const err = await res.json();
+      throw new Error(err.error || "Room not found");
+    });
+
+    const guestPromise = getFingerprint().then(async (fp) => {
       setFingerprint(fp);
-      // Check if this guest already has a name (returning visitor)
-      try {
-        const res = await fetch(`/api/rooms/${code}/guest`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ fingerprint: fp }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setGuestId(data.guestId);
-          setVotesUsed(data.votesUsed);
-          setLastVoteReset(new Date(data.lastVoteReset).getTime());
-          if (data.name) {
-            setGuestName(data.name);
-            setNameSubmitted(true);
-            try { localStorage.setItem(`crowddj_name_${code}`, data.name); } catch {}
-          }
+      const res = await fetch(`/api/rooms/${code}/guest`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fingerprint: fp }),
+      });
+      if (res.ok) return res.json();
+      return null;
+    }).catch(() => null);
+
+    Promise.all([roomPromise, guestPromise]).then(([roomData, guestData]) => {
+      // Set everything in one batch — no intermediate renders
+      setRoom(roomData);
+      setSongs(
+        roomData.songs.map((s: any) => ({ ...s, netScore: s.upvotes - s.downvotes, votes: s.votes || [] }))
+      );
+      if (guestData) {
+        setGuestId(guestData.guestId);
+        setVotesUsed(guestData.votesUsed);
+        setLastVoteReset(new Date(guestData.lastVoteReset).getTime());
+        if (guestData.name) {
+          setGuestName(guestData.name);
+          setNameSubmitted(true);
+          try { localStorage.setItem(`crowddj_name_${code}`, guestData.name); } catch {}
         }
-      } catch {
-        // Network error — proceed to name form
       }
       setGuestLoading(false);
-    }).catch(() => {
-      // Fingerprint failed — proceed to name form
+    }).catch((err) => {
+      setError(err.message || "Room not found");
       setGuestLoading(false);
     });
 
@@ -159,7 +156,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       clearInterval(interval);
       clearInterval(flushInterval);
     };
-  }, [code, fetchRoom, fetchSongs]);
+  }, [code, fetchSongs]);
 
   // Poll for request approvals to send in-app notifications
   const notifSeeded = useRef(false);
