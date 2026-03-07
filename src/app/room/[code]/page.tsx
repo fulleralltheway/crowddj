@@ -257,27 +257,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         }
       });
 
-      // Sort client-side: playing first, then locked in place, unlocked by net score
-      const playing = updated.filter((s) => s.isPlaying);
-      const rest = updated.filter((s) => !s.isPlaying);
-      const locked = rest.filter((s) => s.isLocked);
-      const unlocked = rest.filter((s) => !s.isLocked);
-      unlocked.sort((a, b) => (b.upvotes - b.downvotes) - (a.upvotes - a.downvotes));
-
-      // Merge locked back into their original relative positions
-      const merged: typeof rest = [];
-      let unlockedIdx = 0;
-      const lockedPositions = new Map<number, typeof locked[0]>();
-      rest.forEach((s, i) => { if (s.isLocked) lockedPositions.set(i, s); });
-      for (let i = 0; i < rest.length; i++) {
-        if (lockedPositions.has(i)) {
-          merged.push(lockedPositions.get(i)!);
-        } else if (unlockedIdx < unlocked.length) {
-          merged.push(unlocked[unlockedIdx++]);
-        }
-      }
-
-      return [...playing, ...merged];
+      return updated;
     });
 
     if (hasOpposite) {
