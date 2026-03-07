@@ -763,61 +763,61 @@ function DashboardInner({ user }: { user: any }) {
   return (
     <div className="h-dvh flex flex-col max-w-6xl mx-auto overflow-hidden">
       {/* Fixed header area */}
-      <div className="flex-shrink-0 px-4 pt-4">
-        <div className="flex items-center justify-between mb-4 mt-2">
+      <div className="flex-shrink-0 bg-gradient-to-b from-bg-card/90 to-bg-primary/80 backdrop-blur-xl border-b border-white/[0.06]">
+      <div className="px-4 pt-4 pb-3">
+        {/* Top bar: back + room code */}
+        <div className="flex items-center justify-between mb-3">
           <button
             onClick={() => {
               setView("rooms");
               setActiveRoom(null);
             }}
-            className="text-text-secondary hover:text-white flex items-center gap-1 transition-colors"
+            className="text-white/40 hover:text-white/70 flex items-center gap-1.5 transition-colors text-[13px]"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
-            Back to rooms
+            Rooms
           </button>
+          <div className="flex items-center gap-2">
+            {guestCount > 0 && (
+              <button
+                onClick={() => { setShowGuests(!showGuests); setShowQR(false); setShowSettings(false); setShowSearch(false); onSearchChange(""); if (!showGuests) fetchGuestDetails(); }}
+                className={`flex items-center gap-1.5 text-[13px] px-2.5 py-1.5 rounded-xl transition-colors ${
+                  showGuests ? "text-accent bg-accent/10" : "text-white/40 hover:text-white/70 hover:bg-white/5"
+                }`}
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                {guestCount}
+              </button>
+            )}
+            <button
+              onClick={() => { setShowQR(!showQR); setShowSettings(false); setShowGuests(false); setSelectedGuest(null); setShowSearch(false); onSearchChange(""); }}
+              className={`font-mono text-[13px] font-semibold px-3 py-1.5 rounded-xl transition-colors ${showQR ? "text-accent bg-accent/10 border border-accent/20" : "text-accent/70 bg-white/[0.04] border border-white/[0.08] hover:border-accent/20"}`}
+            >
+              {activeRoom?.code}
+            </button>
+          </div>
         </div>
       </div>
 
       {activeRoom && (
         <>
-          {/* Sticky room header + search */}
-          <div className="flex-shrink-0 px-4">
-          {/* Room Header */}
-          <div className="flex items-start justify-between mb-4">
-            <div>
-              <h2 className="text-2xl font-bold">{activeRoom.name}</h2>
-              <p className="text-text-secondary text-sm">{activeRoom.playlistName}</p>
-            </div>
-            <div className="flex items-center gap-3">
-              {guestCount > 0 && (
-                <button
-                  onClick={() => { setShowGuests(!showGuests); setShowQR(false); setShowSettings(false); setShowSearch(false); onSearchChange(""); if (!showGuests) fetchGuestDetails(); }}
-                  className={`flex items-center gap-1.5 text-sm px-2 py-1 rounded-lg transition-colors ${
-                    showGuests ? "text-accent bg-accent/15" : "text-text-secondary hover:text-white"
-                  }`}
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
-                  {guestCount}
-                </button>
-              )}
-              <button
-                onClick={() => { setShowQR(!showQR); setShowSettings(false); setShowGuests(false); setSelectedGuest(null); setShowSearch(false); onSearchChange(""); }}
-                className={`bg-bg-card border rounded-lg px-3 py-1.5 transition-colors ${showQR ? "border-accent/50" : "border-border hover:border-accent/30"}`}
-              >
-                <p className="font-mono text-lg text-accent leading-none">{activeRoom.code}</p>
-              </button>
-            </div>
+          {/* Room title + search */}
+          <div className="px-4 pb-3">
+          {/* Room name */}
+          <div className="mb-3">
+            <h2 className="text-xl font-bold tracking-tight leading-tight">{activeRoom.name}</h2>
+            <p className="text-white/30 text-[11px] mt-0.5">{activeRoom.playlistName}</p>
           </div>
 
           {/* Search bar + action buttons */}
           <div className="relative z-20">
-          <div className="flex gap-2 mb-4">
+          <div className="flex gap-2">
             <div className="flex-1 relative">
-              <svg className="w-4 h-4 text-text-secondary absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-4 h-4 text-white/30 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
               <input
@@ -826,7 +826,7 @@ function DashboardInner({ user }: { user: any }) {
                 onChange={(e) => onSearchChange(e.target.value)}
                 onFocus={() => { setShowSearch(true); setShowQR(false); setShowSettings(false); setShowGuests(false); setSelectedGuest(null); }}
                 placeholder="Search queue or add songs..."
-                className="w-full pl-9 pr-9 py-2.5 bg-bg-card border border-border rounded-xl text-sm focus:outline-none focus:border-accent"
+                className="w-full pl-10 pr-9 py-2.5 bg-white/[0.06] border border-white/[0.08] rounded-2xl text-sm placeholder:text-white/25 focus:outline-none focus:border-accent/40 focus:bg-white/[0.08] transition-colors"
               />
               {searchQuery ? (
                 <button
@@ -834,37 +834,37 @@ function DashboardInner({ user }: { user: any }) {
                     onSearchChange("");
                     setShowSearch(false);
                   }}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-text-secondary hover:text-white transition-colors"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-white/30 hover:text-white/60 transition-colors"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg>
                 </button>
               ) : searching ? (
-                <div className="absolute right-3 top-1/2 -translate-y-1/2 text-text-secondary text-xs">...</div>
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 text-xs">...</div>
               ) : null}
             </div>
             <button
               onClick={() => { setShowQR(!showQR); setShowSettings(false); setShowGuests(false); setSelectedGuest(null); setShowSearch(false); onSearchChange(""); }}
-              className={`p-2.5 rounded-xl transition-colors ${
-                showQR ? "bg-accent/15 text-accent border border-accent/30" : "bg-bg-card hover:bg-bg-card-hover border border-border"
+              className={`p-2.5 rounded-2xl transition-colors ${
+                showQR ? "bg-accent/10 text-accent border border-accent/20" : "bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] text-white/40"
               }`}
               title="Share Room"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
               </svg>
             </button>
             <button
               onClick={() => { setShowSettings(!showSettings); setShowQR(false); setShowGuests(false); setSelectedGuest(null); setShowSearch(false); onSearchChange(""); }}
-              className={`p-2.5 rounded-xl transition-colors ${
-                showSettings ? "bg-accent/15 text-accent border border-accent/30" : "bg-bg-card hover:bg-bg-card-hover border border-border"
+              className={`p-2.5 rounded-2xl transition-colors ${
+                showSettings ? "bg-accent/10 text-accent border border-accent/20" : "bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] text-white/40"
               }`}
               title="Settings"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
             </button>
           </div>
@@ -948,7 +948,12 @@ function DashboardInner({ user }: { user: any }) {
           )}
           </div>
           </div>
+        </>
+      )}
+      </div>
 
+      {activeRoom && (
+        <>
           {/* Scrollable content area */}
           <div className="flex-1 overflow-y-auto overscroll-contain px-4 pb-4">
 

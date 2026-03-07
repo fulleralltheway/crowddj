@@ -575,23 +575,17 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
 
       {/* Header */}
       <div className="relative z-10">
-      <div className="bg-bg-primary/80 backdrop-blur-xl border-b border-border px-4 py-3">
-        <div className="flex items-center justify-between mb-2">
-          <div className="min-w-0 flex-1">
-            <p className="text-accent text-xs font-medium">
-              {(() => {
-                const h = new Date().getHours();
-                const greeting = h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
-                return `${greeting}, ${guestName.split(" ")[0]}`;
-              })()}
-            </p>
-            <h1 className="font-bold text-lg truncate">{room.name}</h1>
-            <p className="text-text-secondary text-xs">
-              Hosted by {room.host.name} &middot; {room.code}
-            </p>
-          </div>
-          {/* Notification bell + Votes remaining */}
-          <div className="ml-3 flex-shrink-0 flex items-center gap-2">
+      <div className="bg-gradient-to-b from-bg-card/90 to-bg-primary/80 backdrop-blur-xl border-b border-white/[0.06] px-4 pt-4 pb-3">
+        {/* Top row: greeting + actions */}
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-white/50 text-[11px] font-medium tracking-wide">
+            {(() => {
+              const h = new Date().getHours();
+              const greeting = h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
+              return `${greeting}, ${guestName.split(" ")[0]}`;
+            })()}
+          </p>
+          <div className="flex items-center gap-2">
             <button
               onClick={() => {
                 if (notificationsEnabled) {
@@ -602,47 +596,58 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                   setShowNotifGuide(true);
                 }
               }}
-              className={`p-1.5 rounded-lg transition-colors ${
+              className={`p-2 rounded-xl transition-colors ${
                 notificationsEnabled
-                  ? "text-accent bg-accent/15"
-                  : "text-text-secondary hover:text-white"
+                  ? "text-accent bg-accent/10"
+                  : "text-white/40 hover:text-white/70 hover:bg-white/5"
               }`}
               title={notificationsEnabled ? "Notifications on" : "Enable notifications"}
             >
               <div className="relative">
-                <svg className="w-4 h-4" fill={notificationsEnabled ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                <svg className="w-[18px] h-[18px]" fill={notificationsEnabled ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
                 </svg>
                 {notificationsEnabled && (
-                  <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-accent rounded-full" />
+                  <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-accent rounded-full ring-2 ring-bg-card/90" />
                 )}
               </div>
             </button>
-          <div>
+          </div>
+        </div>
+        {/* Room info row */}
+        <div className="flex items-end justify-between mb-3">
+          <div className="min-w-0 flex-1 mr-3">
+            <h1 className="font-bold text-xl tracking-tight truncate leading-tight">{room.name}</h1>
+            <p className="text-white/35 text-[11px] mt-0.5 flex items-center gap-1.5">
+              <span>{room.host.name}</span>
+              <span className="inline-block w-[3px] h-[3px] rounded-full bg-white/25" />
+              <span className="font-mono text-white/45">{room.code}</span>
+            </p>
+          </div>
+          <div className="flex-shrink-0">
             {room.votingPaused ? (
-              <span className="px-2.5 py-0.5 bg-yellow-500/15 text-yellow-500 text-xs font-semibold rounded-full">
-                Paused
-              </span>
+              <div className="px-3 py-1.5 bg-yellow-500/10 border border-yellow-500/20 rounded-full">
+                <span className="text-yellow-400 text-[11px] font-semibold">Paused</span>
+              </div>
             ) : outOfVotes ? (
               <div className="text-right">
-                <span className="px-2.5 py-0.5 bg-downvote/15 text-downvote text-xs font-semibold rounded-full">
-                  0 / {room.votesPerUser}
-                </span>
+                <div className="px-3 py-1.5 bg-downvote/10 border border-downvote/20 rounded-full">
+                  <span className="text-downvote text-[11px] font-semibold tabular-nums">0 / {room.votesPerUser}</span>
+                </div>
                 {resetCountdown && (
-                  <p className="text-text-secondary text-[10px] mt-0.5">{resetCountdown}</p>
+                  <p className="text-white/30 text-[10px] mt-1 tabular-nums">{resetCountdown}</p>
                 )}
               </div>
             ) : (
               <div className="text-right">
-                <span className="px-2.5 py-0.5 bg-accent/15 text-accent text-xs font-semibold rounded-full">
-                  {votesRemaining} / {room.votesPerUser}
-                </span>
+                <div className="px-3 py-1.5 bg-accent/10 border border-accent/20 rounded-full">
+                  <span className="text-accent text-[11px] font-semibold tabular-nums">{votesRemaining} / {room.votesPerUser}</span>
+                </div>
                 {resetCountdown && (
-                  <p className="text-text-secondary text-[10px] mt-0.5">{resetCountdown}</p>
+                  <p className="text-white/30 text-[10px] mt-1 tabular-nums">{resetCountdown}</p>
                 )}
               </div>
             )}
-          </div>
           </div>
         </div>
 
@@ -681,7 +686,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
 
         {/* Persistent search bar */}
         <div className="relative">
-          <svg className="w-4 h-4 text-text-secondary absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-4 h-4 text-white/30 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
           <input
@@ -693,7 +698,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
             }}
             onFocus={() => { if (searchQuery.trim()) setShowSearch(true); }}
             placeholder="Search or add songs..."
-            className="w-full pl-9 pr-9 py-2 bg-bg-card border border-border rounded-xl text-sm focus:outline-none focus:border-accent"
+            className="w-full pl-10 pr-9 py-2.5 bg-white/[0.06] border border-white/[0.08] rounded-2xl text-sm placeholder:text-white/25 focus:outline-none focus:border-accent/40 focus:bg-white/[0.08] transition-colors"
           />
           {(searchQuery || showSearch) && (
             <button
@@ -907,9 +912,9 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       )}
 
       {/* Song List */}
-      <div className="flex items-center justify-between px-4 pt-3 pb-1">
-        <p className="text-text-secondary text-[10px] font-semibold uppercase tracking-wider">Up Next</p>
-        <p className="text-text-secondary text-[10px]">
+      <div className="flex items-center justify-between px-4 pt-4 pb-2">
+        <p className="text-white/40 text-[11px] font-semibold uppercase tracking-widest">Up Next</p>
+        <p className="text-white/25 text-[10px] tracking-wide">
           {room.autoShuffle ? "Sorted by votes" : "DJ-ordered"}
         </p>
       </div>
