@@ -42,14 +42,14 @@ function getSavedGuestName(code: string): string {
 export default function RoomPage({ params }: { params: Promise<{ code: string }> }) {
   const { code } = use(params);
   const savedName = getSavedGuestName(code);
+  // Single status: "loading" | "need_name" | "ready" — prevents any flash between states
+  const [pageStatus, setPageStatus] = useState<"loading" | "need_name" | "ready">(savedName ? "ready" : "loading");
   const [room, setRoom] = useState<Room | null>(null);
   const [songs, setSongs] = useState<Song[]>([]);
   const [fingerprint, setFingerprint] = useState("");
   const [guestId, setGuestId] = useState("");
   const [guestName, setGuestName] = useState(savedName);
   const [nameInput, setNameInput] = useState("");
-  const [nameSubmitted, setNameSubmitted] = useState(!!savedName);
-  const [guestLoading, setGuestLoading] = useState(!savedName);
   const [votesUsed, setVotesUsed] = useState(0);
   const [error, setError] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -107,7 +107,6 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     }).catch(() => null);
 
     Promise.all([roomPromise, guestPromise]).then(([roomData, guestData]) => {
-      // Set everything in one batch — no intermediate renders
       setRoom(roomData);
       setSongs(
         roomData.songs.map((s: any) => ({ ...s, netScore: s.upvotes - s.downvotes, votes: s.votes || [] }))
@@ -118,14 +117,17 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         setLastVoteReset(new Date(guestData.lastVoteReset).getTime());
         if (guestData.name) {
           setGuestName(guestData.name);
-          setNameSubmitted(true);
           try { localStorage.setItem(`crowddj_name_${code}`, guestData.name); } catch {}
+          // Single state flip: loading → ready (never passes through need_name)
+          setPageStatus("ready");
+          return;
         }
       }
-      setGuestLoading(false);
+      // No name found — show name form
+      setPageStatus("need_name");
     }).catch((err) => {
       setError(err.message || "Room not found");
-      setGuestLoading(false);
+      setPageStatus("need_name");
     });
 
     // Poll songs every 5s, refresh room settings every 30s
@@ -410,7 +412,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     );
   }
 
-  if (!room || guestLoading) {
+  if (!room || pageStatus === "loading") {
     return (
       <div className="min-h-dvh flex items-center justify-center">
         <div className="text-text-secondary">Loading room...</div>
@@ -422,7 +424,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     const trimmed = nameInput.trim();
     if (!trimmed) return;
     setGuestName(trimmed);
-    setNameSubmitted(true);
+    setPageStatus("ready");
     try { localStorage.setItem(`crowddj_name_${code}`, trimmed); } catch {}
     // Re-register guest with name
     if (fingerprint) {
@@ -438,7 +440,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     }
   };
 
-  if (!nameSubmitted) {
+  if (pageStatus === "need_name") {
     return (
       <div className="min-h-dvh flex items-center justify-center px-4">
         <div className="w-full max-w-sm text-center space-y-6">
