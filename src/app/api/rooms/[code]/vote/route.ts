@@ -96,5 +96,18 @@ export async function POST(
     await reorderByVotes(room.id, room.queueDisplaySize || 50);
   }
 
-  return NextResponse.json({ success: true, action: oppositeVote ? "undo" : "vote" });
+  // Return actual vote count so client stays in sync
+  const actualVotesUsed = await prisma.vote.count({
+    where: { guestId: guest.id },
+  });
+
+  // Fix drift
+  if (guest.votesUsed !== actualVotesUsed) {
+    await prisma.guest.update({
+      where: { id: guest.id },
+      data: { votesUsed: actualVotesUsed },
+    });
+  }
+
+  return NextResponse.json({ success: true, action: oppositeVote ? "undo" : "vote", votesUsed: actualVotesUsed });
 }

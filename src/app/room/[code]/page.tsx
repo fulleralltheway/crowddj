@@ -378,7 +378,12 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         body: JSON.stringify({ songId, value, fingerprint }),
       });
 
-      if (!res.ok) {
+      if (res.ok) {
+        const data = await res.json();
+        if (typeof data.votesUsed === "number") {
+          setVotesUsed(data.votesUsed);
+        }
+      } else {
         fetchSongs();
         if (hasOpposite) {
           setVotesUsed((v) => v + 1);

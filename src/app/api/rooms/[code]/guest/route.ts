@@ -74,9 +74,22 @@ export async function POST(
     });
   }
 
+  // Derive votesUsed from actual Vote records (single source of truth)
+  const actualVotesUsed = await prisma.vote.count({
+    where: { guestId: guest.id },
+  });
+
+  // Fix drift: sync stored counter if it doesn't match reality
+  if (guest.votesUsed !== actualVotesUsed) {
+    await prisma.guest.update({
+      where: { id: guest.id },
+      data: { votesUsed: actualVotesUsed },
+    });
+  }
+
   return NextResponse.json({
     guestId: guest.id,
-    votesUsed: guest.votesUsed,
+    votesUsed: actualVotesUsed,
     lastVoteReset: guest.lastVoteReset,
     name: guest.name,
   });
