@@ -761,7 +761,7 @@ function DashboardInner({ user }: { user: any }) {
   const nowPlaying = activeRoom?.songs?.find((s: any) => s.isPlaying);
 
   return (
-    <div className="h-dvh flex flex-col max-w-6xl mx-auto overflow-hidden">
+    <div className="h-dvh flex flex-col max-w-6xl mx-auto overflow-hidden relative">
       {/* Fixed header area */}
       <div className="flex-shrink-0 bg-gradient-to-b from-bg-card/90 to-bg-primary/80 backdrop-blur-xl border-b border-white/[0.06]">
       <div className="px-4 pt-4 pb-3">
@@ -955,68 +955,18 @@ function DashboardInner({ user }: { user: any }) {
       {activeRoom && (
         <>
           {/* Scrollable content area */}
-          <div className="flex-1 overflow-y-auto overscroll-contain px-4 pb-4">
+          <div className="flex-1 overflow-y-auto overscroll-contain px-4 pb-20">
 
           <div className="lg:grid lg:grid-cols-[1fr_1.5fr] lg:gap-6">
           {/* Left column: Now Playing, Controls, Panels */}
           <div>
 
-          {/* Now Playing + Playback Controls — unified card */}
-          <div className="mb-4 bg-bg-card border border-border rounded-xl overflow-hidden">
-            {nowPlaying ? (
-              <div className="p-4 flex items-center gap-4 border-b border-border">
-                {nowPlaying.albumArt && (
-                  <img src={nowPlaying.albumArt} alt="" className="w-14 h-14 rounded-lg shadow-md" />
-                )}
-                <div className="flex-1 min-w-0">
-                  <p className="text-[10px] text-accent font-semibold uppercase tracking-widest">Now Playing</p>
-                  <p className="font-semibold truncate mt-0.5">{nowPlaying.trackName}</p>
-                  <p className="text-text-secondary text-sm truncate">{nowPlaying.artistName}</p>
-                </div>
-              </div>
-            ) : (
-              <div className="p-4 border-b border-border text-center text-text-secondary text-sm">
-                No song playing
-              </div>
-            )}
-            {playError && (
-              <div className="px-4 py-2 bg-downvote/10 text-sm text-center text-downvote">
-                {playError}
-              </div>
-            )}
-            <div className="flex">
-              <button
-                onClick={togglePlay}
-                className="flex-1 py-3 text-center font-semibold transition-colors hover:bg-bg-card-hover border-r border-border flex items-center justify-center gap-2"
-              >
-                {isPlaying ? (
-                  <>
-                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                      <rect x="6" y="4" width="4" height="16" rx="1" />
-                      <rect x="14" y="4" width="4" height="16" rx="1" />
-                    </svg>
-                    Pause
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M8 5v14l11-7z" />
-                    </svg>
-                    Play
-                  </>
-                )}
-              </button>
-              <button
-                onClick={skipSong}
-                className="flex-1 py-3 text-center font-semibold transition-colors hover:bg-bg-card-hover flex items-center justify-center gap-2"
-              >
-                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M5 4v16l10-8zm12 0v16h2V4z" />
-                </svg>
-                Skip
-              </button>
+          {/* Play error toast */}
+          {playError && (
+            <div className="mb-3 px-4 py-2 bg-downvote/10 border border-downvote/20 rounded-xl text-sm text-center text-downvote">
+              {playError}
             </div>
-          </div>
+          )}
 
           {/* QR Code / Share panel */}
           {showQR && (
@@ -1615,6 +1565,61 @@ function DashboardInner({ user }: { user: any }) {
 
           </div>
           </div>
+          </div>
+
+          {/* Floating mini-player bar */}
+          <div className="flex-shrink-0 bg-gradient-to-t from-bg-primary via-bg-primary/95 to-transparent pointer-events-none absolute bottom-0 left-0 right-0">
+            <div className="pointer-events-auto mx-3 mb-3 bg-bg-card/95 backdrop-blur-xl border border-white/[0.08] rounded-2xl shadow-2xl overflow-hidden">
+              <div className="flex items-center gap-3 p-2.5 pl-3">
+                {/* Album art */}
+                {nowPlaying?.albumArt ? (
+                  <img src={nowPlaying.albumArt} alt="" className="w-11 h-11 rounded-xl shadow-lg flex-shrink-0" />
+                ) : (
+                  <div className="w-11 h-11 rounded-xl bg-white/[0.06] flex items-center justify-center flex-shrink-0">
+                    <svg className="w-5 h-5 text-white/20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+                    </svg>
+                  </div>
+                )}
+                {/* Track info */}
+                <div className="flex-1 min-w-0">
+                  {nowPlaying ? (
+                    <>
+                      <p className="text-[13px] font-semibold truncate leading-tight">{nowPlaying.trackName}</p>
+                      <p className="text-[11px] text-white/40 truncate mt-0.5">{nowPlaying.artistName}</p>
+                    </>
+                  ) : (
+                    <p className="text-[13px] text-white/30">No song playing</p>
+                  )}
+                </div>
+                {/* Controls */}
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  <button
+                    onClick={togglePlay}
+                    className="w-10 h-10 rounded-xl flex items-center justify-center transition-colors hover:bg-white/[0.08] active:bg-white/[0.12]"
+                  >
+                    {isPlaying ? (
+                      <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
+                        <rect x="6" y="4" width="4" height="16" rx="1" />
+                        <rect x="14" y="4" width="4" height="16" rx="1" />
+                      </svg>
+                    ) : (
+                      <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M8 5v14l11-7z" />
+                      </svg>
+                    )}
+                  </button>
+                  <button
+                    onClick={skipSong}
+                    className="w-10 h-10 rounded-xl flex items-center justify-center transition-colors hover:bg-white/[0.08] active:bg-white/[0.12]"
+                  >
+                    <svg className="w-5 h-5 text-white/60" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M5 4v16l10-8zm12 0v16h2V4z" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </>
       )}
