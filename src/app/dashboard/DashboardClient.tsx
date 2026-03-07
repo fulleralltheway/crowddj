@@ -137,14 +137,27 @@ function DashboardInner({ user }: { user: any }) {
   const [searching, setSearching] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState<{ songId: string; name: string } | null>(null);
   const [skipRemoveConfirm, setSkipRemoveConfirm] = useState(() => {
-    if (typeof window !== "undefined") return localStorage.getItem("skipRemoveConfirm") === "true";
-    return false;
+    if (typeof window === "undefined") return false;
+    const ts = localStorage.getItem("skipRemoveConfirm_ts");
+    if (ts && Date.now() - Number(ts) > 86400000) {
+      localStorage.removeItem("skipRemoveConfirm");
+      localStorage.removeItem("skipRemoveConfirm_ts");
+      return false;
+    }
+    return localStorage.getItem("skipRemoveConfirm") === "true";
   });
   const [confirmReorder, setConfirmReorder] = useState<{ songs: any[]; movedSongId: string } | null>(null);
   const [skipReorderConfirm, setSkipReorderConfirm] = useState(() => {
-    if (typeof window !== "undefined") return localStorage.getItem("skipReorderConfirm") === "true";
-    return false;
+    if (typeof window === "undefined") return false;
+    const ts = localStorage.getItem("skipReorderConfirm_ts");
+    if (ts && Date.now() - Number(ts) > 86400000) {
+      localStorage.removeItem("skipReorderConfirm");
+      localStorage.removeItem("skipReorderConfirm_ts");
+      return false;
+    }
+    return localStorage.getItem("skipReorderConfirm") === "true";
   });
+  const [confirmClose, setConfirmClose] = useState(false);
   const [searchStatus, setSearchStatus] = useState("");
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
@@ -1104,7 +1117,7 @@ function DashboardInner({ user }: { user: any }) {
               />
               <div className="pt-2 border-t border-border">
                 <button
-                  onClick={closeRoom}
+                  onClick={() => setConfirmClose(true)}
                   className="w-full py-2.5 text-downvote text-sm font-medium hover:bg-downvote/10 rounded-xl transition-colors"
                 >
                   Close Room
@@ -1488,6 +1501,7 @@ function DashboardInner({ user }: { user: any }) {
                     onChange={(e) => {
                       setSkipRemoveConfirm(e.target.checked);
                       localStorage.setItem("skipRemoveConfirm", String(e.target.checked));
+                      if (e.target.checked) localStorage.setItem("skipRemoveConfirm_ts", String(Date.now()));
                     }}
                   />
                   <span className="text-text-secondary text-xs">Don&apos;t ask again</span>
@@ -1531,10 +1545,40 @@ function DashboardInner({ user }: { user: any }) {
                     onChange={(e) => {
                       setSkipReorderConfirm(e.target.checked);
                       localStorage.setItem("skipReorderConfirm", String(e.target.checked));
+                      if (e.target.checked) localStorage.setItem("skipReorderConfirm_ts", String(Date.now()));
                     }}
                   />
                   <span className="text-text-secondary text-xs">Don&apos;t ask again</span>
                 </label>
+              </div>
+            </div>
+          )}
+
+          {/* Close room confirmation modal */}
+          {confirmClose && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-6">
+              <div className="bg-bg-card border border-border rounded-2xl p-6 max-w-sm w-full space-y-4">
+                <p className="font-semibold text-center">Close this room?</p>
+                <p className="text-text-secondary text-sm text-center">
+                  This will end the session for all guests. This action cannot be undone.
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setConfirmClose(false)}
+                    className="flex-1 py-2.5 bg-bg-card-hover border border-border rounded-xl text-sm font-medium transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => {
+                      setConfirmClose(false);
+                      closeRoom();
+                    }}
+                    className="flex-1 py-2.5 bg-downvote text-white rounded-xl text-sm font-semibold transition-colors"
+                  >
+                    Close Room
+                  </button>
+                </div>
               </div>
             </div>
           )}

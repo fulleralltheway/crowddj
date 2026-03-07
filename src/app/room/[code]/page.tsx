@@ -77,8 +77,8 @@ function saveGuestId(code: string, id: string) {
 export default function RoomPage({ params }: { params: Promise<{ code: string }> }) {
   const { code } = use(params);
   const savedName = getSavedGuestName(code);
-  // Single status: "loading" | "need_name" | "ready" — prevents any flash between states
-  const [pageStatus, setPageStatus] = useState<"loading" | "need_name" | "ready">(savedName ? "ready" : "loading");
+  // Single status: "loading" | "need_name" | "welcome" | "ready" — prevents any flash between states
+  const [pageStatus, setPageStatus] = useState<"loading" | "need_name" | "welcome" | "ready">(savedName ? "ready" : "loading");
   const [room, setRoom] = useState<Room | null>(null);
   const [songs, setSongs] = useState<Song[]>([]);
   const [fingerprint, setFingerprint] = useState("");
@@ -466,8 +466,9 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     const trimmed = nameInput.trim();
     if (!trimmed) return;
     setGuestName(trimmed);
-    setPageStatus("ready");
+    setPageStatus("welcome");
     saveGuestName(code, trimmed);
+    setTimeout(() => setPageStatus("ready"), 2000);
     // Re-register guest with name
     if (fingerprint) {
       const res = await fetch(`/api/rooms/${code}/guest`, {
@@ -516,6 +517,24 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     );
   }
 
+  if (pageStatus === "welcome") {
+    const firstName = guestName.split(" ")[0];
+    return (
+      <div className="min-h-dvh flex items-center justify-center px-4">
+        <div className="text-center space-y-3 animate-[fadeIn_0.4s_ease-out]">
+          <p className="text-4xl">🎵</p>
+          <h1 className="text-2xl font-bold">Welcome, {firstName}!</h1>
+          <p className="text-text-secondary text-sm">
+            You&apos;re in <span className="text-white font-medium">{room.name}</span>
+          </p>
+          <div className="pt-2">
+            <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin mx-auto" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const votesRemaining = Math.max(0, room.votesPerUser - votesUsed);
   const outOfVotes = votesRemaining === 0;
   const nowPlaying = songs.find((s) => s.isPlaying);
@@ -545,6 +564,13 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       <div className="sticky top-0 z-10 bg-bg-primary/80 backdrop-blur-xl border-b border-border px-4 py-3">
         <div className="flex items-center justify-between mb-2">
           <div className="min-w-0 flex-1">
+            <p className="text-accent text-xs font-medium">
+              {(() => {
+                const h = new Date().getHours();
+                const greeting = h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
+                return `${greeting}, ${guestName.split(" ")[0]}`;
+              })()}
+            </p>
             <h1 className="font-bold text-lg truncate">{room.name}</h1>
             <p className="text-text-secondary text-xs">
               Hosted by {room.host.name} &middot; {room.code}
