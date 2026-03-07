@@ -34,16 +34,22 @@ type Room = {
   host: { name: string; image: string | null };
 };
 
+function getSavedGuestName(code: string): string {
+  if (typeof window === "undefined") return "";
+  try { return localStorage.getItem(`crowddj_name_${code}`) || ""; } catch { return ""; }
+}
+
 export default function RoomPage({ params }: { params: Promise<{ code: string }> }) {
   const { code } = use(params);
+  const savedName = getSavedGuestName(code);
   const [room, setRoom] = useState<Room | null>(null);
   const [songs, setSongs] = useState<Song[]>([]);
   const [fingerprint, setFingerprint] = useState("");
   const [guestId, setGuestId] = useState("");
-  const [guestName, setGuestName] = useState("");
+  const [guestName, setGuestName] = useState(savedName);
   const [nameInput, setNameInput] = useState("");
-  const [nameSubmitted, setNameSubmitted] = useState(false);
-  const [guestLoading, setGuestLoading] = useState(true);
+  const [nameSubmitted, setNameSubmitted] = useState(!!savedName);
+  const [guestLoading, setGuestLoading] = useState(!savedName);
   const [votesUsed, setVotesUsed] = useState(0);
   const [error, setError] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -113,6 +119,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
           if (data.name) {
             setGuestName(data.name);
             setNameSubmitted(true);
+            try { localStorage.setItem(`crowddj_name_${code}`, data.name); } catch {}
           }
         }
       } catch {
@@ -419,6 +426,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     if (!trimmed) return;
     setGuestName(trimmed);
     setNameSubmitted(true);
+    try { localStorage.setItem(`crowddj_name_${code}`, trimmed); } catch {}
     // Re-register guest with name
     if (fingerprint) {
       const res = await fetch(`/api/rooms/${code}/guest`, {
