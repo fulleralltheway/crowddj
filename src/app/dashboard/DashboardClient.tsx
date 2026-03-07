@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, Component, type ReactNode } from "react";
+import { useAutoAnimate } from "@formkit/auto-animate/react";
 import { QRCodeSVG } from "qrcode.react";
 
 class DashboardErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
@@ -153,6 +154,7 @@ function DashboardInner({ user }: { user: any }) {
   const [selectedGuest, setSelectedGuest] = useState<any>(null);
   const [expandedGuestSection, setExpandedGuestSection] = useState<string | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
+  const [songListRef] = useAutoAnimate({ duration: 300 });
 
   // Create room form state
   const [roomName, setRoomName] = useState("");
@@ -1290,7 +1292,7 @@ function DashboardInner({ user }: { user: any }) {
 
           {/* Song Queue */}
           <h3 className="text-lg font-semibold mb-3">Queue</h3>
-          <div className="space-y-2 pb-8">
+          <div ref={dragIdx === null ? songListRef : undefined} className="space-y-2 pb-8">
             {(() => {
               const queueSongs = activeRoom.songs?.filter((s: any) => !s.isPlaying) || [];
               // Build display order: if dragging, show reordered preview
