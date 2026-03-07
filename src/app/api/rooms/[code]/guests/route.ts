@@ -25,51 +25,72 @@ export async function GET(
       orderBy: { createdAt: "asc" },
       include: {
         votes: {
-          select: { value: true, song: { select: { trackName: true, artistName: true } } },
+          select: {
+            value: true,
+            song: { select: { trackName: true, artistName: true, albumArt: true } },
+          },
         },
       },
     });
 
-    // Count song requests per guest fingerprint
-    const requests = await prisma.songRequest.findMany({
+    // Song requests per guest fingerprint (with full details)
+    const allRequests = await prisma.songRequest.findMany({
       where: { roomId: room.id },
-      select: { requestedBy: true, status: true },
+      select: { requestedBy: true, status: true, trackName: true, artistName: true, albumArt: true },
     });
-    const requestsByFp = new Map<string, { total: number; approved: number }>();
-    for (const r of requests) {
-      const entry = requestsByFp.get(r.requestedBy) || { total: 0, approved: 0 };
-      entry.total++;
-      if (r.status === "approved") entry.approved++;
-      requestsByFp.set(r.requestedBy, entry);
+    const requestsByFp = new Map<string, typeof allRequests>();
+    for (const r of allRequests) {
+      const arr = requestsByFp.get(r.requestedBy) || [];
+      arr.push(r);
+      requestsByFp.set(r.requestedBy, arr);
     }
 
-    // Count songs added directly (approved or no-approval-needed)
+    // Songs added directly per guest fingerprint
     const addedSongs = await prisma.roomSong.findMany({
       where: { roomId: room.id, addedBy: { not: null } },
-      select: { addedBy: true },
+      select: { addedBy: true, trackName: true, artistName: true, albumArt: true },
     });
-    const addedByFp = new Map<string, number>();
+    const addedByFp = new Map<string, typeof addedSongs>();
     for (const s of addedSongs) {
-      if (s.addedBy) addedByFp.set(s.addedBy, (addedByFp.get(s.addedBy) || 0) + 1);
+      if (s.addedBy) {
+        const arr = addedByFp.get(s.addedBy) || [];
+        arr.push(s);
+        addedByFp.set(s.addedBy, arr);
+      }
     }
 
     const detailed = guests.map((g) => {
-      const upvotes = g.votes.filter((v) => v.value === 1);
-      const downvotes = g.votes.filter((v) => v.value === -1);
-      const reqs = requestsByFp.get(g.fingerprint) || { total: 0, approved: 0 };
+      const currentUpvotes = g.votes.filter((v) => v.value === 1);
+      const currentDownvotes = g.votes.filter((v) => v.value === -1);
+      const guestRequests = requestsByFp.get(g.fingerprint) || [];
+      const guestAdded = addedByFp.get(g.fingerprint) || [];
       return {
         id: g.id,
         name: g.name,
         joinedAt: g.createdAt,
-        totalVotes: g.votes.length,
-        upvotes: upvotes.length,
-        downvotes: downvotes.length,
-        songsRequested: reqs.total,
-        songsAdded: addedByFp.get(g.fingerprint) || 0,
-        votedSongs: g.votes.slice(0, 20).map((v) => ({
+        // Lifetime counters (survive vote resets)
+        totalUpvotes: g.totalUpvotes + currentUpvotes.length,
+        totalDownvotes: g.totalDownvotes + currentDownvotes.length,
+        totalVotes: g.totalUpvotes + g.totalDownvotes + g.votes.length,
+        // Current active votes (songs they've voted on right now)
+        activeVotes: g.votes.map((v) => ({
           trackName: v.song.trackName,
           artistName: v.song.artistName,
+          albumArt: v.song.albumArt,
           value: v.value,
+        })),
+        // Songs they requested
+        requests: guestRequests.map((r) => ({
+          trackName: r.trackName,
+          artistName: r.artistName,
+          albumArt: r.albumArt,
+          status: r.status,
+        })),
+        // Songs they added to the queue
+        songsAdded: guestAdded.map((s) => ({
+          trackName: s.trackName,
+          artistName: s.artistName,
+          albumArt: s.albumArt,
         })),
       };
     });

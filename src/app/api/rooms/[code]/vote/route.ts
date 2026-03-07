@@ -84,7 +84,10 @@ export async function POST(
     });
     await prisma.guest.update({
       where: { id: guest.id },
-      data: { votesUsed: { increment: 1 } },
+      data: {
+        votesUsed: { increment: 1 },
+        ...(value === 1 ? { totalUpvotes: { increment: 1 } } : { totalDownvotes: { increment: 1 } }),
+      },
     });
   }
 

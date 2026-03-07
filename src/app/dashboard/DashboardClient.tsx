@@ -888,42 +888,88 @@ function DashboardInner({ user }: { user: any }) {
                   <div className="grid grid-cols-3 gap-2 mb-4">
                     <div className="bg-bg-primary rounded-lg p-2 text-center">
                       <p className="text-lg font-bold text-accent">{selectedGuest.totalVotes}</p>
-                      <p className="text-[10px] text-text-secondary">Votes</p>
+                      <p className="text-[10px] text-text-secondary">Total Votes</p>
                     </div>
                     <div className="bg-bg-primary rounded-lg p-2 text-center">
-                      <p className="text-lg font-bold text-upvote">{selectedGuest.upvotes}</p>
+                      <p className="text-lg font-bold text-upvote">{selectedGuest.totalUpvotes}</p>
                       <p className="text-[10px] text-text-secondary">Upvotes</p>
                     </div>
                     <div className="bg-bg-primary rounded-lg p-2 text-center">
-                      <p className="text-lg font-bold text-downvote">{selectedGuest.downvotes}</p>
+                      <p className="text-lg font-bold text-downvote">{selectedGuest.totalDownvotes}</p>
                       <p className="text-[10px] text-text-secondary">Downvotes</p>
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-2 mb-4">
-                    <div className="bg-bg-primary rounded-lg p-2 text-center">
-                      <p className="text-lg font-bold">{selectedGuest.songsAdded}</p>
-                      <p className="text-[10px] text-text-secondary">Songs Added</p>
-                    </div>
-                    <div className="bg-bg-primary rounded-lg p-2 text-center">
-                      <p className="text-lg font-bold">{selectedGuest.songsRequested}</p>
-                      <p className="text-[10px] text-text-secondary">Requests</p>
-                    </div>
-                  </div>
-                  {selectedGuest.votedSongs?.length > 0 && (
-                    <div>
-                      <p className="text-xs font-semibold text-text-secondary mb-2">Recent Votes</p>
-                      <div className="space-y-1 max-h-48 overflow-y-auto">
-                        {selectedGuest.votedSongs.map((v: any, i: number) => (
-                          <div key={i} className="flex items-center gap-2 text-xs py-1">
-                            <span className={v.value === 1 ? "text-upvote" : "text-downvote"}>
+
+                  {/* Active Votes (current period) */}
+                  {selectedGuest.activeVotes?.length > 0 && (
+                    <details className="mb-3">
+                      <summary className="text-xs font-semibold text-text-secondary cursor-pointer hover:text-white py-1">
+                        Active Votes ({selectedGuest.activeVotes.length})
+                      </summary>
+                      <div className="mt-2 space-y-1 max-h-48 overflow-y-auto">
+                        {selectedGuest.activeVotes.map((v: any, i: number) => (
+                          <div key={i} className="flex items-center gap-2 py-1.5 px-2 rounded-lg bg-bg-primary">
+                            <span className={`text-sm ${v.value === 1 ? "text-upvote" : "text-downvote"}`}>
                               {v.value === 1 ? "▲" : "▼"}
                             </span>
-                            <span className="truncate">{v.trackName}</span>
-                            <span className="text-text-secondary truncate flex-shrink-0">{v.artistName}</span>
+                            {v.albumArt && <img src={v.albumArt} alt="" className="w-7 h-7 rounded" />}
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-medium truncate">{v.trackName}</p>
+                              <p className="text-[10px] text-text-secondary truncate">{v.artistName}</p>
+                            </div>
                           </div>
                         ))}
                       </div>
-                    </div>
+                    </details>
+                  )}
+
+                  {/* Songs Added */}
+                  {selectedGuest.songsAdded?.length > 0 && (
+                    <details className="mb-3">
+                      <summary className="text-xs font-semibold text-text-secondary cursor-pointer hover:text-white py-1">
+                        Songs Added ({selectedGuest.songsAdded.length})
+                      </summary>
+                      <div className="mt-2 space-y-1 max-h-48 overflow-y-auto">
+                        {selectedGuest.songsAdded.map((s: any, i: number) => (
+                          <div key={i} className="flex items-center gap-2 py-1.5 px-2 rounded-lg bg-bg-primary">
+                            {s.albumArt && <img src={s.albumArt} alt="" className="w-7 h-7 rounded" />}
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-medium truncate">{s.trackName}</p>
+                              <p className="text-[10px] text-text-secondary truncate">{s.artistName}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  )}
+
+                  {/* Song Requests */}
+                  {selectedGuest.requests?.length > 0 && (
+                    <details className="mb-3">
+                      <summary className="text-xs font-semibold text-text-secondary cursor-pointer hover:text-white py-1">
+                        Requests ({selectedGuest.requests.length})
+                      </summary>
+                      <div className="mt-2 space-y-1 max-h-48 overflow-y-auto">
+                        {selectedGuest.requests.map((r: any, i: number) => (
+                          <div key={i} className="flex items-center gap-2 py-1.5 px-2 rounded-lg bg-bg-primary">
+                            {r.albumArt && <img src={r.albumArt} alt="" className="w-7 h-7 rounded" />}
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-medium truncate">{r.trackName}</p>
+                              <p className="text-[10px] text-text-secondary truncate">{r.artistName}</p>
+                            </div>
+                            <span className={`text-[10px] font-medium flex-shrink-0 ${
+                              r.status === "approved" ? "text-upvote" : r.status === "rejected" ? "text-downvote" : "text-yellow-500"
+                            }`}>
+                              {r.status}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  )}
+
+                  {selectedGuest.activeVotes?.length === 0 && selectedGuest.songsAdded?.length === 0 && selectedGuest.requests?.length === 0 && (
+                    <p className="text-text-secondary text-xs text-center py-2">No activity yet</p>
                   )}
                 </div>
               ) : (
@@ -941,7 +987,8 @@ function DashboardInner({ user }: { user: any }) {
                           <p className="text-sm font-medium truncate">{g.name || "Anonymous"}</p>
                           <p className="text-text-secondary text-[10px]">
                             {g.totalVotes} vote{g.totalVotes !== 1 ? "s" : ""}
-                            {g.songsAdded > 0 && ` · ${g.songsAdded} added`}
+                            {g.songsAdded?.length > 0 && ` · ${g.songsAdded.length} added`}
+                            {g.requests?.length > 0 && ` · ${g.requests.length} req`}
                           </p>
                         </div>
                         <svg className="w-4 h-4 text-text-secondary flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">

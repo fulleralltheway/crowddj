@@ -94,15 +94,17 @@ model RoomSong {
 }
 
 model Guest {
-  id            String   @id @default(cuid())
-  roomId        String
-  room          Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
-  fingerprint   String
-  name          String   @default("")
-  votesUsed     Int      @default(0)
-  lastVoteReset DateTime @default(now())
-  createdAt     DateTime @default(now())
-  votes         Vote[]
+  id             String   @id @default(cuid())
+  roomId         String
+  room           Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  fingerprint    String
+  name           String   @default("")
+  votesUsed      Int      @default(0)
+  lastVoteReset  DateTime @default(now())
+  totalUpvotes   Int      @default(0)
+  totalDownvotes Int      @default(0)
+  createdAt      DateTime @default(now())
+  votes          Vote[]
 
   @@unique([roomId, fingerprint])
 }
