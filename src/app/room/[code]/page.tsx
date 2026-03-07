@@ -111,6 +111,11 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const postVoteSyncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [songListRef] = useAutoAnimate({ duration: 300 });
   const knownApproved = useRef<Set<string>>(new Set());
+  const [pullRefreshing, setPullRefreshing] = useState(false);
+  const [pullDistance, setPullDistance] = useState(0);
+  const pullStartY = useRef(0);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const PULL_THRESHOLD = 60;
 
   const applySongs = useCallback((data: Song[]) => {
     setSongs(data);
@@ -719,7 +724,53 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       )}
 
       {/* Scrollable content area */}
-      <div className="flex-1 overflow-y-auto overscroll-contain">
+      <div
+        ref={scrollRef}
+        className="flex-1 overflow-y-auto overscroll-contain"
+        onTouchStart={(e) => {
+          if (scrollRef.current && scrollRef.current.scrollTop <= 0) {
+            pullStartY.current = e.touches[0].clientY;
+          } else {
+            pullStartY.current = 0;
+          }
+        }}
+        onTouchMove={(e) => {
+          if (!pullStartY.current || pullRefreshing) return;
+          const delta = e.touches[0].clientY - pullStartY.current;
+          if (delta > 0 && scrollRef.current && scrollRef.current.scrollTop <= 0) {
+            setPullDistance(Math.min(delta * 0.5, 80));
+          } else {
+            setPullDistance(0);
+          }
+        }}
+        onTouchEnd={() => {
+          if (pullDistance >= PULL_THRESHOLD && !pullRefreshing) {
+            setPullRefreshing(true);
+            setPullDistance(PULL_THRESHOLD);
+            fetchSongs().finally(() => {
+              setPullRefreshing(false);
+              setPullDistance(0);
+            });
+          } else {
+            setPullDistance(0);
+          }
+          pullStartY.current = 0;
+        }}
+      >
+      {/* Pull-to-refresh indicator */}
+      {pullDistance > 0 && (
+        <div className="flex justify-center py-2" style={{ height: pullDistance }}>
+          <div className={`text-accent text-xs font-medium flex items-center gap-2 ${pullRefreshing ? "animate-pulse" : ""}`}>
+            {pullRefreshing ? (
+              <><div className="w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" /> Refreshing...</>
+            ) : pullDistance >= PULL_THRESHOLD ? (
+              "Release to refresh"
+            ) : (
+              "Pull to refresh"
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Search results dropdown */}
       {showSearch && searchQuery.trim() && (() => {
