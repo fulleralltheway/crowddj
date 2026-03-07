@@ -72,8 +72,7 @@ function NumInput({ label, value, min, max, onSave }: { label: string; value: nu
         inputMode="numeric"
         value={local}
         onChange={(e) => {
-          const raw = e.target.value.replace(/[^0-9]/g, "");
-          setLocal(raw === "" ? "" : String(Number(raw)));
+          setLocal(e.target.value.replace(/[^0-9]/g, ""));
         }}
         onBlur={() => {
           const num = Number(local) || 0;
@@ -640,11 +639,14 @@ function DashboardInner({ user }: { user: any }) {
                 Votes per User
               </label>
               <input
-                type="number"
-                min={1}
-                max={50}
+                type="text"
+                inputMode="numeric"
                 value={votesPerUser}
-                onChange={(e) => setVotesPerUser(Number(e.target.value))}
+                onChange={(e) => {
+                  const raw = e.target.value.replace(/[^0-9]/g, "");
+                  setVotesPerUser(raw === "" ? 0 : Number(raw));
+                }}
+                onFocus={(e) => e.target.select()}
                 className="w-full px-4 py-3 bg-bg-card border border-border rounded-xl focus:outline-none focus:border-accent"
               />
             </div>
@@ -653,11 +655,14 @@ function DashboardInner({ user }: { user: any }) {
                 Vote Reset (min)
               </label>
               <input
-                type="number"
-                min={5}
-                max={1440}
+                type="text"
+                inputMode="numeric"
                 value={voteResetMinutes}
-                onChange={(e) => setVoteResetMinutes(Number(e.target.value))}
+                onChange={(e) => {
+                  const raw = e.target.value.replace(/[^0-9]/g, "");
+                  setVoteResetMinutes(raw === "" ? 0 : Number(raw));
+                }}
+                onFocus={(e) => e.target.select()}
                 className="w-full px-4 py-3 bg-bg-card border border-border rounded-xl focus:outline-none focus:border-accent"
               />
             </div>
