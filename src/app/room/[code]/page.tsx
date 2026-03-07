@@ -575,17 +575,18 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
 
       {/* Header */}
       <div className="relative z-10">
-      <div className="bg-gradient-to-b from-bg-card/90 to-bg-primary/80 backdrop-blur-xl border-b border-white/[0.06] px-4 pt-4 pb-3">
-        {/* Top row: greeting + actions */}
-        <div className="flex items-center justify-between mb-3">
-          <p className="text-white/50 text-[11px] font-medium tracking-wide">
-            {(() => {
-              const h = new Date().getHours();
-              const greeting = h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
-              return `${greeting}, ${guestName.split(" ")[0]}`;
-            })()}
-          </p>
-          <div className="flex items-center gap-2">
+      <div className="backdrop-blur-xl px-4 pt-3 pb-3">
+        {/* Room name + vote badge row */}
+        <div className="flex items-center justify-between mb-2.5">
+          <div className="min-w-0 flex-1 mr-3">
+            <h1 className="font-bold text-[17px] tracking-tight truncate leading-snug">{room.name}</h1>
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <span className="text-white/30 text-[11px]">{room.host.name}</span>
+              <span className="inline-block w-[3px] h-[3px] rounded-full bg-white/20" />
+              <span className="font-mono text-white/35 text-[11px]">{room.code}</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
             <button
               onClick={() => {
                 if (notificationsEnabled) {
@@ -596,55 +597,36 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                   setShowNotifGuide(true);
                 }
               }}
-              className={`p-2 rounded-xl transition-colors ${
+              className={`p-1.5 rounded-lg transition-colors ${
                 notificationsEnabled
-                  ? "text-accent bg-accent/10"
-                  : "text-white/40 hover:text-white/70 hover:bg-white/5"
+                  ? "text-accent"
+                  : "text-white/25 hover:text-white/50"
               }`}
               title={notificationsEnabled ? "Notifications on" : "Enable notifications"}
             >
               <div className="relative">
-                <svg className="w-[18px] h-[18px]" fill={notificationsEnabled ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-[17px] h-[17px]" fill={notificationsEnabled ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
                 </svg>
                 {notificationsEnabled && (
-                  <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-accent rounded-full ring-2 ring-bg-card/90" />
+                  <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-accent rounded-full" />
                 )}
               </div>
             </button>
-          </div>
-        </div>
-        {/* Room info row */}
-        <div className="flex items-end justify-between mb-3">
-          <div className="min-w-0 flex-1 mr-3">
-            <h1 className="font-bold text-xl tracking-tight truncate leading-tight">{room.name}</h1>
-            <p className="text-white/35 text-[11px] mt-0.5 flex items-center gap-1.5">
-              <span>{room.host.name}</span>
-              <span className="inline-block w-[3px] h-[3px] rounded-full bg-white/25" />
-              <span className="font-mono text-white/45">{room.code}</span>
-            </p>
-          </div>
-          <div className="flex-shrink-0">
             {room.votingPaused ? (
-              <div className="px-3 py-1.5 bg-yellow-500/10 border border-yellow-500/20 rounded-full">
-                <span className="text-yellow-400 text-[11px] font-semibold">Paused</span>
-              </div>
+              <span className="text-yellow-400/80 text-[11px] font-semibold bg-yellow-500/8 px-2.5 py-1 rounded-lg">Paused</span>
             ) : outOfVotes ? (
               <div className="text-right">
-                <div className="px-3 py-1.5 bg-downvote/10 border border-downvote/20 rounded-full">
-                  <span className="text-downvote text-[11px] font-semibold tabular-nums">0 / {room.votesPerUser}</span>
-                </div>
+                <span className="text-downvote/80 text-[11px] font-semibold tabular-nums bg-downvote/8 px-2.5 py-1 rounded-lg">0/{room.votesPerUser}</span>
                 {resetCountdown && (
-                  <p className="text-white/30 text-[10px] mt-1 tabular-nums">{resetCountdown}</p>
+                  <p className="text-white/20 text-[9px] mt-0.5 tabular-nums text-center">{resetCountdown}</p>
                 )}
               </div>
             ) : (
               <div className="text-right">
-                <div className="px-3 py-1.5 bg-accent/10 border border-accent/20 rounded-full">
-                  <span className="text-accent text-[11px] font-semibold tabular-nums">{votesRemaining} / {room.votesPerUser}</span>
-                </div>
+                <span className="text-accent/90 text-[11px] font-semibold tabular-nums bg-accent/8 px-2.5 py-1 rounded-lg">{votesRemaining}/{room.votesPerUser}</span>
                 {resetCountdown && (
-                  <p className="text-white/30 text-[10px] mt-1 tabular-nums">{resetCountdown}</p>
+                  <p className="text-white/20 text-[9px] mt-0.5 tabular-nums text-center">{resetCountdown}</p>
                 )}
               </div>
             )}
@@ -653,29 +635,20 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
 
         {/* Notification / Add to Home Screen guide */}
         {showNotifGuide && (
-          <div className="mx-0 mb-2 p-3 bg-accent/5 border border-accent/20 rounded-xl">
+          <div className="mb-2.5 p-3 bg-white/[0.03] border border-white/[0.06] rounded-xl">
             <div className="flex items-start justify-between gap-2">
               <div className="flex-1">
-                <p className="text-sm font-semibold text-accent mb-1">Get Notifications</p>
-                <p className="text-xs text-text-secondary mb-2">
-                  Add this page to your home screen for the best experience with real-time notifications.
+                <p className="text-[13px] font-semibold text-accent mb-1">Get Notifications</p>
+                <p className="text-[11px] text-white/40 mb-2">
+                  Add this page to your home screen for real-time notifications.
                 </p>
-                <div className="space-y-1.5 text-xs text-text-secondary">
-                  <div className="flex items-start gap-2">
-                    <span className="text-accent font-bold mt-px">1</span>
-                    <p>Tap the <span className="inline-flex items-center"><svg className="w-3.5 h-3.5 inline mx-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg></span> <strong>Share</strong> button in your browser</p>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <span className="text-accent font-bold mt-px">2</span>
-                    <p>Select <strong>&quot;Add to Home Screen&quot;</strong></p>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <span className="text-accent font-bold mt-px">3</span>
-                    <p>Open from your home screen to get notified when your songs are approved!</p>
-                  </div>
+                <div className="space-y-1 text-[11px] text-white/40">
+                  <p><span className="text-accent font-semibold">1.</span> Tap Share <svg className="w-3 h-3 inline mx-0.5 -mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg> in your browser</p>
+                  <p><span className="text-accent font-semibold">2.</span> Select &quot;Add to Home Screen&quot;</p>
+                  <p><span className="text-accent font-semibold">3.</span> Open from home screen</p>
                 </div>
               </div>
-              <button onClick={() => setShowNotifGuide(false)} className="text-text-secondary hover:text-white p-0.5 flex-shrink-0">
+              <button onClick={() => setShowNotifGuide(false)} className="text-white/20 hover:text-white/50 p-0.5 flex-shrink-0">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
@@ -684,9 +657,9 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
           </div>
         )}
 
-        {/* Persistent search bar */}
+        {/* Search bar */}
         <div className="relative">
-          <svg className="w-4 h-4 text-white/30 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-4 h-4 text-white/20 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
           <input
@@ -698,7 +671,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
             }}
             onFocus={() => { if (searchQuery.trim()) setShowSearch(true); }}
             placeholder="Search or add songs..."
-            className="w-full pl-10 pr-9 py-2.5 bg-white/[0.06] border border-white/[0.08] rounded-2xl text-sm placeholder:text-white/25 focus:outline-none focus:border-accent/40 focus:bg-white/[0.08] transition-colors"
+            className="w-full pl-9 pr-9 py-2 bg-white/[0.04] border border-white/[0.06] rounded-xl text-[13px] placeholder:text-white/20 focus:outline-none focus:border-accent/30 focus:bg-white/[0.06] transition-colors"
           />
           {(searchQuery || showSearch) && (
             <button
@@ -707,7 +680,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                 setSearchResults([]);
                 setShowSearch(false);
               }}
-              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-text-secondary hover:text-white transition-colors"
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-white/25 hover:text-white/50 transition-colors"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -715,7 +688,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
             </button>
           )}
           {searching && !searchQuery && (
-            <div className="absolute right-3 top-1/2 -translate-y-1/2 text-text-secondary text-xs">...</div>
+            <div className="absolute right-3 top-1/2 -translate-y-1/2 text-white/25 text-xs">...</div>
           )}
         </div>
       </div>
@@ -912,13 +885,13 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       )}
 
       {/* Song List */}
-      <div className="flex items-center justify-between px-4 pt-4 pb-2">
-        <p className="text-white/40 text-[11px] font-semibold uppercase tracking-widest">Up Next</p>
-        <p className="text-white/25 text-[10px] tracking-wide">
+      <div className="flex items-center justify-between px-4 pt-3 pb-1.5">
+        <p className="text-white/25 text-[10px] font-medium uppercase tracking-widest">Up Next</p>
+        <p className="text-white/15 text-[10px]">
           {room.autoShuffle ? "Sorted by votes" : "DJ-ordered"}
         </p>
       </div>
-      <div ref={songListRef} className="flex-1 px-4 py-1 space-y-2 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0 pb-8">
+      <div ref={songListRef} className="flex-1 px-3 py-0.5 space-y-1.5 lg:grid lg:grid-cols-2 lg:gap-2 lg:space-y-0 pb-8">
         {songs.filter(s => !s.isPlaying).map((song, i) => {
           const myVotes = song.votes?.filter((v) => v.guestId === guestId) || [];
           const myUpvotes = myVotes.filter((v) => v.value === 1).length;
@@ -927,61 +900,51 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
           return (
             <div
               key={song.id}
-              className={`song-card flex items-center gap-3 p-3 rounded-xl border ${
+              className={`song-card flex items-center gap-3 px-3 py-2.5 rounded-xl ${
                 song.isLocked
-                  ? "bg-yellow-500/5 border-yellow-500/30"
-                  : "bg-bg-card border-border"
+                  ? "bg-white/[0.03] border border-yellow-500/15"
+                  : "bg-white/[0.03]"
               }`}
             >
-              <div className="w-6 text-center flex-shrink-0">
+              <div className="w-5 text-center flex-shrink-0">
                 {song.isLocked ? (
-                  <span className="text-yellow-500 text-sm">{"\u{1F512}"}</span>
+                  <svg className="w-3.5 h-3.5 text-yellow-500/50 mx-auto" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M12 2C9.24 2 7 4.24 7 7v3H6a2 2 0 00-2 2v8a2 2 0 002 2h12a2 2 0 002-2v-8a2 2 0 00-2-2h-1V7c0-2.76-2.24-5-5-5zm0 2c1.66 0 3 1.34 3 3v3H9V7c0-1.66 1.34-3 3-3z" />
+                  </svg>
                 ) : (
-                  <span className="text-text-secondary text-sm">{i + 1}</span>
+                  <span className="text-white/20 text-[12px] font-medium tabular-nums">{i + 1}</span>
                 )}
               </div>
 
               {song.albumArt && (
-                <img src={song.albumArt} alt="" className="w-11 h-11 rounded-lg flex-shrink-0" />
+                <img src={song.albumArt} alt="" className="w-10 h-10 rounded-lg flex-shrink-0" />
               )}
 
               <div className="flex-1 min-w-0">
-                <p className="font-medium text-sm truncate">{song.trackName}</p>
-                <p className="text-text-secondary text-xs truncate">{song.artistName}</p>
+                <p className="font-medium text-[13px] truncate leading-tight">{song.trackName}</p>
+                <p className="text-white/30 text-[11px] truncate mt-0.5">{song.artistName}</p>
               </div>
 
               {!song.isLocked && (
-                <div className="flex items-center gap-1 flex-shrink-0">
+                <div className="flex items-center gap-0 flex-shrink-0">
                   <button
                     onClick={() => vote(song.id, 1)}
-                    className={`vote-btn p-2 rounded-lg hover:bg-upvote/10 relative ${
-                      myUpvotes > 0 ? "bg-upvote/10" : ""
+                    className={`vote-btn p-1.5 rounded-lg transition-colors relative ${
+                      myUpvotes > 0 ? "text-upvote" : "text-white/20 active:text-upvote"
                     }`}
                   >
-                    <svg
-                      className={`w-4 h-4 ${
-                        myUpvotes > 0 ? "text-upvote" : "text-text-secondary"
-                      }`}
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 15l7-7 7 7" />
                     </svg>
-                    {myUpvotes > 0 && (
-                      <span className="absolute -top-1 -right-1 w-4 h-4 bg-upvote text-black text-[10px] font-bold rounded-full flex items-center justify-center">
-                        {myUpvotes}
-                      </span>
-                    )}
                   </button>
 
                   <span
-                    className={`text-sm font-medium min-w-[1.5rem] text-center ${
+                    className={`text-[12px] font-semibold min-w-[1.5rem] text-center tabular-nums ${
                       song.netScore > 0
                         ? "text-upvote"
                         : song.netScore < 0
                         ? "text-downvote"
-                        : "text-text-secondary"
+                        : "text-white/20"
                     }`}
                   >
                     {song.netScore}
@@ -989,25 +952,13 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
 
                   <button
                     onClick={() => vote(song.id, -1)}
-                    className={`vote-btn p-2 rounded-lg hover:bg-downvote/10 relative ${
-                      myDownvotes > 0 ? "bg-downvote/10" : ""
+                    className={`vote-btn p-1.5 rounded-lg transition-colors relative ${
+                      myDownvotes > 0 ? "text-downvote" : "text-white/20 active:text-downvote"
                     }`}
                   >
-                    <svg
-                      className={`w-4 h-4 ${
-                        myDownvotes > 0 ? "text-downvote" : "text-text-secondary"
-                      }`}
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
                     </svg>
-                    {myDownvotes > 0 && (
-                      <span className="absolute -top-1 -right-1 w-4 h-4 bg-downvote text-white text-[10px] font-bold rounded-full flex items-center justify-center">
-                        {myDownvotes}
-                      </span>
-                    )}
                   </button>
                 </div>
               )}
