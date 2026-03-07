@@ -34,9 +34,30 @@ type Room = {
   host: { name: string; image: string | null };
 };
 
+function getCookie(name: string): string {
+  if (typeof document === "undefined") return "";
+  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : "";
+}
+
+function setCookie(name: string, value: string, days = 365) {
+  if (typeof document === "undefined") return;
+  const expires = new Date(Date.now() + days * 864e5).toUTCString();
+  document.cookie = `${name}=${encodeURIComponent(value)};expires=${expires};path=/;SameSite=Lax`;
+}
+
 function getSavedGuestName(code: string): string {
   if (typeof window === "undefined") return "";
-  try { return localStorage.getItem(`crowddj_name_${code}`) || ""; } catch { return ""; }
+  try {
+    return localStorage.getItem(`crowddj_name_${code}`) || getCookie(`crowddj_name_${code}`) || "";
+  } catch {
+    return getCookie(`crowddj_name_${code}`);
+  }
+}
+
+function saveGuestName(code: string, name: string) {
+  try { localStorage.setItem(`crowddj_name_${code}`, name); } catch {}
+  setCookie(`crowddj_name_${code}`, name);
 }
 
 export default function RoomPage({ params }: { params: Promise<{ code: string }> }) {
@@ -117,7 +138,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         setLastVoteReset(new Date(guestData.lastVoteReset).getTime());
         if (guestData.name) {
           setGuestName(guestData.name);
-          try { localStorage.setItem(`crowddj_name_${code}`, guestData.name); } catch {}
+          saveGuestName(code, guestData.name);
           // Single state flip: loading → ready (never passes through need_name)
           setPageStatus("ready");
           return;
@@ -425,7 +446,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     if (!trimmed) return;
     setGuestName(trimmed);
     setPageStatus("ready");
-    try { localStorage.setItem(`crowddj_name_${code}`, trimmed); } catch {}
+    saveGuestName(code, trimmed);
     // Re-register guest with name
     if (fingerprint) {
       const res = await fetch(`/api/rooms/${code}/guest`, {
