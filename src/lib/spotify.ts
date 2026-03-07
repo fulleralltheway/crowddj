@@ -29,6 +29,16 @@ export async function getUserPlaylists(accessToken: string) {
   return data.items;
 }
 
+export async function searchPlaylists(accessToken: string, query: string) {
+  const res = await fetch(
+    `${SPOTIFY_API}/search?q=${encodeURIComponent(query)}&type=playlist&limit=10`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+  if (!res.ok) throw new Error("Failed to search playlists");
+  const data = await res.json();
+  return data.playlists.items;
+}
+
 export async function getPlaylistTracks(accessToken: string, playlistId: string) {
   const tracks = [];
   let url: string | null = `${SPOTIFY_API}/playlists/${playlistId}/tracks?limit=100`;

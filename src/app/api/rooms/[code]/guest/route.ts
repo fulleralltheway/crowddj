@@ -37,16 +37,26 @@ export async function POST(
   }
 
   if (!guest) {
+    // New guest in this room — check if this fingerprint exists in ANY room to inherit identity
+    let inheritedName = name || "";
+    if (!inheritedName) {
+      const existingGuest = await prisma.guest.findFirst({
+        where: { fingerprint, name: { not: "" } },
+        orderBy: { createdAt: "desc" },
+      });
+      if (existingGuest) inheritedName = existingGuest.name;
+    }
     guest = await prisma.guest.create({
-      data: { roomId: room.id, fingerprint, name: name || "" },
+      data: { roomId: room.id, fingerprint, name: inheritedName },
     });
-  } else if (name && name !== guest.name) {
-    // Update name if provided and different
+  } else if (name && !guest.name) {
+    // Only set name if guest doesn't already have one (first time naming)
     guest = await prisma.guest.update({
       where: { id: guest.id },
       data: { name },
     });
   }
+  // If guest already has a name, ignore any different name sent — enforce identity
 
   // Check vote reset — clear old votes so guest gets a fresh slate
   const resetMs = room.voteResetMinutes * 60 * 1000;
