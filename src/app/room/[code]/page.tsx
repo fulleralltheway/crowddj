@@ -27,6 +27,10 @@ type Room = {
   votesPerUser: number;
   voteResetMinutes: number;
   votingPaused: boolean;
+  autoShuffle: boolean;
+  explicitFilter: boolean;
+  requireApproval: boolean;
+  maxSongsPerGuest: number;
   host: { name: string; image: string | null };
 };
 
@@ -109,9 +113,21 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       }
     });
 
+    // Poll songs every 5s, refresh room settings every 30s
+    let pollCount = 0;
     const interval = setInterval(() => {
       fetch(`/api/rooms/${code}/sync`, { method: "POST" });
       fetchSongs();
+      pollCount++;
+      if (pollCount % 6 === 0) {
+        // Refresh room settings (voting paused, auto shuffle, etc.)
+        fetch(`/api/rooms/${code}`).then(async (res) => {
+          if (res.ok) {
+            const data = await res.json();
+            setRoom(data);
+          }
+        }).catch(() => {});
+      }
     }, 5000);
 
     const flushInterval = setInterval(() => {
@@ -501,6 +517,23 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
           </div>
           </div>
         </div>
+
+        {/* Active settings indicators */}
+        {(() => {
+          const tags: { label: string; color: string }[] = [];
+          if (room.autoShuffle) tags.push({ label: "Sorted by votes", color: "text-accent/70" });
+          if (!room.autoShuffle) tags.push({ label: "DJ-ordered queue", color: "text-yellow-500/70" });
+          if (room.explicitFilter) tags.push({ label: "Clean mode", color: "text-accent/70" });
+          if (room.requireApproval) tags.push({ label: "Requests need approval", color: "text-yellow-500/70" });
+          if (room.maxSongsPerGuest > 0) tags.push({ label: `${room.maxSongsPerGuest} song${room.maxSongsPerGuest === 1 ? "" : "s"} per person`, color: "text-text-secondary" });
+          return tags.length > 0 ? (
+            <div className="flex flex-wrap gap-x-2 gap-y-0.5 px-1 pb-1">
+              {tags.map((t) => (
+                <span key={t.label} className={`text-[10px] ${t.color}`}>{t.label}</span>
+              ))}
+            </div>
+          ) : null;
+        })()}
 
         {/* Persistent search bar */}
         <div className="relative">
