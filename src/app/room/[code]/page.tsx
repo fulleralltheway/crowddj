@@ -442,7 +442,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
 
   if (pageStatus === "need_name") {
     return (
-      <div className="min-h-dvh flex items-center justify-center px-4">
+      <div className="min-h-dvh flex items-center justify-center px-4 name-form-enter">
         <div className="w-full max-w-sm text-center space-y-6">
           <div>
             <h1 className="text-2xl font-bold mb-1">{room.name}</h1>
