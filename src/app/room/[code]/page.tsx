@@ -128,7 +128,14 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
 
   const applySongs = useCallback((data: Song[]) => {
     setSongs(data);
-  }, []);
+    // Derive votesUsed from actual vote data — keeps cross-session in sync
+    if (guestId) {
+      const count = data.reduce((sum, s) =>
+        sum + (s.votes?.filter((v) => v.guestId === guestId).length || 0), 0);
+      votesUsedRef.current = count;
+      setVotesUsed(count);
+    }
+  }, [guestId]);
 
   const fetchSongs = useCallback(async () => {
     const res = await fetch(`/api/rooms/${code}/songs`);
@@ -209,6 +216,26 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
             setRoom(data);
           }
         }).catch(() => {});
+        // Refresh guest vote status (catches cross-session vote usage)
+        if (fingerprint) {
+          const storedGid = getSavedGuestId(code);
+          fetch(`/api/rooms/${code}/guest`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ fingerprint, ...(storedGid && { guestId: storedGid }) }),
+          }).then(async (res) => {
+            if (res.ok) {
+              const data = await res.json();
+              if (typeof data.votesUsed === "number") {
+                votesUsedRef.current = data.votesUsed;
+                setVotesUsed(data.votesUsed);
+              }
+              if (data.lastVoteReset) {
+                setLastVoteReset(new Date(data.lastVoteReset).getTime());
+              }
+            }
+          }).catch(() => {});
+        }
       }
     }, 5000);
 
