@@ -88,9 +88,14 @@ export async function POST(
       if (!playback.is_playing && playback.progress_ms === 0 && playback.item.duration_ms > 0) {
         shouldAdvance = true;
       }
-    } else if (playback.item.uri !== currentSong.spotifyUri && !playback.is_playing) {
-      // Different track loaded and not playing — likely finished and Spotify moved on
-      shouldAdvance = true;
+    } else if (playback.item.uri !== currentSong.spotifyUri) {
+      // Spotify is playing a different track — user changed songs externally
+      // Just clear our "now playing" without auto-advancing (don't fight the user)
+      await prisma.roomSong.update({
+        where: { id: currentSong.id },
+        data: { isPlaying: false },
+      });
+      return NextResponse.json({ synced: true, playing: false, externalOverride: true });
     }
 
     if (shouldAdvance) {
