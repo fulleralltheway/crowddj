@@ -574,7 +574,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       )}
 
       {/* Header */}
-      <div className="relative z-10">
+      <div className="relative z-30">
       <div className="backdrop-blur-xl px-4 pt-3 pb-3">
         {/* Room name + vote badge row */}
         <div className="flex items-center justify-between mb-2.5">
