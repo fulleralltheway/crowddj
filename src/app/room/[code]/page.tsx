@@ -106,7 +106,10 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       return null;
     }).catch(() => null);
 
-    Promise.all([roomPromise, guestPromise]).then(([roomData, guestData]) => {
+    // Minimum loading time so fingerprint check can finish before anything renders
+    const minDelay = new Promise((r) => setTimeout(r, 1500));
+
+    Promise.all([roomPromise, guestPromise, minDelay]).then(([roomData, guestData]) => {
       setRoom(roomData);
       setSongs(
         roomData.songs.map((s: any) => ({ ...s, netScore: s.upvotes - s.downvotes, votes: s.votes || [] }))
