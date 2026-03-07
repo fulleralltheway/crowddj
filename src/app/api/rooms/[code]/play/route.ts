@@ -21,24 +21,24 @@ export async function POST(
   try {
     const playback = await getCurrentPlayback(accessToken);
 
-    if (playback?.is_playing) {
-      // Currently playing — pause it
-      await pausePlayback(accessToken);
-      return NextResponse.json({ success: true, action: "paused" });
-    }
-
-    // Not playing — check if we have a song queued
+    // If Spotify is currently playing the CrowdDJ song, pause it (toggle behavior)
     const currentSong = await prisma.roomSong.findFirst({
       where: { roomId: room.id, isPlaying: true },
     });
 
-    if (currentSong && playback?.item?.uri === currentSong.spotifyUri) {
-      // Same song is loaded but paused — just resume
+    if (playback?.is_playing && currentSong && playback?.item?.uri === currentSong.spotifyUri) {
+      await pausePlayback(accessToken);
+      return NextResponse.json({ success: true, action: "paused" });
+    }
+
+    // If CrowdDJ song is loaded but paused on Spotify — resume it
+    if (!playback?.is_playing && currentSong && playback?.item?.uri === currentSong.spotifyUri) {
       await resumePlayback(accessToken);
       return NextResponse.json({ success: true, action: "resumed" });
     }
 
-    // No current song or different song — start from queue
+    // Otherwise, always start the CrowdDJ queue song explicitly
+    // (Spotify might be playing its own content — we override it)
     let song = currentSong;
     if (!song) {
       song = await prisma.roomSong.findFirst({
@@ -57,7 +57,7 @@ export async function POST(
       return NextResponse.json({ error: "No songs in queue" }, { status: 404 });
     }
 
-    // Try to start playback, auto-selecting a device if needed
+    // Start playback with the CrowdDJ song, overriding whatever Spotify had
     try {
       await startPlayback(accessToken, [song.spotifyUri]);
     } catch {

@@ -81,8 +81,40 @@ export async function POST(
     }
 
     if (playback.item.uri !== currentSong.spotifyUri) {
-      // Spotify is playing a different track — user changed songs externally
-      // Clear our "now playing" without advancing
+      // Spotify is playing a different track — check if it's the next CrowdDJ song
+      // (this happens when Spotify auto-advanced via the pre-queued track)
+      const nextCrowdDJSong = await prisma.roomSong.findFirst({
+        where: { roomId: room.id, isPlayed: false, isPlaying: false },
+        orderBy: { sortOrder: "asc" },
+      });
+
+      if (nextCrowdDJSong && playback.item.uri === nextCrowdDJSong.spotifyUri && playback.is_playing) {
+        // Spotify auto-advanced to our next song — update DB to match
+        const timeSinceLastAdvance = Date.now() - room.lastSyncAdvance.getTime();
+        if (timeSinceLastAdvance < 10000) {
+          return NextResponse.json({ synced: true, playing: true, reason: "debounced" });
+        }
+
+        await prisma.room.update({
+          where: { id: room.id },
+          data: { lastSyncAdvance: new Date() },
+        });
+        await prisma.roomSong.update({
+          where: { id: currentSong.id },
+          data: { isPlaying: false, isPlayed: true },
+        });
+        await prisma.roomSong.update({
+          where: { id: nextCrowdDJSong.id },
+          data: { isPlaying: true },
+        });
+
+        // Pre-queue the song after that
+        await queueNextSong(room.id, nextCrowdDJSong.id, accessToken);
+
+        return NextResponse.json({ synced: true, advanced: true, song: nextCrowdDJSong.trackName });
+      }
+
+      // Truly external content — clear our "now playing"
       await prisma.roomSong.update({
         where: { id: currentSong.id },
         data: { isPlaying: false },

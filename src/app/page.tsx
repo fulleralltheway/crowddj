@@ -69,7 +69,7 @@ export default function Home() {
             Want to host? Create a room and let your crowd decide the vibe.
           </p>
           <a
-            href="/login"
+            href="/dashboard"
             className="inline-block w-full py-3 bg-bg-card hover:bg-bg-card-hover border border-border rounded-xl font-medium transition-colors"
           >
             Host a Room

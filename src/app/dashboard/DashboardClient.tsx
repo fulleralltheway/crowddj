@@ -151,6 +151,7 @@ function DashboardInner({ user }: { user: any }) {
   const [showGuests, setShowGuests] = useState(false);
   const [guestList, setGuestList] = useState<any[]>([]);
   const [selectedGuest, setSelectedGuest] = useState<any>(null);
+  const [expandedGuestSection, setExpandedGuestSection] = useState<string | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
 
   // Create room form state
@@ -713,7 +714,7 @@ function DashboardInner({ user }: { user: any }) {
             <div className="flex items-center gap-3">
               {guestCount > 0 && (
                 <button
-                  onClick={() => { setShowGuests(!showGuests); if (!showGuests) fetchGuestDetails(); }}
+                  onClick={() => { setShowGuests(!showGuests); setShowQR(false); setShowSettings(false); if (!showGuests) fetchGuestDetails(); }}
                   className={`flex items-center gap-1.5 text-sm px-2 py-1 rounded-lg transition-colors ${
                     showGuests ? "text-accent bg-accent/15" : "text-text-secondary hover:text-white"
                   }`}
@@ -725,7 +726,7 @@ function DashboardInner({ user }: { user: any }) {
                 </button>
               )}
               <button
-                onClick={() => setShowQR(!showQR)}
+                onClick={() => { setShowQR(!showQR); setShowSettings(false); setShowGuests(false); setSelectedGuest(null); }}
                 className={`bg-bg-card border rounded-lg px-3 py-1.5 transition-colors ${showQR ? "border-accent/50" : "border-border hover:border-accent/30"}`}
               >
                 <p className="font-mono text-lg text-accent leading-none">{activeRoom.code}</p>
@@ -825,7 +826,7 @@ function DashboardInner({ user }: { user: any }) {
               ) : null}
             </div>
             <button
-              onClick={() => setShowQR(!showQR)}
+              onClick={() => { setShowQR(!showQR); setShowSettings(false); setShowGuests(false); setSelectedGuest(null); }}
               className={`p-2.5 rounded-xl transition-colors ${
                 showQR ? "bg-accent/15 text-accent border border-accent/30" : "bg-bg-card hover:bg-bg-card-hover border border-border"
               }`}
@@ -836,7 +837,7 @@ function DashboardInner({ user }: { user: any }) {
               </svg>
             </button>
             <button
-              onClick={() => setShowSettings(!showSettings)}
+              onClick={() => { setShowSettings(!showSettings); setShowQR(false); setShowGuests(false); setSelectedGuest(null); }}
               className={`p-2.5 rounded-xl transition-colors ${
                 showSettings ? "bg-accent/15 text-accent border border-accent/30" : "bg-bg-card hover:bg-bg-card-hover border border-border"
               }`}
@@ -898,95 +899,92 @@ function DashboardInner({ user }: { user: any }) {
 
               {selectedGuest ? (
                 <div className="p-4">
-                  <button onClick={() => setSelectedGuest(null)} className="text-accent text-xs mb-3 hover:text-accent-hover">&larr; Back to list</button>
+                  <button onClick={() => { setSelectedGuest(null); setExpandedGuestSection(null); }} className="text-accent text-xs mb-3 hover:text-accent-hover">&larr; Back to list</button>
                   <p className="font-semibold text-lg">{selectedGuest.name}</p>
                   <p className="text-text-secondary text-xs mb-3">Joined {new Date(selectedGuest.joinedAt).toLocaleTimeString()}</p>
-                  <div className="grid grid-cols-3 gap-2 mb-4">
-                    <div className="bg-bg-primary rounded-lg p-2 text-center">
-                      <p className="text-lg font-bold text-accent">{selectedGuest.totalVotes}</p>
-                      <p className="text-[10px] text-text-secondary">Total Votes</p>
-                    </div>
-                    <div className="bg-bg-primary rounded-lg p-2 text-center">
-                      <p className="text-lg font-bold text-upvote">{selectedGuest.totalUpvotes}</p>
-                      <p className="text-[10px] text-text-secondary">Upvotes</p>
-                    </div>
-                    <div className="bg-bg-primary rounded-lg p-2 text-center">
-                      <p className="text-lg font-bold text-downvote">{selectedGuest.totalDownvotes}</p>
-                      <p className="text-[10px] text-text-secondary">Downvotes</p>
-                    </div>
-                  </div>
+                  {(() => {
+                    const sections = [
+                      { key: "totalVotes", label: "Total Votes", value: selectedGuest.totalVotes, color: "text-accent", border: "border-accent/30" },
+                      { key: "upvotes", label: "Upvotes", value: selectedGuest.totalUpvotes, color: "text-upvote", border: "border-upvote/30" },
+                      { key: "downvotes", label: "Downvotes", value: selectedGuest.totalDownvotes, color: "text-downvote", border: "border-downvote/30" },
+                      { key: "activeVotes", label: "Active Votes", value: selectedGuest.activeVotes?.length || 0, color: "text-blue-400", border: "border-blue-400/30" },
+                      { key: "songsAdded", label: "Songs Added", value: selectedGuest.songsAdded?.length || 0, color: "text-purple-400", border: "border-purple-400/30" },
+                      { key: "requests", label: "Requests", value: selectedGuest.requests?.length || 0, color: "text-yellow-500", border: "border-yellow-500/30" },
+                    ];
+                    return (
+                      <>
+                        <div className="grid grid-cols-3 gap-2 mb-4">
+                          {sections.map((sec) => (
+                            <button
+                              key={sec.key}
+                              onClick={() => setExpandedGuestSection((prev: string | null) => prev === sec.key ? null : sec.key)}
+                              className={`bg-bg-primary rounded-lg p-2 text-center transition-colors border ${
+                                expandedGuestSection === sec.key ? sec.border : "border-transparent"
+                              }`}
+                            >
+                              <p className={`text-lg font-bold ${sec.color}`}>{sec.value}</p>
+                              <p className="text-[10px] text-text-secondary">{sec.label}</p>
+                            </button>
+                          ))}
+                        </div>
 
-                  {/* Active Votes (current period) */}
-                  {selectedGuest.activeVotes?.length > 0 && (
-                    <details className="mb-3">
-                      <summary className="text-xs font-semibold text-text-secondary cursor-pointer hover:text-white py-1">
-                        Active Votes ({selectedGuest.activeVotes.length})
-                      </summary>
-                      <div className="mt-2 space-y-1 max-h-48 overflow-y-auto">
-                        {selectedGuest.activeVotes.map((v: any, i: number) => (
-                          <div key={i} className="flex items-center gap-2 py-1.5 px-2 rounded-lg bg-bg-primary">
-                            <span className={`text-sm ${v.value === 1 ? "text-upvote" : "text-downvote"}`}>
-                              {v.value === 1 ? "▲" : "▼"}
-                            </span>
-                            {v.albumArt && <img src={v.albumArt} alt="" className="w-7 h-7 rounded" />}
-                            <div className="min-w-0 flex-1">
-                              <p className="text-xs font-medium truncate">{v.trackName}</p>
-                              <p className="text-[10px] text-text-secondary truncate">{v.artistName}</p>
-                            </div>
+                        {/* Expanded section content */}
+                        {expandedGuestSection === "activeVotes" && selectedGuest.activeVotes?.length > 0 && (
+                          <div className="mb-3 space-y-1 max-h-48 overflow-y-auto">
+                            {selectedGuest.activeVotes.map((v: any, i: number) => (
+                              <div key={i} className="flex items-center gap-2 py-1.5 px-2 rounded-lg bg-bg-primary">
+                                <span className={`text-sm ${v.value === 1 ? "text-upvote" : "text-downvote"}`}>
+                                  {v.value === 1 ? "\u25B2" : "\u25BC"}
+                                </span>
+                                {v.albumArt && <img src={v.albumArt} alt="" className="w-7 h-7 rounded" />}
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-xs font-medium truncate">{v.trackName}</p>
+                                  <p className="text-[10px] text-text-secondary truncate">{v.artistName}</p>
+                                </div>
+                              </div>
+                            ))}
                           </div>
-                        ))}
-                      </div>
-                    </details>
-                  )}
+                        )}
 
-                  {/* Songs Added */}
-                  {selectedGuest.songsAdded?.length > 0 && (
-                    <details className="mb-3">
-                      <summary className="text-xs font-semibold text-text-secondary cursor-pointer hover:text-white py-1">
-                        Songs Added ({selectedGuest.songsAdded.length})
-                      </summary>
-                      <div className="mt-2 space-y-1 max-h-48 overflow-y-auto">
-                        {selectedGuest.songsAdded.map((s: any, i: number) => (
-                          <div key={i} className="flex items-center gap-2 py-1.5 px-2 rounded-lg bg-bg-primary">
-                            {s.albumArt && <img src={s.albumArt} alt="" className="w-7 h-7 rounded" />}
-                            <div className="min-w-0 flex-1">
-                              <p className="text-xs font-medium truncate">{s.trackName}</p>
-                              <p className="text-[10px] text-text-secondary truncate">{s.artistName}</p>
-                            </div>
+                        {expandedGuestSection === "songsAdded" && selectedGuest.songsAdded?.length > 0 && (
+                          <div className="mb-3 space-y-1 max-h-48 overflow-y-auto">
+                            {selectedGuest.songsAdded.map((s: any, i: number) => (
+                              <div key={i} className="flex items-center gap-2 py-1.5 px-2 rounded-lg bg-bg-primary">
+                                {s.albumArt && <img src={s.albumArt} alt="" className="w-7 h-7 rounded" />}
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-xs font-medium truncate">{s.trackName}</p>
+                                  <p className="text-[10px] text-text-secondary truncate">{s.artistName}</p>
+                                </div>
+                              </div>
+                            ))}
                           </div>
-                        ))}
-                      </div>
-                    </details>
-                  )}
+                        )}
 
-                  {/* Song Requests */}
-                  {selectedGuest.requests?.length > 0 && (
-                    <details className="mb-3">
-                      <summary className="text-xs font-semibold text-text-secondary cursor-pointer hover:text-white py-1">
-                        Requests ({selectedGuest.requests.length})
-                      </summary>
-                      <div className="mt-2 space-y-1 max-h-48 overflow-y-auto">
-                        {selectedGuest.requests.map((r: any, i: number) => (
-                          <div key={i} className="flex items-center gap-2 py-1.5 px-2 rounded-lg bg-bg-primary">
-                            {r.albumArt && <img src={r.albumArt} alt="" className="w-7 h-7 rounded" />}
-                            <div className="min-w-0 flex-1">
-                              <p className="text-xs font-medium truncate">{r.trackName}</p>
-                              <p className="text-[10px] text-text-secondary truncate">{r.artistName}</p>
-                            </div>
-                            <span className={`text-[10px] font-medium flex-shrink-0 ${
-                              r.status === "approved" ? "text-upvote" : r.status === "rejected" ? "text-downvote" : "text-yellow-500"
-                            }`}>
-                              {r.status}
-                            </span>
+                        {expandedGuestSection === "requests" && selectedGuest.requests?.length > 0 && (
+                          <div className="mb-3 space-y-1 max-h-48 overflow-y-auto">
+                            {selectedGuest.requests.map((r: any, i: number) => (
+                              <div key={i} className="flex items-center gap-2 py-1.5 px-2 rounded-lg bg-bg-primary">
+                                {r.albumArt && <img src={r.albumArt} alt="" className="w-7 h-7 rounded" />}
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-xs font-medium truncate">{r.trackName}</p>
+                                  <p className="text-[10px] text-text-secondary truncate">{r.artistName}</p>
+                                </div>
+                                <span className={`text-[10px] font-medium flex-shrink-0 ${
+                                  r.status === "approved" ? "text-upvote" : r.status === "rejected" ? "text-downvote" : "text-yellow-500"
+                                }`}>
+                                  {r.status}
+                                </span>
+                              </div>
+                            ))}
                           </div>
-                        ))}
-                      </div>
-                    </details>
-                  )}
+                        )}
 
-                  {selectedGuest.activeVotes?.length === 0 && selectedGuest.songsAdded?.length === 0 && selectedGuest.requests?.length === 0 && (
-                    <p className="text-text-secondary text-xs text-center py-2">No activity yet</p>
-                  )}
+                        {selectedGuest.activeVotes?.length === 0 && selectedGuest.songsAdded?.length === 0 && selectedGuest.requests?.length === 0 && (
+                          <p className="text-text-secondary text-xs text-center py-2">No activity yet</p>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
               ) : (
                 <div className="max-h-64 overflow-y-auto divide-y divide-border/50">
@@ -996,7 +994,7 @@ function DashboardInner({ user }: { user: any }) {
                     guestList.map((g: any) => (
                       <button
                         key={g.id}
-                        onClick={() => setSelectedGuest(g)}
+                        onClick={() => { setSelectedGuest(g); setExpandedGuestSection(null); }}
                         className="w-full flex items-center justify-between px-4 py-3 hover:bg-bg-card-hover transition-colors text-left"
                       >
                         <div className="min-w-0">
@@ -1418,7 +1416,7 @@ function DashboardInner({ user }: { user: any }) {
                     <p className="font-medium text-sm truncate">{song.trackName}</p>
                     <p className="text-text-secondary text-xs truncate">{song.artistName}</p>
                     {song.addedByName && (
-                      <p className="text-accent text-xs truncate">Requested by {song.addedByName}</p>
+                      <p className="text-accent text-xs truncate">Req&apos;d by {song.addedByName?.split(" ")[0] || song.addedByName}</p>
                     )}
                   </div>
                   <div className="flex items-center gap-1.5">

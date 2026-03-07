@@ -43,6 +43,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const [guestName, setGuestName] = useState("");
   const [nameInput, setNameInput] = useState("");
   const [nameSubmitted, setNameSubmitted] = useState(false);
+  const [guestLoading, setGuestLoading] = useState(true);
   const [votesUsed, setVotesUsed] = useState(0);
   const [error, setError] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -113,6 +114,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
           setNameSubmitted(true);
         }
       }
+      setGuestLoading(false);
     });
 
     // Poll songs every 5s, refresh room settings every 30s
@@ -425,6 +427,13 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   };
 
   if (!nameSubmitted) {
+    if (guestLoading) {
+      return (
+        <div className="min-h-dvh flex items-center justify-center">
+          <div className="text-text-secondary">Loading room...</div>
+        </div>
+      );
+    }
     return (
       <div className="min-h-dvh flex items-center justify-center px-4">
         <div className="w-full max-w-sm text-center space-y-6">
