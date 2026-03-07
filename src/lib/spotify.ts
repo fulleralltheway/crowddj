@@ -44,7 +44,7 @@ export async function getPlaylistTracks(accessToken: string, playlistId: string)
   }
 
   return tracks
-    .filter((item: any) => item.track && !item.track.is_local)
+    .filter((item: any) => item.track && !item.track.is_local && item.track.name)
     .map((item: any) => ({
       spotifyUri: item.track.uri,
       trackName: item.track.name,

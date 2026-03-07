@@ -13,15 +13,17 @@ export async function GET(
   const limit = room.queueDisplaySize || 50;
 
   // Base playlist songs (limited) + all guest-requested songs (always shown)
+  // Exclude songs with missing track info (blank entries)
+  const hasTrack = { trackName: { not: "" } };
   const [baseSongs, requestedSongs] = await Promise.all([
     prisma.roomSong.findMany({
-      where: { roomId: room.id, isPlayed: false, isRequested: false },
+      where: { roomId: room.id, isPlayed: false, isRequested: false, ...hasTrack },
       orderBy: [{ isPlaying: "desc" }, { sortOrder: "asc" }],
       take: limit,
       include: { votes: { select: { guestId: true, value: true } } },
     }),
     prisma.roomSong.findMany({
-      where: { roomId: room.id, isPlayed: false, isRequested: true },
+      where: { roomId: room.id, isPlayed: false, isRequested: true, ...hasTrack },
       orderBy: [{ isPlaying: "desc" }, { sortOrder: "asc" }],
       include: { votes: { select: { guestId: true, value: true } } },
     }),
