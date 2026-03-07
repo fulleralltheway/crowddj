@@ -148,6 +148,10 @@ function DashboardInner({ user }: { user: any }) {
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const prevRequestCount = useRef<number>(0);
+  const [showGuests, setShowGuests] = useState(false);
+  const [guestList, setGuestList] = useState<any[]>([]);
+  const [selectedGuest, setSelectedGuest] = useState<any>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
 
   // Create room form state
   const [roomName, setRoomName] = useState("");
@@ -293,6 +297,15 @@ function DashboardInner({ user }: { user: any }) {
     if (res.ok) {
       const data = await res.json();
       setGuestCount(data.count);
+    }
+  };
+
+  const fetchGuestDetails = async () => {
+    if (!activeRoom) return;
+    const res = await fetch(`/api/rooms/${activeRoom.code}/guests?detail=true`);
+    if (res.ok) {
+      const data = await res.json();
+      setGuestList(data.guests || []);
     }
   };
 
@@ -691,12 +704,17 @@ function DashboardInner({ user }: { user: any }) {
             </div>
             <div className="flex items-center gap-3">
               {guestCount > 0 && (
-                <div className="flex items-center gap-1.5 text-text-secondary text-sm">
+                <button
+                  onClick={() => { setShowGuests(!showGuests); if (!showGuests) fetchGuestDetails(); }}
+                  className={`flex items-center gap-1.5 text-sm px-2 py-1 rounded-lg transition-colors ${
+                    showGuests ? "text-accent bg-accent/15" : "text-text-secondary hover:text-white"
+                  }`}
+                >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
                   </svg>
                   {guestCount}
-                </div>
+                </button>
               )}
               <div className="bg-bg-card border border-border rounded-lg px-3 py-1.5">
                 <p className="font-mono text-lg text-accent leading-none">{activeRoom.code}</p>
@@ -816,7 +834,7 @@ function DashboardInner({ user }: { user: any }) {
             </button>
           </div>
 
-          {/* QR Code panel */}
+          {/* QR Code / Share panel */}
           {showQR && (
             <div className="bg-bg-card border border-border rounded-xl p-6 mb-4 flex flex-col items-center">
               <QRCodeSVG
@@ -827,12 +845,113 @@ function DashboardInner({ user }: { user: any }) {
                 level="M"
               />
               <p className="text-text-secondary text-sm mt-3">Scan to join</p>
-              <button
-                onClick={() => navigator.clipboard.writeText(roomUrl)}
-                className="mt-2 text-accent text-sm hover:text-accent-hover transition-colors"
-              >
-                Copy link
-              </button>
+              <div className="flex items-center gap-3 mt-3">
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(roomUrl);
+                    setLinkCopied(true);
+                    setTimeout(() => setLinkCopied(false), 2000);
+                  }}
+                  className="px-4 py-2 bg-accent/15 text-accent text-sm font-medium rounded-lg hover:bg-accent/25 transition-colors"
+                >
+                  {linkCopied ? "Copied!" : "Copy Link"}
+                </button>
+                {typeof navigator !== "undefined" && "share" in navigator && (
+                  <button
+                    onClick={() => navigator.share({ title: `Join ${activeRoom?.name}`, text: `Vote on songs at ${activeRoom?.name}!`, url: roomUrl })}
+                    className="px-4 py-2 bg-bg-card-hover text-white text-sm font-medium rounded-lg hover:bg-border transition-colors"
+                  >
+                    Share
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Guest list panel */}
+          {showGuests && (
+            <div className="bg-bg-card border border-border rounded-xl mb-4 overflow-hidden">
+              <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+                <p className="text-sm font-semibold">{guestList.length} Guest{guestList.length !== 1 ? "s" : ""}</p>
+                <button onClick={() => { setShowGuests(false); setSelectedGuest(null); }} className="text-text-secondary hover:text-white p-1">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              {selectedGuest ? (
+                <div className="p-4">
+                  <button onClick={() => setSelectedGuest(null)} className="text-accent text-xs mb-3 hover:text-accent-hover">&larr; Back to list</button>
+                  <p className="font-semibold text-lg">{selectedGuest.name}</p>
+                  <p className="text-text-secondary text-xs mb-3">Joined {new Date(selectedGuest.joinedAt).toLocaleTimeString()}</p>
+                  <div className="grid grid-cols-3 gap-2 mb-4">
+                    <div className="bg-bg-primary rounded-lg p-2 text-center">
+                      <p className="text-lg font-bold text-accent">{selectedGuest.totalVotes}</p>
+                      <p className="text-[10px] text-text-secondary">Votes</p>
+                    </div>
+                    <div className="bg-bg-primary rounded-lg p-2 text-center">
+                      <p className="text-lg font-bold text-upvote">{selectedGuest.upvotes}</p>
+                      <p className="text-[10px] text-text-secondary">Upvotes</p>
+                    </div>
+                    <div className="bg-bg-primary rounded-lg p-2 text-center">
+                      <p className="text-lg font-bold text-downvote">{selectedGuest.downvotes}</p>
+                      <p className="text-[10px] text-text-secondary">Downvotes</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 mb-4">
+                    <div className="bg-bg-primary rounded-lg p-2 text-center">
+                      <p className="text-lg font-bold">{selectedGuest.songsAdded}</p>
+                      <p className="text-[10px] text-text-secondary">Songs Added</p>
+                    </div>
+                    <div className="bg-bg-primary rounded-lg p-2 text-center">
+                      <p className="text-lg font-bold">{selectedGuest.songsRequested}</p>
+                      <p className="text-[10px] text-text-secondary">Requests</p>
+                    </div>
+                  </div>
+                  {selectedGuest.votedSongs?.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-text-secondary mb-2">Recent Votes</p>
+                      <div className="space-y-1 max-h-48 overflow-y-auto">
+                        {selectedGuest.votedSongs.map((v: any, i: number) => (
+                          <div key={i} className="flex items-center gap-2 text-xs py-1">
+                            <span className={v.value === 1 ? "text-upvote" : "text-downvote"}>
+                              {v.value === 1 ? "▲" : "▼"}
+                            </span>
+                            <span className="truncate">{v.trackName}</span>
+                            <span className="text-text-secondary truncate flex-shrink-0">{v.artistName}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="max-h-64 overflow-y-auto divide-y divide-border/50">
+                  {guestList.length === 0 ? (
+                    <p className="p-4 text-text-secondary text-sm text-center">No guests yet</p>
+                  ) : (
+                    guestList.map((g: any) => (
+                      <button
+                        key={g.id}
+                        onClick={() => setSelectedGuest(g)}
+                        className="w-full flex items-center justify-between px-4 py-3 hover:bg-bg-card-hover transition-colors text-left"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium truncate">{g.name || "Anonymous"}</p>
+                          <p className="text-text-secondary text-[10px]">
+                            {g.totalVotes} vote{g.totalVotes !== 1 ? "s" : ""}
+                            {g.songsAdded > 0 && ` · ${g.songsAdded} added`}
+                          </p>
+                        </div>
+                        <svg className="w-4 h-4 text-text-secondary flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
             </div>
           )}
 
