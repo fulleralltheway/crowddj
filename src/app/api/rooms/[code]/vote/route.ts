@@ -83,8 +83,12 @@ export async function POST(
     });
   } else {
     // No opposite vote to undo — this is a new vote, check limit
-    if (guest.votesUsed >= room.votesPerUser) {
-      return NextResponse.json({ error: "Vote limit reached" }, { status: 429 });
+    // Count actual votes (not the stored counter) to prevent race conditions
+    const currentVoteCount = await prisma.vote.count({
+      where: { guestId: guest.id },
+    });
+    if (currentVoteCount >= room.votesPerUser) {
+      return NextResponse.json({ error: "Vote limit reached", votesUsed: currentVoteCount }, { status: 429 });
     }
 
     // Create the vote

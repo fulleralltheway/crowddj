@@ -116,6 +116,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const lastInteraction = useRef(0);
   const pendingSongs = useRef<Song[] | null>(null);
   const inFlightVotes = useRef(0);
+  const votesUsedRef = useRef(0);
   const postVoteSyncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [songListRef] = useAutoAnimate({ duration: 300 });
   const knownApproved = useRef<Set<string>>(new Set());
@@ -176,6 +177,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       if (guestData) {
         setGuestId(guestData.guestId);
         saveGuestId(code, guestData.guestId);
+        votesUsedRef.current = guestData.votesUsed;
         setVotesUsed(guestData.votesUsed);
         setLastVoteReset(new Date(guestData.lastVoteReset).getTime());
         if (guestData.name) {
@@ -266,6 +268,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       const remaining = resetAt - Date.now();
       if (remaining <= 0) {
         setResetCountdown("");
+        votesUsedRef.current = 0;
         setVotesUsed(0);
         setLastVoteReset(Date.now());
         // Clear vote indicators locally
@@ -317,10 +320,20 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     const oppositeValue = value === 1 ? -1 : 1;
     const hasOpposite = myVotes.some((v) => v.value === oppositeValue);
 
-    if (!hasOpposite && votesUsed >= (room?.votesPerUser ?? 5)) {
+    const limit = room?.votesPerUser ?? 5;
+
+    // Use ref for gate check — synchronous, no React batching delay
+    if (!hasOpposite && votesUsedRef.current >= limit) {
       setRequestStatus("Out of votes! They'll reset soon.");
       setTimeout(() => setRequestStatus(""), 3000);
       return;
+    }
+
+    // Update ref immediately (synchronous — blocks rapid taps)
+    if (hasOpposite) {
+      votesUsedRef.current = Math.max(0, votesUsedRef.current - 1);
+    } else {
+      votesUsedRef.current = Math.min(votesUsedRef.current + 1, limit);
     }
 
     // Optimistic update
@@ -359,11 +372,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       return updated;
     });
 
-    if (hasOpposite) {
-      setVotesUsed((v) => Math.max(0, v - 1));
-    } else {
-      setVotesUsed((v) => Math.min(v + 1, room?.votesPerUser ?? 5));
-    }
+    setVotesUsed(votesUsedRef.current);
 
     // Schedule reorder sync 800ms from THIS click (resets on each click)
     if (postVoteSyncTimer.current) clearTimeout(postVoteSyncTimer.current);
@@ -389,15 +398,25 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       if (res.ok) {
         const data = await res.json();
         if (typeof data.votesUsed === "number") {
+          votesUsedRef.current = data.votesUsed;
           setVotesUsed(data.votesUsed);
         }
       } else {
-        fetchSongs();
-        if (hasOpposite) {
-          setVotesUsed((v) => v + 1);
+        // Sync from server error response if it includes votesUsed
+        const errData = await res.json().catch(() => ({}));
+        if (typeof errData.votesUsed === "number") {
+          votesUsedRef.current = errData.votesUsed;
+          setVotesUsed(errData.votesUsed);
         } else {
-          setVotesUsed((v) => Math.max(0, v - 1));
+          // Revert the optimistic ref update
+          if (hasOpposite) {
+            votesUsedRef.current = Math.min(votesUsedRef.current + 1, room?.votesPerUser ?? 5);
+          } else {
+            votesUsedRef.current = Math.max(0, votesUsedRef.current - 1);
+          }
+          setVotesUsed(votesUsedRef.current);
         }
+        fetchSongs();
         if (res.status === 429) {
           setRequestStatus("Out of votes! They'll reset soon.");
           setTimeout(() => setRequestStatus(""), 3000);
