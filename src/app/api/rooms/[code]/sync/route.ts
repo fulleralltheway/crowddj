@@ -173,9 +173,9 @@ export async function POST(
     }
 
     // Song is still playing — check if we should pre-queue the next song
-    // Queue when we're in the last 30 seconds of the track
+    // Wide window (45s) so cron pings reliably catch it; Spotify ignores duplicate queue adds
     const remaining = playback.item.duration_ms - playback.progress_ms;
-    if (playback.is_playing && remaining < 30000 && remaining > 25000) {
+    if (playback.is_playing && remaining < 45000 && remaining > 5000) {
       await queueNextSong(room.id, currentSong.id, accessToken);
     }
 
