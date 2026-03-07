@@ -87,19 +87,31 @@ export async function POST(
     });
   }
 
-  // Reorder songs based on votes (skip playing and locked songs)
-  const songs = await prisma.roomSong.findMany({
-    where: { roomId: room.id, isPlayed: false, isPlaying: false },
-    orderBy: { sortOrder: "asc" },
-  });
+  // Reorder only VISIBLE songs (not the full 1800+ queue)
+  const displayLimit = room.queueDisplaySize || 50;
+
+  const [baseSongs, requestedSongs] = await Promise.all([
+    prisma.roomSong.findMany({
+      where: { roomId: room.id, isPlayed: false, isPlaying: false, isRequested: false },
+      orderBy: { sortOrder: "asc" },
+      take: displayLimit,
+    }),
+    prisma.roomSong.findMany({
+      where: { roomId: room.id, isPlayed: false, isPlaying: false, isRequested: true },
+      orderBy: { sortOrder: "asc" },
+    }),
+  ]);
+
+  const seenIds = new Set(baseSongs.map((s) => s.id));
+  const songs = [...baseSongs, ...requestedSongs.filter((s) => !seenIds.has(s.id))];
 
   const locked = songs.filter((s) => s.isLocked);
   const unlocked = songs.filter((s) => !s.isLocked);
   const sortedUnlocked = unlocked.sort((a, b) => {
     const scoreA = a.upvotes - a.downvotes;
     const scoreB = b.upvotes - b.downvotes;
-    if (scoreB !== scoreA) return scoreB - scoreA; // Higher score first
-    return a.sortOrder - b.sortOrder; // Same score: keep existing order
+    if (scoreB !== scoreA) return scoreB - scoreA;
+    return a.sortOrder - b.sortOrder;
   });
 
   const playingSong = await prisma.roomSong.findFirst({
@@ -107,15 +119,12 @@ export async function POST(
   });
   const startOrder = playingSong ? playingSong.sortOrder + 1 : 0;
 
-  // Build final order: locked songs keep their positions, unlocked fill around them
-  // First, assign locked songs their current relative positions
   const lockedPositions = new Map<number, typeof locked[0]>();
   locked.forEach((s) => {
     const relPos = songs.indexOf(s);
     lockedPositions.set(relPos, s);
   });
 
-  // Merge: place locked songs at their positions, fill gaps with sorted unlocked
   const merged: typeof songs = [];
   let unlockedIdx = 0;
   for (let i = 0; i < songs.length; i++) {
@@ -126,7 +135,8 @@ export async function POST(
     }
   }
 
-  await Promise.all(
+  // Batch update with a single transaction for speed
+  await prisma.$transaction(
     merged.map((song, i) =>
       prisma.roomSong.update({
         where: { id: song.id },
