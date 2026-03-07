@@ -7,7 +7,7 @@ export async function POST(
   { params }: { params: Promise<{ code: string }> }
 ) {
   const { code } = await params;
-  const { songId, value, fingerprint } = await req.json();
+  const { songId, value, fingerprint, guestId: clientGuestId } = await req.json();
 
   if (!songId || !fingerprint || (value !== 1 && value !== -1)) {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
@@ -22,10 +22,23 @@ export async function POST(
     return NextResponse.json({ error: "Voting is paused by the DJ" }, { status: 403 });
   }
 
-  // Get or create guest
+  // Get guest — try fingerprint first, then reconcile via guestId
   let guest = await prisma.guest.findUnique({
     where: { roomId_fingerprint: { roomId: room.id, fingerprint } },
   });
+
+  if (!guest && clientGuestId) {
+    // Fingerprint changed but client has a stored guestId — reconcile
+    const existingGuest = await prisma.guest.findFirst({
+      where: { id: clientGuestId, roomId: room.id },
+    });
+    if (existingGuest) {
+      guest = await prisma.guest.update({
+        where: { id: existingGuest.id },
+        data: { fingerprint },
+      });
+    }
+  }
 
   if (!guest) {
     guest = await prisma.guest.create({

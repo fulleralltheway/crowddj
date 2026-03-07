@@ -71,15 +71,23 @@ function saveGuestName(code: string, name: string) {
 function getSavedGuestId(code: string): string {
   if (typeof window === "undefined") return "";
   try {
-    return localStorage.getItem(`crowddj_guestid_${code}`) || getCookie(`crowddj_guestid_${code}`) || "";
+    return localStorage.getItem(`crowddj_guestid_${code}`)
+      || getCookie(`crowddj_guestid_${code}`)
+      || localStorage.getItem("crowddj_guestid_global")
+      || getCookie("crowddj_guestid_global")
+      || "";
   } catch {
-    return getCookie(`crowddj_guestid_${code}`);
+    return getCookie(`crowddj_guestid_${code}`) || getCookie("crowddj_guestid_global");
   }
 }
 
 function saveGuestId(code: string, id: string) {
-  try { localStorage.setItem(`crowddj_guestid_${code}`, id); } catch {}
+  try {
+    localStorage.setItem(`crowddj_guestid_${code}`, id);
+    localStorage.setItem("crowddj_guestid_global", id);
+  } catch {}
   setCookie(`crowddj_guestid_${code}`, id);
+  setCookie("crowddj_guestid_global", id);
 }
 
 export default function RoomPage({ params }: { params: Promise<{ code: string }> }) {
@@ -375,7 +383,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       const res = await fetch(`/api/rooms/${code}/vote`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ songId, value, fingerprint }),
+        body: JSON.stringify({ songId, value, fingerprint, guestId }),
       });
 
       if (res.ok) {
