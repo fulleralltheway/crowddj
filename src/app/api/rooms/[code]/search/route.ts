@@ -89,7 +89,12 @@ export async function GET(
       playedSet = new Set(playedSongs.map((s) => s.spotifyUri));
     }
 
-    const enriched = tracks.map((t: any) => ({
+    // Filter out explicit songs if explicitFilter is enabled
+    const filtered = room.explicitFilter
+      ? tracks.filter((t: any) => !t.isExplicit)
+      : tracks;
+
+    const enriched = filtered.map((t: any) => ({
       ...t,
       inQueue: uriSet.has(t.spotifyUri),
       alreadyPlayed: playedSet.has(t.spotifyUri),

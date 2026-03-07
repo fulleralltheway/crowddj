@@ -17,13 +17,15 @@ export async function POST(
     return NextResponse.json({ error: "Room not found" }, { status: 404 });
   }
 
-  // Explicit filter
-  if (room.explicitFilter && isExplicit) {
+  const isHost = fingerprint === "host";
+
+  // Explicit filter (skip for host)
+  if (!isHost && room.explicitFilter && isExplicit) {
     return NextResponse.json({ error: "Explicit songs are not allowed in this room" }, { status: 403 });
   }
 
-  // Max songs per guest
-  if (room.maxSongsPerGuest > 0) {
+  // Max songs per guest (skip for host)
+  if (!isHost && room.maxSongsPerGuest > 0) {
     const guestSongCount = await prisma.roomSong.count({
       where: { roomId: room.id, addedBy: fingerprint, isPlayed: false },
     });
@@ -73,8 +75,8 @@ export async function POST(
     where: { roomId: room.id, spotifyUri, isPlayed: false },
   });
 
-  if (room.requireApproval && !existingBeyond) {
-    // Only require approval for brand new songs, not pre-approved playlist songs
+  if (room.requireApproval && !existingBeyond && fingerprint !== "host") {
+    // Only require approval for brand new songs from guests, not host or pre-approved playlist songs
     const request = await prisma.songRequest.create({
       data: {
         roomId: room.id,

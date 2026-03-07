@@ -128,28 +128,30 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   }, [code, fetchRoom, fetchSongs]);
 
   // Poll for request approvals to send notifications
+  const notifSeeded = useRef(false);
   useEffect(() => {
     if (!notificationsEnabled || !fingerprint) return;
+    notifSeeded.current = false;
+    knownApproved.current = new Set();
     const checkRequests = async () => {
       const res = await fetch(`/api/rooms/${code}/my-requests?fingerprint=${encodeURIComponent(fingerprint)}`);
       if (!res.ok) return;
       const reqs = await res.json();
+      if (!notifSeeded.current) {
+        // First load — seed known approved without notifying
+        for (const r of reqs) {
+          if (r.status === "approved") knownApproved.current.add(r.id);
+        }
+        notifSeeded.current = true;
+        return;
+      }
       for (const r of reqs) {
         if (r.status === "approved" && !knownApproved.current.has(r.id)) {
           knownApproved.current.add(r.id);
-          // Don't notify on first load
-          if (knownApproved.current.size > 1 || reqs.filter((x: any) => x.status === "approved").length === 1) {
-            new Notification("Song Approved!", {
-              body: `"${r.trackName}" by ${r.artistName} was added to the queue`,
-              icon: r.albumArt || undefined,
-            });
-          }
-        }
-      }
-      // Seed known approved on first load
-      if (knownApproved.current.size === 0) {
-        for (const r of reqs) {
-          if (r.status === "approved") knownApproved.current.add(r.id);
+          new Notification("Song Approved!", {
+            body: `"${r.trackName}" by ${r.artistName} was added to the queue`,
+            icon: r.albumArt || undefined,
+          });
         }
       }
     };
