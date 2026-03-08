@@ -128,6 +128,10 @@ function MiniPlayer({
   progressSyncedAt,
   onTogglePlay,
   onSkip,
+  onFadeSkip,
+  controlsLocked,
+  onToggleLock,
+  isFading,
 }: {
   nowPlaying: any;
   isPlaying: boolean;
@@ -136,6 +140,10 @@ function MiniPlayer({
   progressSyncedAt: number;
   onTogglePlay: () => void;
   onSkip: () => void;
+  onFadeSkip: () => void;
+  controlsLocked: boolean;
+  onToggleLock: () => void;
+  isFading: boolean;
 }) {
   const [displayProgress, setDisplayProgress] = useState(progressMs);
 
@@ -164,10 +172,16 @@ function MiniPlayer({
         <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 w-3/4 h-16 rounded-full blur-2xl opacity-30 pointer-events-none" style={{ background: 'radial-gradient(ellipse, var(--color-accent) 0%, transparent 70%)' }} />
       )}
       <div className="relative z-20 bg-bg-card border border-border rounded-2xl shadow-2xl overflow-hidden">
+        {/* Fading indicator bar */}
+        {isFading && (
+          <div className="h-0.5 bg-accent/30 overflow-hidden">
+            <div className="h-full bg-accent animate-pulse" style={{ width: "100%" }} />
+          </div>
+        )}
         <div className="flex items-center gap-3 p-3">
             {/* Album art */}
             {nowPlaying?.albumArt ? (
-              <img src={nowPlaying.albumArt} alt="" className="w-12 h-12 rounded-lg shadow-md flex-shrink-0" />
+              <img src={nowPlaying.albumArt} alt="" className={`w-12 h-12 rounded-lg shadow-md flex-shrink-0 transition-opacity ${isFading ? "opacity-50" : ""}`} />
             ) : (
               <div className="w-12 h-12 rounded-lg bg-bg-card-hover flex items-center justify-center flex-shrink-0">
                 <svg className="w-5 h-5 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -179,7 +193,7 @@ function MiniPlayer({
             <div className="flex-1 min-w-0">
               {nowPlaying ? (
                 <>
-                  <p className="text-sm font-semibold truncate">{nowPlaying.trackName}</p>
+                  <p className="text-sm font-semibold truncate">{isFading ? "Fading out..." : nowPlaying.trackName}</p>
                   <p className="text-xs text-text-secondary truncate">{nowPlaying.artistName}</p>
                 </>
               ) : (
@@ -200,9 +214,29 @@ function MiniPlayer({
             </div>
             {/* Controls */}
             <div className="flex items-center gap-0.5 flex-shrink-0">
+              {/* Lock toggle */}
               <button
-                onClick={onTogglePlay}
-                className="w-11 h-11 rounded-xl flex items-center justify-center transition-colors hover:bg-bg-card-hover active:bg-border"
+                onClick={onToggleLock}
+                className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${
+                  controlsLocked ? "text-yellow-500 bg-yellow-500/10" : "text-white/20 hover:text-white/40 hover:bg-white/[0.04]"
+                }`}
+                title={controlsLocked ? "Unlock controls" : "Lock controls"}
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                  {controlsLocked ? (
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                  ) : (
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M8 11V7a4 4 0 118 0m-4 8v2m-2 4h4a2 2 0 002-2v-6a2 2 0 00-2-2H10a2 2 0 00-2 2v6a2 2 0 002 2z" />
+                  )}
+                </svg>
+              </button>
+              {/* Play/Pause */}
+              <button
+                onClick={controlsLocked ? undefined : onTogglePlay}
+                className={`w-11 h-11 rounded-xl flex items-center justify-center transition-colors ${
+                  controlsLocked ? "opacity-30 cursor-not-allowed" : "hover:bg-bg-card-hover active:bg-border"
+                }`}
+                disabled={controlsLocked}
               >
                 {isPlaying ? (
                   <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
@@ -215,13 +249,25 @@ function MiniPlayer({
                   </svg>
                 )}
               </button>
+              {/* Skip — fade skip by default, hard skip if already fading */}
               <button
-                onClick={onSkip}
-                className="w-11 h-11 rounded-xl flex items-center justify-center transition-colors hover:bg-bg-card-hover active:bg-border"
+                onClick={controlsLocked ? undefined : (isFading ? onSkip : onFadeSkip)}
+                className={`w-11 h-11 rounded-xl flex items-center justify-center transition-colors ${
+                  controlsLocked ? "opacity-30 cursor-not-allowed" : isFading ? "text-accent hover:bg-accent/10" : "hover:bg-bg-card-hover active:bg-border"
+                }`}
+                disabled={controlsLocked}
+                title={isFading ? "Skip now (hard skip)" : "DJ fade skip"}
               >
-                <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M5 4v16l10-8zm12 0v16h2V4z" />
-                </svg>
+                {isFading ? (
+                  /* During fade: show a "skip now" double-arrow icon */
+                  <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M4 4v16l8-8zm8 0v16l8-8zm4 0v16h2V4z" />
+                  </svg>
+                ) : (
+                  <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M5 4v16l10-8zm12 0v16h2V4z" />
+                  </svg>
+                )}
               </button>
             </div>
           </div>
@@ -296,6 +342,11 @@ function DashboardInner({ user }: { user: any }) {
   const [selectedGuest, setSelectedGuest] = useState<any>(null);
   const [expandedGuestSection, setExpandedGuestSection] = useState<string | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
+  const [controlsLocked, setControlsLocked] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem("pq_controls_locked") === "true";
+  });
+  const [isFading, setIsFading] = useState(false);
   const [songListRef] = useAutoAnimate({ duration: 300 });
   const [pullRefreshing, setPullRefreshing] = useState(false);
   const [pullDistance, setPullDistance] = useState(0);
@@ -709,11 +760,35 @@ function DashboardInner({ user }: { user: any }) {
 
   const skipSong = async () => {
     if (!activeRoom) return;
+    setIsFading(false);
     setProgressMs(0);
     setDurationMs(0);
     await fetch(`/api/rooms/${activeRoom.code}/skip`, { method: "POST" });
     getSocket().emit("song-skipped", activeRoom.code);
     refreshSongs(activeRoom.code);
+  };
+
+  const fadeSkipSong = async () => {
+    if (!activeRoom || isFading) return;
+    setIsFading(true);
+    try {
+      await fetch(`/api/rooms/${activeRoom.code}/fade-skip`, { method: "POST" });
+      getSocket().emit("song-skipped", activeRoom.code);
+      refreshSongs(activeRoom.code);
+    } catch {
+      // If fade fails, fall back to hard skip
+      await skipSong();
+    } finally {
+      setIsFading(false);
+    }
+  };
+
+  const toggleControlsLock = () => {
+    setControlsLocked((prev) => {
+      const next = !prev;
+      localStorage.setItem("pq_controls_locked", String(next));
+      return next;
+    });
   };
 
   const closeRoom = async () => {
@@ -1990,6 +2065,10 @@ function DashboardInner({ user }: { user: any }) {
             progressSyncedAt={progressSyncedAt.current}
             onTogglePlay={togglePlay}
             onSkip={skipSong}
+            onFadeSkip={fadeSkipSong}
+            controlsLocked={controlsLocked}
+            onToggleLock={toggleControlsLock}
+            isFading={isFading}
           />
         </>
       )}

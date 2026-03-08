@@ -148,6 +148,15 @@ export async function getDevices(accessToken: string) {
   return data.devices || [];
 }
 
+export async function setVolume(accessToken: string, volumePercent: number) {
+  const vol = Math.max(0, Math.min(100, Math.round(volumePercent)));
+  const res = await fetch(`${SPOTIFY_API}/me/player/volume?volume_percent=${vol}`, {
+    method: "PUT",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok && res.status !== 204) throw new Error("Failed to set volume");
+}
+
 export async function getCurrentPlayback(accessToken: string) {
   const res = await fetch(`${SPOTIFY_API}/me/player`, {
     headers: { Authorization: `Bearer ${accessToken}` },
