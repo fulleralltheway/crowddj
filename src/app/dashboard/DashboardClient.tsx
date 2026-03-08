@@ -129,9 +129,12 @@ function MiniPlayer({
   onTogglePlay,
   onSkip,
   onFadeSkip,
+  onFadePause,
   controlsLocked,
   onToggleLock,
   isFading,
+  fadeSpeed,
+  onCycleFadeSpeed,
 }: {
   nowPlaying: any;
   isPlaying: boolean;
@@ -141,9 +144,12 @@ function MiniPlayer({
   onTogglePlay: () => void;
   onSkip: () => void;
   onFadeSkip: () => void;
+  onFadePause: () => void;
   controlsLocked: boolean;
   onToggleLock: () => void;
   isFading: boolean;
+  fadeSpeed: "fast" | "medium" | "slow";
+  onCycleFadeSpeed: () => void;
 }) {
   const [displayProgress, setDisplayProgress] = useState(progressMs);
 
@@ -217,17 +223,31 @@ function MiniPlayer({
               {/* Lock toggle */}
               <button
                 onClick={onToggleLock}
-                className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${
+                className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
                   controlsLocked ? "text-yellow-500 bg-yellow-500/10" : "text-white/20 hover:text-white/40 hover:bg-white/[0.04]"
                 }`}
                 title={controlsLocked ? "Unlock controls" : "Lock controls"}
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                   {controlsLocked ? (
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                   ) : (
                     <path strokeLinecap="round" strokeLinejoin="round" d="M8 11V7a4 4 0 118 0m-4 8v2m-2 4h4a2 2 0 002-2v-6a2 2 0 00-2-2H10a2 2 0 00-2 2v6a2 2 0 002 2z" />
                   )}
+                </svg>
+              </button>
+              {/* Fade & Pause */}
+              <button
+                onClick={controlsLocked ? undefined : onFadePause}
+                className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
+                  controlsLocked ? "opacity-30 cursor-not-allowed" : "text-white/30 hover:text-white/60 hover:bg-white/[0.04]"
+                }`}
+                disabled={controlsLocked || isFading}
+                title="Fade & pause"
+              >
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M6 4v16l8-8z" />
+                  <rect x="16" y="4" width="3" height="16" rx="1" />
                 </svg>
               </button>
               {/* Play/Pause */}
@@ -259,7 +279,6 @@ function MiniPlayer({
                 title={isFading ? "Skip now (hard skip)" : "DJ fade skip"}
               >
                 {isFading ? (
-                  /* During fade: show a "skip now" double-arrow icon */
                   <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M4 4v16l8-8zm8 0v16l8-8zm4 0v16h2V4z" />
                   </svg>
@@ -268,6 +287,14 @@ function MiniPlayer({
                     <path d="M5 4v16l10-8zm12 0v16h2V4z" />
                   </svg>
                 )}
+              </button>
+              {/* Fade speed indicator — tap to cycle */}
+              <button
+                onClick={onCycleFadeSpeed}
+                className="w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-bold tabular-nums text-white/25 hover:text-white/50 hover:bg-white/[0.04] transition-colors"
+                title={`Fade speed: ${fadeSpeed} (tap to change)`}
+              >
+                {fadeSpeed === "fast" ? "1s" : fadeSpeed === "medium" ? "2s" : "5s"}
               </button>
             </div>
           </div>
@@ -347,6 +374,10 @@ function DashboardInner({ user }: { user: any }) {
     return localStorage.getItem("pq_controls_locked") === "true";
   });
   const [isFading, setIsFading] = useState(false);
+  const [fadeSpeed, setFadeSpeed] = useState<"fast" | "medium" | "slow">(() => {
+    if (typeof window === "undefined") return "medium";
+    return (localStorage.getItem("pq_fade_speed") as "fast" | "medium" | "slow") || "medium";
+  });
   const [songListRef] = useAutoAnimate({ duration: 300 });
   const [pullRefreshing, setPullRefreshing] = useState(false);
   const [pullDistance, setPullDistance] = useState(0);
@@ -772,15 +803,44 @@ function DashboardInner({ user }: { user: any }) {
     if (!activeRoom || isFading) return;
     setIsFading(true);
     try {
-      await fetch(`/api/rooms/${activeRoom.code}/fade-skip`, { method: "POST" });
+      await fetch(`/api/rooms/${activeRoom.code}/fade-skip`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ speed: fadeSpeed, mode: "skip" }),
+      });
       getSocket().emit("song-skipped", activeRoom.code);
       refreshSongs(activeRoom.code);
     } catch {
-      // If fade fails, fall back to hard skip
       await skipSong();
     } finally {
       setIsFading(false);
     }
+  };
+
+  const fadePause = async () => {
+    if (!activeRoom || isFading) return;
+    setIsFading(true);
+    try {
+      await fetch(`/api/rooms/${activeRoom.code}/fade-skip`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ speed: fadeSpeed, mode: "pause" }),
+      });
+      setIsPlaying(false);
+    } catch {
+      // Fall back to hard pause
+      await togglePlay();
+    } finally {
+      setIsFading(false);
+    }
+  };
+
+  const cycleFadeSpeed = () => {
+    setFadeSpeed((prev) => {
+      const next = prev === "fast" ? "medium" : prev === "medium" ? "slow" : "fast";
+      localStorage.setItem("pq_fade_speed", next);
+      return next;
+    });
   };
 
   const toggleControlsLock = () => {
@@ -2066,9 +2126,12 @@ function DashboardInner({ user }: { user: any }) {
             onTogglePlay={togglePlay}
             onSkip={skipSong}
             onFadeSkip={fadeSkipSong}
+            onFadePause={fadePause}
             controlsLocked={controlsLocked}
             onToggleLock={toggleControlsLock}
             isFading={isFading}
+            fadeSpeed={fadeSpeed}
+            onCycleFadeSpeed={cycleFadeSpeed}
           />
         </>
       )}
