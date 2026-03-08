@@ -36,23 +36,33 @@ export async function GET(
   ]);
 
   const seenIds = new Set(baseSongs.map((s) => s.id));
-  const songs = [...baseSongs, ...requestedSongs.filter((s) => !seenIds.has(s.id))];
-  songs.sort((a, b) => {
-    if (a.isPlaying && !b.isPlaying) return -1;
-    if (!a.isPlaying && b.isPlaying) return 1;
-    // Locked songs keep their position
-    if (a.isLocked && !b.isLocked) return -1;
-    if (!a.isLocked && b.isLocked) return 1;
-    if (a.isLocked && b.isLocked) return a.sortOrder - b.sortOrder;
-    // Unlocked: sort by net score when autoShuffle is on
-    if (room.autoShuffle) {
+  const allSongs = [...baseSongs, ...requestedSongs.filter((s) => !seenIds.has(s.id))];
+  const playing = allSongs.filter((s) => s.isPlaying);
+  const nonPlaying = allSongs.filter((s) => !s.isPlaying);
+  nonPlaying.sort((a, b) => a.sortOrder - b.sortOrder);
+
+  let songs: typeof allSongs;
+  if (room.autoShuffle) {
+    const locked = nonPlaying.filter((s) => s.isLocked);
+    const unlocked = nonPlaying.filter((s) => !s.isLocked);
+    unlocked.sort((a, b) => {
       const scoreA = a.upvotes - a.downvotes;
       const scoreB = b.upvotes - b.downvotes;
       if (scoreB !== scoreA) return scoreB - scoreA;
       return a.sortOrder - b.sortOrder;
+    });
+    const lockedPositions = new Map<number, (typeof locked)[0]>();
+    locked.forEach((s) => { lockedPositions.set(nonPlaying.indexOf(s), s); });
+    const result: typeof allSongs = [];
+    let ui = 0;
+    for (let i = 0; i < nonPlaying.length; i++) {
+      if (lockedPositions.has(i)) result.push(lockedPositions.get(i)!);
+      else if (ui < unlocked.length) result.push(unlocked[ui++]);
     }
-    return a.sortOrder - b.sortOrder;
-  });
+    songs = [...playing, ...result];
+  } else {
+    songs = [...playing, ...nonPlaying];
+  }
 
   // Auto-expire rooms older than 24 hours
   if (room.isActive && Date.now() - room.createdAt.getTime() > ROOM_EXPIRY_MS) {

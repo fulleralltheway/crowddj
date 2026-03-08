@@ -38,23 +38,41 @@ export async function GET(
     netScore: s.upvotes - s.downvotes,
   }));
 
-  // Sort: playing first, then locked songs by sortOrder, then by netScore (if autoShuffle) or sortOrder
-  withScore.sort((a, b) => {
-    if (a.isPlaying && !b.isPlaying) return -1;
-    if (!a.isPlaying && b.isPlaying) return 1;
-    // Locked songs always keep their sortOrder position
-    if (a.isLocked && !b.isLocked) return -1;
-    if (!a.isLocked && b.isLocked) return 1;
-    if (a.isLocked && b.isLocked) return a.sortOrder - b.sortOrder;
-    // Unlocked: sort by netScore descending when autoShuffle, else sortOrder
-    if (room.autoShuffle) {
-      if (b.netScore !== a.netScore) return b.netScore - a.netScore;
-      return a.sortOrder - b.sortOrder; // tie-break by original order
-    }
-    return a.sortOrder - b.sortOrder;
-  });
+  // Separate playing, locked, and unlocked
+  const playing = withScore.filter((s) => s.isPlaying);
+  const nonPlaying = withScore.filter((s) => !s.isPlaying);
 
-  const sorted = withScore;
+  let sorted: typeof withScore;
+  if (room.autoShuffle) {
+    // Locked songs stay at their sortOrder-based positions; unlocked sort by netScore
+    // First, sort all non-playing by sortOrder to establish positions
+    nonPlaying.sort((a, b) => a.sortOrder - b.sortOrder);
+    const locked = nonPlaying.filter((s) => s.isLocked);
+    const unlocked = nonPlaying.filter((s) => !s.isLocked);
+    unlocked.sort((a, b) => {
+      if (b.netScore !== a.netScore) return b.netScore - a.netScore;
+      return a.sortOrder - b.sortOrder;
+    });
+
+    // Rebuild: locked songs keep their relative positions, unlocked fill the gaps
+    const lockedPositions = new Map<number, (typeof locked)[0]>();
+    locked.forEach((s) => {
+      lockedPositions.set(nonPlaying.indexOf(s), s);
+    });
+    const result: typeof withScore = [];
+    let unlockedIdx = 0;
+    for (let i = 0; i < nonPlaying.length; i++) {
+      if (lockedPositions.has(i)) {
+        result.push(lockedPositions.get(i)!);
+      } else if (unlockedIdx < unlocked.length) {
+        result.push(unlocked[unlockedIdx++]);
+      }
+    }
+    sorted = [...playing, ...result];
+  } else {
+    nonPlaying.sort((a, b) => a.sortOrder - b.sortOrder);
+    sorted = [...playing, ...nonPlaying];
+  }
 
   return NextResponse.json(sorted);
 }
