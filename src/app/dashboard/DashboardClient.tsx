@@ -277,6 +277,7 @@ function DashboardInner({ user }: { user: any }) {
   });
   const [confirmClose, setConfirmClose] = useState(false);
   const [searchStatus, setSearchStatus] = useState("");
+  const [recentlyAdded, setRecentlyAdded] = useState<Set<string>>(new Set());
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const prevRequestCount = useRef<number>(0);
@@ -310,9 +311,12 @@ function DashboardInner({ user }: { user: any }) {
   // Keep search ref in sync; flush deferred songs when search closes
   useEffect(() => {
     showSearchRef.current = showSearch;
-    if (!showSearch && deferredSongs.current) {
-      setActiveRoom((prev) => (prev ? { ...prev, songs: deferredSongs.current! } : null));
-      deferredSongs.current = null;
+    if (!showSearch) {
+      if (deferredSongs.current) {
+        setActiveRoom((prev) => (prev ? { ...prev, songs: deferredSongs.current! } : null));
+        deferredSongs.current = null;
+      }
+      setRecentlyAdded(new Set());
     }
   }, [showSearch]);
 
@@ -792,6 +796,7 @@ function DashboardInner({ user }: { user: any }) {
       const data = await res.json();
       if (res.ok) {
         setSearchStatus("Song added to queue!");
+        setRecentlyAdded((prev) => new Set(prev).add(track.spotifyUri));
         getSocket().emit("songs-reordered", room.code);
         refreshSongs(room.code);
       } else {
@@ -1913,13 +1918,15 @@ function DashboardInner({ user }: { user: any }) {
                     const inQueue = (activeRoom?.songs || []).some(
                       (s: any) => s.spotifyUri === track.spotifyUri
                     );
+                    const justAdded = recentlyAdded.has(track.spotifyUri);
+                    const unavailable = inQueue || justAdded;
                     return (
                       <button
                         key={track.spotifyUri}
-                        onClick={() => !inQueue && addSongToQueue(track)}
-                        disabled={inQueue}
+                        onClick={() => !unavailable && addSongToQueue(track)}
+                        disabled={unavailable}
                         className={`w-full flex items-center gap-3 p-2 rounded-lg text-left transition-colors ${
-                          inQueue ? "opacity-50 cursor-default" : "hover:bg-bg-card-hover"
+                          unavailable ? "opacity-50 cursor-default" : "hover:bg-bg-card-hover"
                         }`}
                       >
                         {track.albumArt && (
@@ -1934,8 +1941,8 @@ function DashboardInner({ user }: { user: any }) {
                           </p>
                           <p className="text-text-secondary text-xs truncate">{track.artistName}</p>
                         </div>
-                        <span className={`text-xs font-medium ${inQueue ? "text-text-secondary" : "text-accent"}`}>
-                          {inQueue ? "In queue" : "+ Add"}
+                        <span className={`text-xs font-medium ${unavailable ? "text-upvote" : "text-accent"}`}>
+                          {justAdded ? "Added!" : inQueue ? "In queue" : "+ Add"}
                         </span>
                       </button>
                     );

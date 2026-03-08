@@ -106,6 +106,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const [error, setError] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [recentlyRequested, setRecentlyRequested] = useState<Map<string, "added" | "pending">>(new Map());
   const [searching, setSearching] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [requestStatus, setRequestStatus] = useState("");
@@ -646,10 +647,12 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
 
     const data = await res.json();
     if (res.ok) {
+      const status = data.status === "pending" ? "pending" as const : "added" as const;
+      setRecentlyRequested((prev) => new Map(prev).set(track.spotifyUri, status));
       setRequestStatus(
-        data.status === "pending" ? "Request sent! Waiting for host approval." : "Song added to queue!"
+        status === "pending" ? "Request sent! Waiting for host approval." : "Song added to queue!"
       );
-      if (data.status !== "pending") {
+      if (status !== "pending") {
         // Refresh songs list and close search so they can see/vote on it
         getSocket().emit("song-requested", code);
         const songsRes = await fetch(`/api/rooms/${code}/songs`);
@@ -902,6 +905,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                 setSearchQuery("");
                 setSearchResults([]);
                 setShowSearch(false);
+                setRecentlyRequested(new Map());
               }}
               className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-text-secondary hover:text-white transition-colors"
             >
@@ -929,7 +933,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
 
         return (
           <>
-          <div className="fixed inset-0 z-40" onClick={() => { setShowSearch(false); setSearchQuery(""); setSearchResults([]); }} />
+          <div className="fixed inset-0 z-40" onClick={() => { setShowSearch(false); setSearchQuery(""); setSearchResults([]); setRecentlyRequested(new Map()); }} />
           <div className="absolute left-0 right-0 mx-4 mt-1 z-50 bg-bg-card border border-white/[0.08] rounded-xl overflow-hidden shadow-2xl">
             <div className="max-h-72 overflow-y-auto divide-y divide-border/50">
               {queueMatches.length > 0 && (
@@ -987,13 +991,16 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
               {searchResults.length > 0 && (
                 <div className="p-2 space-y-1">
                   <p className="text-text-secondary text-[10px] font-semibold uppercase tracking-wider px-1">From Spotify</p>
-                  {searchResults.map((track: any) => (
+                  {searchResults.map((track: any) => {
+                    const recentStatus = recentlyRequested.get(track.spotifyUri);
+                    const unavailable = track.inQueue || track.alreadyPlayed || !!recentStatus;
+                    return (
                     <button
                       key={track.spotifyUri}
-                      onClick={() => !track.inQueue && !track.alreadyPlayed && requestSong(track)}
-                      disabled={track.inQueue || track.alreadyPlayed}
+                      onClick={() => !unavailable && requestSong(track)}
+                      disabled={unavailable}
                       className={`w-full flex items-center gap-3 p-2 rounded-lg text-left transition-colors ${
-                        track.inQueue || track.alreadyPlayed ? "opacity-50 cursor-default" : "hover:bg-bg-card-hover"
+                        unavailable ? "opacity-50 cursor-default" : "hover:bg-bg-card-hover"
                       }`}
                     >
                       {track.albumArt && (
@@ -1009,11 +1016,13 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                         <p className="text-text-secondary text-xs truncate">{track.artistName}</p>
                       </div>
                       <span className={`text-xs font-medium ${
-                        track.alreadyPlayed ? "text-text-secondary" : track.inQueue ? "text-text-secondary" : "text-accent"
+                        recentStatus === "pending" ? "text-yellow-500" : recentStatus === "added" ? "text-upvote" : track.alreadyPlayed ? "text-text-secondary" : track.inQueue ? "text-text-secondary" : "text-accent"
                       }`}>
-                        {track.alreadyPlayed ? "Played" : track.inQueue ? "In queue" : "+ Add"}
+                        {recentStatus === "pending" ? "Pending" : recentStatus === "added" ? "Added!" : track.alreadyPlayed ? "Played" : track.inQueue ? "In queue" : "+ Add"}
                       </span>
                     </button>
+                    );
+                  }
                   ))}
                 </div>
               )}
