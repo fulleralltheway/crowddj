@@ -40,6 +40,17 @@ export async function GET(
   songs.sort((a, b) => {
     if (a.isPlaying && !b.isPlaying) return -1;
     if (!a.isPlaying && b.isPlaying) return 1;
+    // Locked songs keep their position
+    if (a.isLocked && !b.isLocked) return -1;
+    if (!a.isLocked && b.isLocked) return 1;
+    if (a.isLocked && b.isLocked) return a.sortOrder - b.sortOrder;
+    // Unlocked: sort by net score when autoShuffle is on
+    if (room.autoShuffle) {
+      const scoreA = a.upvotes - a.downvotes;
+      const scoreB = b.upvotes - b.downvotes;
+      if (scoreB !== scoreA) return scoreB - scoreA;
+      return a.sortOrder - b.sortOrder;
+    }
     return a.sortOrder - b.sortOrder;
   });
 

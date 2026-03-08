@@ -33,17 +33,28 @@ export async function GET(
   const seenIds = new Set(baseSongs.map((s) => s.id));
   const merged = [...baseSongs, ...requestedSongs.filter((s) => !seenIds.has(s.id))];
 
-  // Sort: playing first, then by sortOrder
-  merged.sort((a, b) => {
-    if (a.isPlaying && !b.isPlaying) return -1;
-    if (!a.isPlaying && b.isPlaying) return 1;
-    return a.sortOrder - b.sortOrder;
-  });
-
-  const sorted = merged.map((s) => ({
+  const withScore = merged.map((s) => ({
     ...s,
     netScore: s.upvotes - s.downvotes,
   }));
+
+  // Sort: playing first, then locked songs by sortOrder, then by netScore (if autoShuffle) or sortOrder
+  withScore.sort((a, b) => {
+    if (a.isPlaying && !b.isPlaying) return -1;
+    if (!a.isPlaying && b.isPlaying) return 1;
+    // Locked songs always keep their sortOrder position
+    if (a.isLocked && !b.isLocked) return -1;
+    if (!a.isLocked && b.isLocked) return 1;
+    if (a.isLocked && b.isLocked) return a.sortOrder - b.sortOrder;
+    // Unlocked: sort by netScore descending when autoShuffle, else sortOrder
+    if (room.autoShuffle) {
+      if (b.netScore !== a.netScore) return b.netScore - a.netScore;
+      return a.sortOrder - b.sortOrder; // tie-break by original order
+    }
+    return a.sortOrder - b.sortOrder;
+  });
+
+  const sorted = withScore;
 
   return NextResponse.json(sorted);
 }

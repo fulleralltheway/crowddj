@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef, use } from "react";
 import { useAutoAnimate } from "@formkit/auto-animate/react";
 import { getFingerprint } from "@/lib/fingerprint";
 import { getSocket } from "@/lib/socket";
+import { useAppHeight, useNetworkStatus } from "@/lib/pwa";
 
 type Song = {
   id: string;
@@ -92,8 +93,17 @@ function saveGuestId(code: string, id: string) {
   setCookie("crowddj_guestid_global", id);
 }
 
+function saveLastRoom(code: string, roomName: string) {
+  try {
+    localStorage.setItem("crowddj_last_room", JSON.stringify({ code, roomName }));
+  } catch {}
+  setCookie("crowddj_last_room", JSON.stringify({ code, roomName }));
+}
+
 export default function RoomPage({ params }: { params: Promise<{ code: string }> }) {
   const { code } = use(params);
+  useAppHeight();
+  const isOnline = useNetworkStatus();
   const savedName = getSavedGuestName(code);
   // Single status: "loading" | "need_name" | "welcome" | "ready" — prevents any flash between states
   const [pageStatus, setPageStatus] = useState<"loading" | "need_name" | "welcome" | "ready">(savedName ? "ready" : "loading");
@@ -105,6 +115,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const [nameInput, setNameInput] = useState("");
   const [votesUsed, setVotesUsed] = useState(0);
   const [error, setError] = useState("");
+  const [spotifyTrack, setSpotifyTrack] = useState<{ uri: string; name: string; artist: string; albumArt: string | null } | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [recentlyRequested, setRecentlyRequested] = useState<Map<string, "added" | "pending">>(new Map());
@@ -224,6 +235,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
           saveGuestName(code, guestData.name);
           // Single state flip: loading → ready (never passes through need_name)
           setPageStatus("ready");
+          saveLastRoom(code, roomData.name);
           return;
         }
       }
@@ -281,14 +293,25 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       serverTimeOffset.current = serverTime - Date.now();
     };
 
+    const handleRoomClosed = () => {
+      setError("This room has been closed by the host");
+      try { localStorage.removeItem("crowddj_last_room"); } catch {}
+    };
+
     socket.on("songs-update", handleSongsUpdate);
     socket.on("room-update", handleRoomUpdate);
+    socket.on("room-closed", handleRoomClosed);
     socket.on("server-time", handleServerTime);
 
     // Fallback polling (slower) in case Socket.io is down
     let pollCount = 0;
     const interval = setInterval(() => {
-      fetch(`/api/rooms/${code}/sync`, { method: "POST" });
+      fetch(`/api/rooms/${code}/sync`, { method: "POST" }).then(async (res) => {
+        if (res.ok) {
+          const data = await res.json();
+          if (data.spotifyTrack) setSpotifyTrack(data.spotifyTrack);
+        }
+      }).catch(() => {});
       if (!socket.connected) fetchSongs();
       pollCount++;
       if (pollCount % 6 === 0) {
@@ -329,6 +352,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       socket.emit("leave-room", code);
       socket.off("songs-update", handleSongsUpdate);
       socket.off("room-update", handleRoomUpdate);
+      socket.off("room-closed", handleRoomClosed);
       socket.off("server-time", handleServerTime);
       clearInterval(interval);
       clearInterval(flushInterval);
@@ -671,7 +695,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   if (error) {
     const isClosed = error.includes("closed") || error.includes("expired");
     return (
-      <div className="min-h-dvh flex items-center justify-center px-4">
+      <div className="min-h-dvh flex items-center justify-center px-4 select-none">
         <div className="text-center space-y-4">
           <div className="text-4xl mb-2">{isClosed ? "\u{1F3B5}" : "\u{1F50D}"}</div>
           <p className="text-2xl font-bold">{isClosed ? "Party's Over" : error}</p>
@@ -700,6 +724,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     setGuestName(trimmed);
     setPageStatus("welcome");
     saveGuestName(code, trimmed);
+    if (room) saveLastRoom(code, room.name);
     setTimeout(() => setPageStatus("ready"), 2000);
     // Re-register guest with name
     if (fingerprint) {
@@ -718,7 +743,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
 
   if (pageStatus === "need_name") {
     return (
-      <div className="min-h-dvh flex items-center justify-center px-4 name-form-enter">
+      <div className="min-h-dvh flex items-center justify-center px-4 name-form-enter select-none">
         <div className="w-full max-w-sm text-center space-y-6">
           <div>
             <h1 className="text-2xl font-bold mb-1">{room.name}</h1>
@@ -752,7 +777,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   if (pageStatus === "welcome") {
     const firstName = guestName.split(" ")[0];
     return (
-      <div className="min-h-dvh flex items-center justify-center px-4">
+      <div className="min-h-dvh flex items-center justify-center px-4 select-none">
         <div className="text-center space-y-3 animate-[fadeIn_0.4s_ease-out]">
           <p className="text-4xl">🎵</p>
           <h1 className="text-2xl font-bold">Welcome, {firstName}!</h1>
@@ -769,9 +794,19 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
 
   const votesRemaining = Math.max(0, room.votesPerUser - votesUsed);
   const outOfVotes = votesRemaining === 0;
-  const nowPlaying = songs.find((s) => s.isPlaying);
+  const queuePlaying = songs.find((s) => s.isPlaying);
+  const nowPlaying = spotifyTrack
+    ? (queuePlaying && queuePlaying.spotifyUri === spotifyTrack.uri
+      ? queuePlaying
+      : { trackName: spotifyTrack.name, artistName: spotifyTrack.artist, albumArt: spotifyTrack.albumArt, spotifyUri: spotifyTrack.uri, id: '__spotify__', isPlaying: true } as any)
+    : queuePlaying;
   return (
-    <div className="h-dvh flex flex-col max-w-lg lg:max-w-3xl mx-auto overflow-hidden">
+    <div className="flex flex-col max-w-lg lg:max-w-3xl mx-auto overflow-hidden select-none safe-top" style={{ height: 'var(--app-height, 100dvh)' }}>
+      {!isOnline && (
+        <div className="flex-shrink-0 bg-red-600 text-white text-center text-xs py-1 font-medium z-[70]">
+          No internet connection
+        </div>
+      )}
       {/* In-app notification toast */}
       {inAppNotif && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 w-[90%] max-w-sm animate-[slideDown_0.3s_ease-out]">
@@ -793,7 +828,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       )}
 
       {/* Header */}
-      <div className="relative z-[60]">
+      <div className="flex-shrink-0 relative z-[60]">
       <div className="backdrop-blur-xl px-4 pt-3 pb-3">
         {/* Greeting */}
         <p className="text-accent text-xs font-medium mb-1">
@@ -810,7 +845,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
             <div className="flex items-center gap-1.5 mt-0.5">
               <span className="text-text-secondary text-xs">{room.host.name}</span>
               <span className="inline-block w-[3px] h-[3px] rounded-full bg-white/25" />
-              <span className="font-mono text-text-secondary text-xs">{room.code}</span>
+              <span className="font-mono text-text-secondary text-xs select-text">{room.code}</span>
             </div>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
@@ -929,7 +964,12 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
             !s.isPlaying &&
             (s.trackName.toLowerCase().includes(q) ||
               s.artistName.toLowerCase().includes(q))
-        );
+        ).sort((a, b) => {
+          // Locked songs stay at their original position (top), then sort by netScore
+          if (a.isLocked && !b.isLocked) return -1;
+          if (!a.isLocked && b.isLocked) return 1;
+          return b.netScore - a.netScore;
+        });
         if (queueMatches.length === 0 && searchResults.length === 0 && !searching) return null;
 
         return (
@@ -946,7 +986,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                     const myDown = myVotes.filter((v) => v.value === -1).length;
 
                     return (
-                      <div key={song.id} className="flex items-center gap-3 p-2 rounded-lg">
+                      <div key={song.id} className={`flex items-center gap-3 p-2 rounded-lg ${song.isLocked ? "bg-yellow-500/5" : ""}`}>
                         {song.albumArt && (
                           <img src={song.albumArt} alt="" className="w-9 h-9 rounded-md" />
                         )}
@@ -954,27 +994,29 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                           <p className="text-sm font-medium truncate">{song.trackName}</p>
                           <p className="text-text-secondary text-xs truncate">{song.artistName}</p>
                         </div>
-                        {!song.isLocked && (
+                        {song.isLocked ? (
+                          <span className="text-[10px] text-yellow-500/50 flex-shrink-0">Locked</span>
+                        ) : (
                           <div className="flex items-center gap-1 flex-shrink-0">
                             <button
                               onClick={() => vote(song.id, 1)}
                               className={`relative p-1.5 rounded-lg hover:bg-upvote/10 ${myUp > 0 ? "bg-upvote/10" : ""}`}
                             >
-                              <svg className={`w-4 h-4 ${myUp > 0 ? "text-upvote" : "text-text-secondary"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <svg className={`w-4 h-4 ${myUp > 0 ? "text-upvote" : "text-text-secondary"}`} fill={myUp > 0 ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
                               </svg>
                               {myUp > 0 && (
                                 <span className="absolute -top-1 -right-1 w-4 h-4 bg-upvote text-black text-[10px] font-bold rounded-full flex items-center justify-center">{myUp}</span>
                               )}
                             </button>
-                            <span className={`text-xs font-medium min-w-[1.2rem] text-center ${song.netScore > 0 ? "text-upvote" : song.netScore < 0 ? "text-downvote" : "text-text-secondary"}`}>
-                              {song.netScore}
+                            <span className={`text-xs font-medium min-w-[1.2rem] text-center ${song.netScore > 0 ? "text-upvote" : song.netScore < 0 ? "text-downvote" : "text-white/20"}`}>
+                              {song.netScore === 0 ? "\u00B7" : song.netScore}
                             </span>
                             <button
                               onClick={() => vote(song.id, -1)}
                               className={`relative p-1.5 rounded-lg hover:bg-downvote/10 ${myDown > 0 ? "bg-downvote/10" : ""}`}
                             >
-                              <svg className={`w-4 h-4 ${myDown > 0 ? "text-downvote" : "text-text-secondary"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <svg className={`w-4 h-4 ${myDown > 0 ? "text-downvote" : "text-text-secondary"}`} fill={myDown > 0 ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                               </svg>
                               {myDown > 0 && (
@@ -1048,9 +1090,9 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       })()}
       </div>
 
-      {/* Status toast */}
+      {/* Status toast — above search dropdown (z-50) */}
       {requestStatus && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none px-8">
+        <div className="fixed inset-0 flex items-center justify-center pointer-events-none px-8" style={{ zIndex: 10000 }}>
           <div className="px-6 py-4 bg-bg-card border border-accent/30 rounded-2xl text-sm text-center shadow-lg backdrop-blur-sm pointer-events-auto">
             {requestStatus}
           </div>
@@ -1060,7 +1102,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       {/* Scrollable content area */}
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto overscroll-none"
+        className={`flex-1 overflow-y-auto overscroll-none transition-opacity duration-200 ${showSearch ? "opacity-30 pointer-events-none" : ""}`}
         onScroll={() => { lastScrollTime.current = Date.now(); }}
       >
       {/* Pull-to-refresh indicator */}
@@ -1080,31 +1122,42 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
 
       {/* Now Playing */}
       {nowPlaying && (
-        <div className="mx-4 mt-3 p-4 bg-accent/5 border border-accent/30 rounded-xl flex items-center gap-4">
+        <div className="mx-4 mt-3 relative rounded-2xl border border-accent/30">
+          {/* Blurred album art background */}
           {nowPlaying.albumArt && (
-            <img src={nowPlaying.albumArt} alt="" className="w-14 h-14 rounded-lg shadow-lg" />
+            <div className="absolute inset-0 rounded-2xl overflow-hidden">
+              <img src={nowPlaying.albumArt} alt="" className="w-full h-full object-cover scale-[2] blur-3xl opacity-40" />
+              <div className="absolute inset-0 bg-black/50" />
+            </div>
           )}
-          <div className="flex-1 min-w-0">
-            <p className="text-xs text-accent font-medium uppercase tracking-wider">Now Playing</p>
-            <p className="font-semibold truncate">{nowPlaying.trackName}</p>
-            <p className="text-text-secondary text-sm truncate">{nowPlaying.artistName}</p>
-          </div>
-          <div className="flex items-center gap-0.5">
-            <span className="w-0.5 h-3 bg-accent rounded-full animate-pulse" />
-            <span className="w-0.5 h-4 bg-accent rounded-full animate-pulse [animation-delay:0.2s]" />
-            <span className="w-0.5 h-2 bg-accent rounded-full animate-pulse [animation-delay:0.4s]" />
+          <div className="relative flex items-center gap-4 p-4">
+            {nowPlaying.albumArt && (
+              <img src={nowPlaying.albumArt} alt="" className="w-16 h-16 rounded-xl shadow-lg flex-shrink-0" />
+            )}
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] text-accent font-semibold uppercase tracking-wider mb-0.5">Now Playing</p>
+              <p className="font-semibold truncate text-[15px]">{nowPlaying.trackName}</p>
+              <p className="text-white/70 text-sm truncate">{nowPlaying.artistName}</p>
+            </div>
+            <div className="flex items-center gap-[3px] flex-shrink-0">
+              <span className="w-[3px] h-3 bg-accent rounded-full animate-pulse" />
+              <span className="w-[3px] h-5 bg-accent rounded-full animate-pulse [animation-delay:0.2s]" />
+              <span className="w-[3px] h-2.5 bg-accent rounded-full animate-pulse [animation-delay:0.4s]" />
+            </div>
           </div>
         </div>
       )}
 
       {/* Song List */}
-      <div className="flex items-center justify-between px-4 pt-3 pb-1">
-        <p className="text-text-secondary text-[10px] font-semibold uppercase tracking-wider">Up Next</p>
-        <p className="text-text-secondary text-[10px]">
+      <div className="flex items-center justify-between px-4 pt-4 pb-2">
+        <p className="text-white/50 text-xs font-semibold tracking-wide">Up Next</p>
+        <p className="text-white/25 text-[10px]">
           {room.autoShuffle ? "Sorted by votes" : "DJ-ordered"}
         </p>
       </div>
-      <div ref={songListRef} className="flex-1 px-4 py-1 space-y-2 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0 pb-8">
+      <div className="flex-1 relative overflow-hidden">
+      <div className="absolute bottom-0 left-0 right-0 h-20 pointer-events-none z-10" style={{ background: 'linear-gradient(to top, #0a0a0a 0%, transparent 100%)' }} />
+      <div ref={songListRef} className="h-full overflow-y-auto px-4 py-1 space-y-1.5 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0 pb-20">
         {songs.filter(s => !s.isPlaying).map((song, i) => {
           const myVotes = song.votes?.filter((v) => v.guestId === guestId) || [];
           const myUpvotes = myVotes.filter((v) => v.value === 1).length;
@@ -1115,24 +1168,26 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
           return (
             <div
               key={song.id}
-              className={`song-card flex items-center gap-3 p-3 rounded-xl border ${
+              className={`song-card flex items-center gap-3 p-3 rounded-xl border transition-colors ${
                 isQueuedNext
-                  ? "bg-accent/5 border-accent/40"
+                  ? "bg-accent/8 border-accent/30"
                   : isManualLocked
-                  ? "bg-yellow-500/5 border-yellow-500/30"
-                  : "bg-bg-card border-border"
+                  ? "bg-yellow-500/5 border-yellow-500/20"
+                  : "bg-white/[0.03] border-white/[0.06]"
               }`}
             >
-              <div className="w-6 text-center flex-shrink-0">
+              <div className="w-5 text-center flex-shrink-0">
                 {isManualLocked ? (
-                  <span className="text-yellow-500 text-sm">{"\u{1F512}"}</span>
+                  <svg className="w-3.5 h-3.5 text-yellow-500 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                  </svg>
                 ) : (
-                  <span className={`text-sm ${isQueuedNext ? "text-accent font-bold" : "text-text-secondary"}`}>{i + 1}</span>
+                  <span className={`text-xs font-medium ${isQueuedNext ? "text-accent font-bold" : "text-white/30"}`}>{i + 1}</span>
                 )}
               </div>
 
               {song.albumArt && (
-                <img src={song.albumArt} alt="" className={`w-11 h-11 rounded-lg flex-shrink-0 ${isQueuedNext ? "ring-2 ring-accent/50" : ""}`} />
+                <img src={song.albumArt} alt="" className={`w-12 h-12 rounded-lg flex-shrink-0 ${isQueuedNext ? "ring-2 ring-accent/40" : ""}`} />
               )}
 
               <div className="flex-1 min-w-0">
@@ -1140,60 +1195,64 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                   <p className="text-[10px] font-semibold text-accent uppercase tracking-wider">Up Next</p>
                 )}
                 <p className="font-medium text-sm truncate">{song.trackName}</p>
-                <p className="text-text-secondary text-xs truncate">{song.artistName}</p>
+                <p className="text-white/40 text-xs truncate">{song.artistName}</p>
               </div>
 
-              {!isManualLocked && (
-                <div className={`flex items-center gap-1 flex-shrink-0 ${isQueuedNext ? "opacity-60" : ""}`}>
+              {isManualLocked ? (
+                <div className="flex-shrink-0 text-right pr-1">
+                  <p className="text-[10px] text-yellow-500/50">Locked</p>
+                </div>
+              ) : (
+                <div className={`flex items-center gap-0.5 flex-shrink-0 ${isQueuedNext ? "opacity-50" : ""}`}>
                   <button
                     onClick={() => !isQueuedNext && vote(song.id, 1)}
                     disabled={isQueuedNext}
-                    className={`vote-btn p-2 rounded-lg relative ${
+                    className={`vote-btn p-2.5 rounded-xl relative ${
                       isQueuedNext
                         ? "cursor-default"
                         : myUpvotes > 0
-                        ? "bg-upvote/10 hover:bg-upvote/10"
-                        : "hover:bg-upvote/10"
+                        ? "bg-upvote/15"
+                        : "hover:bg-white/[0.06] active:bg-upvote/10"
                     }`}
                   >
-                    <svg className={`w-4 h-4 ${myUpvotes > 0 ? "text-upvote" : "text-text-secondary"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className={`w-5 h-5 ${myUpvotes > 0 ? "text-upvote" : "text-white/40"}`} fill={myUpvotes > 0 ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
                     </svg>
                     {myUpvotes > 0 && (
-                      <span className="absolute -top-1 -right-1 w-4 h-4 bg-upvote text-black text-[10px] font-bold rounded-full flex items-center justify-center">
+                      <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-upvote text-black text-[10px] font-bold rounded-full flex items-center justify-center">
                         {myUpvotes}
                       </span>
                     )}
                   </button>
 
                   <span
-                    className={`text-sm font-medium min-w-[1.5rem] text-center ${
+                    className={`text-sm font-semibold min-w-[1.5rem] text-center tabular-nums ${
                       song.netScore > 0
                         ? "text-upvote"
                         : song.netScore < 0
                         ? "text-downvote"
-                        : "text-text-secondary"
+                        : "text-white/20"
                     }`}
                   >
-                    {song.netScore}
+                    {song.netScore === 0 ? "\u00B7" : song.netScore}
                   </span>
 
                   <button
                     onClick={() => !isQueuedNext && vote(song.id, -1)}
                     disabled={isQueuedNext}
-                    className={`vote-btn p-2 rounded-lg relative ${
+                    className={`vote-btn p-2.5 rounded-xl relative ${
                       isQueuedNext
                         ? "cursor-default"
                         : myDownvotes > 0
-                        ? "bg-downvote/10 hover:bg-downvote/10"
-                        : "hover:bg-downvote/10"
+                        ? "bg-downvote/15"
+                        : "hover:bg-white/[0.06] active:bg-downvote/10"
                     }`}
                   >
-                    <svg className={`w-4 h-4 ${myDownvotes > 0 ? "text-downvote" : "text-text-secondary"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className={`w-5 h-5 ${myDownvotes > 0 ? "text-downvote" : "text-white/40"}`} fill={myDownvotes > 0 ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                     </svg>
                     {myDownvotes > 0 && (
-                      <span className="absolute -top-1 -right-1 w-4 h-4 bg-downvote text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                      <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-downvote text-white text-[10px] font-bold rounded-full flex items-center justify-center">
                         {myDownvotes}
                       </span>
                     )}
@@ -1206,6 +1265,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       </div>
       </div>
 
+    </div>
     </div>
   );
 }
