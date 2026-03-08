@@ -256,6 +256,7 @@ function DashboardInner({ user }: { user: any }) {
   const [showQR, setShowQR] = useState(false);
   const [guestCount, setGuestCount] = useState(0);
   const [spotifyTrack, setSpotifyTrack] = useState<{ uri: string; name: string; artist: string; albumArt: string | null } | null>(null);
+  const prevSpotifyUri = useRef<string | null>(null);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<any[]>([]);
@@ -448,6 +449,15 @@ function DashboardInner({ user }: { user: any }) {
       clearInterval(interval);
     };
   }, [view, activeRoom?.code, activeRoom?.requireApproval]);
+
+  // When Spotify track changes, notify guests immediately via socket
+  useEffect(() => {
+    if (!spotifyTrack?.uri || !activeRoom?.code) return;
+    if (prevSpotifyUri.current && prevSpotifyUri.current !== spotifyTrack.uri) {
+      getSocket().emit("song-changed", activeRoom.code);
+    }
+    prevSpotifyUri.current = spotifyTrack.uri;
+  }, [spotifyTrack?.uri, activeRoom?.code]);
 
   const fetchPlaylists = async () => {
     const res = await fetch("/api/spotify/playlists");

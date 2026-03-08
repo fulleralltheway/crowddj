@@ -159,8 +159,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
 
   const isUserBusy = useCallback(() =>
     inFlightVotes.current > 0 ||
-    Date.now() - lastInteraction.current < 2000 ||
-    Date.now() - lastScrollTime.current < 3000
+    Date.now() - lastInteraction.current < 1500
   , []);
 
   const fetchSongs = useCallback(async () => {
@@ -308,7 +307,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     socket.on("room-closed", handleRoomClosed);
     socket.on("server-time", handleServerTime);
 
-    // Fallback polling (slower) in case Socket.io is down
+    // Polling — always fetch songs to supplement socket updates
     let pollCount = 0;
     const interval = setInterval(() => {
       fetch(`/api/rooms/${code}/sync`, { method: "POST" }).then(async (res) => {
@@ -317,10 +316,9 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
           if (data.spotifyTrack) setSpotifyTrack(data.spotifyTrack);
         }
       }).catch(() => {});
-      if (!socket.connected) fetchSongs();
+      fetchSongs(); // Always fetch songs for freshness
       pollCount++;
-      if (pollCount % 6 === 0) {
-        fetchSongs(); // Periodic full refresh even with sockets
+      if (pollCount % 4 === 0) {
         fetch(`/api/rooms/${code}`).then(async (res) => {
           if (res.ok) setRoom(await res.json());
         }).catch(() => {});

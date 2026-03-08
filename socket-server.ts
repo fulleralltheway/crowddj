@@ -3,7 +3,7 @@ import { Server } from "socket.io";
 
 const VERCEL_URL = process.env.VERCEL_URL || "https://crowddj.vercel.app";
 const CRON_SECRET = process.env.CRON_SECRET || "";
-const SYNC_INTERVAL = 5_000; // 5 seconds — fast enough to catch song endings quickly
+const SYNC_INTERVAL = 3_000; // 3 seconds — fast enough to catch song endings quickly
 const CORS_ORIGINS = [
   VERCEL_URL,
   "https://crowddj.vercel.app",
@@ -90,6 +90,12 @@ io.on("connection", (socket) => {
 
   socket.on("songs-reordered", async (roomCode: string) => {
     await broadcastSongs(roomCode);
+  });
+
+  // Dashboard detected a song change in Spotify — broadcast immediately
+  socket.on("song-changed", async (roomCode: string) => {
+    await broadcastSongs(roomCode);
+    await broadcastRoomState(roomCode);
   });
 
   socket.on("room-settings-changed", async (roomCode: string) => {
