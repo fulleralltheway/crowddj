@@ -1114,29 +1114,33 @@ function DashboardInner({ user }: { user: any }) {
                 <div className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 text-xs">...</div>
               ) : null}
             </div>
-            <button
-              onClick={() => { setShowQR(!showQR); setShowSettings(false); setShowGuests(false); setSelectedGuest(null); setShowSearch(false); onSearchChange(""); }}
-              className={`p-2.5 rounded-2xl transition-colors ${
-                showQR ? "bg-accent/10 text-accent border border-accent/20" : "bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] text-white/40"
-              }`}
-              title="Share Room"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
-              </svg>
-            </button>
-            <button
-              onClick={() => { setShowSettings(!showSettings); setShowQR(false); setShowGuests(false); setSelectedGuest(null); setShowSearch(false); onSearchChange(""); }}
-              className={`p-2.5 rounded-2xl transition-colors ${
-                showSettings ? "bg-accent/10 text-accent border border-accent/20" : "bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] text-white/40"
-              }`}
-              title="Settings"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-            </button>
+            {!showSearch && (
+              <>
+                <button
+                  onClick={() => { setShowQR(!showQR); setShowSettings(false); setShowGuests(false); setSelectedGuest(null); }}
+                  className={`p-2.5 rounded-2xl transition-colors ${
+                    showQR ? "bg-accent/10 text-accent border border-accent/20" : "bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] text-white/40"
+                  }`}
+                  title="Share Room"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                  </svg>
+                </button>
+                <button
+                  onClick={() => { setShowSettings(!showSettings); setShowQR(false); setShowGuests(false); setSelectedGuest(null); }}
+                  className={`p-2.5 rounded-2xl transition-colors ${
+                    showSettings ? "bg-accent/10 text-accent border border-accent/20" : "bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] text-white/40"
+                  }`}
+                  title="Settings"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                </button>
+              </>
+            )}
           </div>
           {/* Search results rendered as fixed overlay — see below */}
           </div>
