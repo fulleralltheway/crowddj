@@ -156,7 +156,7 @@ function MiniPlayer({
   const pct = durationMs > 0 ? Math.min((displayProgress / durationMs) * 100, 100) : 0;
 
   return (
-    <div className="flex-shrink-0 pointer-events-none absolute bottom-0 left-0 right-0 pb-[env(safe-area-inset-bottom)]">
+    <div className="flex-shrink-0 pointer-events-none absolute bottom-0 left-0 right-0 z-50 pb-[env(safe-area-inset-bottom)]">
       <div className="bg-gradient-to-t from-bg-primary via-bg-primary/90 to-transparent pt-8 px-4 pb-3">
         <div className="pointer-events-auto bg-bg-card border border-border rounded-2xl shadow-2xl overflow-hidden">
           <div className="flex items-center gap-3 p-3">
@@ -795,10 +795,10 @@ function DashboardInner({ user }: { user: any }) {
       });
       const data = await res.json();
       if (res.ok) {
-        setSearchStatus("Song added to queue!");
-        setRecentlyAdded((prev) => new Set(prev).add(track.spotifyUri));
         getSocket().emit("songs-reordered", room.code);
         refreshSongs(room.code);
+        setShowSearch(false);
+        onSearchChange("");
       } else {
         setSearchStatus(data.error || "Failed to add song");
       }
@@ -1885,6 +1885,8 @@ function DashboardInner({ user }: { user: any }) {
                                   return { ...prev, songs: [...playing, ...arr] };
                                 });
                                 saveOrder(arr, song.id);
+                                setShowSearch(false);
+                                onSearchChange("");
                               }}
                             >
                               <option value="">Move to...</option>
