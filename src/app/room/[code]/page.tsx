@@ -17,6 +17,8 @@ type Song = {
   downvotes: number;
   isPlaying: boolean;
   isLocked: boolean;
+  isPinned: boolean;
+  pinnedPosition: number | null;
   netScore: number;
   votes: { guestId: string; value: number }[];
 };
@@ -34,6 +36,9 @@ type Room = {
   requireApproval: boolean;
   maxSongsPerGuest: number;
   lastPreQueuedId: string | null;
+  scheduledStart: string | null;
+  brandColor: string;
+  brandName: string;
   host: { name: string; image: string | null };
 };
 
@@ -140,6 +145,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const knownApproved = useRef<Set<string>>(new Set());
   const [pullRefreshing, setPullRefreshing] = useState(false);
   const [pullDistance, setPullDistance] = useState(0);
+  const [scheduledCountdown, setScheduledCountdown] = useState("");
   const pullStartY = useRef(0);
   const pullDistRef = useRef(0);
   const pullRefreshRef = useRef(false);
@@ -491,6 +497,26 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     return () => clearInterval(timer);
   }, [room, lastVoteReset]);
 
+
+  // Scheduled room countdown timer
+  useEffect(() => {
+    if (!room?.scheduledStart) { setScheduledCountdown(""); return; }
+    const target = new Date(room.scheduledStart).getTime();
+    const tick = () => {
+      const remaining = target - Date.now();
+      if (remaining <= 0) { setScheduledCountdown(""); return; }
+      const hours = Math.floor(remaining / 3600000);
+      const mins = Math.floor((remaining % 3600000) / 60000);
+      const secs = Math.floor((remaining % 60000) / 1000);
+      if (hours > 0) setScheduledCountdown(`${hours}h ${mins}m ${secs}s`);
+      else if (mins > 0) setScheduledCountdown(`${mins}m ${secs}s`);
+      else setScheduledCountdown(`${secs}s`);
+    };
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [room?.scheduledStart]);
+
   // Re-sort songs by netScore locally (keeps playing + locked songs in place)
   const optimisticReorder = (songs: Song[]): Song[] => {
     const playing = songs.filter((s) => s.isPlaying);
@@ -749,10 +775,10 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
 
   if (pageStatus === "need_name") {
     return (
-      <div className="min-h-dvh flex items-center justify-center px-4 name-form-enter select-none">
+      <div className="min-h-dvh flex items-center justify-center px-4 name-form-enter select-none" style={room.brandColor ? { '--color-accent': room.brandColor } as any : undefined}>
         <div className="w-full max-w-sm text-center space-y-6">
           <div>
-            <h1 className="text-2xl font-bold mb-1">{room.name}</h1>
+            <h1 className="text-2xl font-bold mb-1">{room.brandName || room.name}</h1>
             <p className="text-text-secondary text-sm">Hosted by {room.host.name}</p>
           </div>
           <div className="space-y-3">
@@ -783,16 +809,34 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   if (pageStatus === "welcome") {
     const firstName = guestName.split(" ")[0];
     return (
-      <div className="min-h-dvh flex items-center justify-center px-4 select-none">
+      <div className="min-h-dvh flex items-center justify-center px-4 select-none" style={room.brandColor ? { '--color-accent': room.brandColor } as any : undefined}>
         <div className="text-center space-y-3 animate-[fadeIn_0.4s_ease-out]">
           <p className="text-4xl">🎵</p>
           <h1 className="text-2xl font-bold">Welcome, {firstName}!</h1>
           <p className="text-text-secondary text-sm">
-            You&apos;re in <span className="text-white font-medium">{room.name}</span>
+            You&apos;re in <span className="text-white font-medium">{room.brandName || room.name}</span>
           </p>
           <div className="pt-2">
             <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin mx-auto" />
           </div>
+        </div>
+      </div>
+    );
+  }
+
+
+  // Show countdown for scheduled rooms
+  if (scheduledCountdown) {
+    return (
+      <div className="min-h-dvh flex items-center justify-center px-4 select-none">
+        <div className="text-center space-y-4 max-w-sm">
+          <h1 className="text-2xl font-bold">{room.name}</h1>
+          <p className="text-text-secondary text-sm">Hosted by {room.host.name}</p>
+          <div className="py-6">
+            <p className="text-white/40 text-xs uppercase tracking-wider mb-2">Starts in</p>
+            <p className="text-4xl font-bold tabular-nums text-accent">{scheduledCountdown}</p>
+          </div>
+          <p className="text-text-secondary text-sm">Hang tight! The queue will appear when the event starts.</p>
         </div>
       </div>
     );
@@ -807,7 +851,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       : { trackName: spotifyTrack.name, artistName: spotifyTrack.artist, albumArt: spotifyTrack.albumArt, spotifyUri: spotifyTrack.uri, id: '__spotify__', isPlaying: true } as any)
     : queuePlaying;
   return (
-    <div className="flex flex-col max-w-lg lg:max-w-4xl xl:max-w-5xl mx-auto overflow-hidden select-none safe-top" style={{ height: 'var(--app-height, 100dvh)' }}>
+    <div className="flex flex-col max-w-lg lg:max-w-4xl xl:max-w-5xl mx-auto overflow-hidden select-none safe-top" style={{ height: 'var(--app-height, 100dvh)', ...(room.brandColor ? { '--color-accent': room.brandColor } as any : {}) }}>
       {/* Room closing overlay */}
       {roomClosing && (
         <div className="absolute inset-0 z-[100] flex items-center justify-center bg-bg-primary/80 backdrop-blur-sm" style={{ animation: 'fadeIn 0.5s ease-out' }}>
@@ -858,7 +902,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         {/* Room name + vote badge row */}
         <div className="flex items-end justify-between mb-3">
           <div className="min-w-0 flex-1 mr-3">
-            <h1 className="font-bold text-lg tracking-tight truncate leading-tight lg:text-2xl">{room.name}</h1>
+            <h1 className="font-bold text-lg tracking-tight truncate leading-tight lg:text-2xl">{room.brandName || room.name}</h1>
             <div className="flex items-center gap-1.5 mt-0.5">
               <span className="text-text-secondary text-xs">{room.host.name}</span>
               <span className="inline-block w-[3px] h-[3px] rounded-full bg-white/25" />
@@ -1179,13 +1223,15 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
           const myUpvotes = myVotes.filter((v) => v.value === 1).length;
           const myDownvotes = myVotes.filter((v) => v.value === -1).length;
           const isQueuedNext = song.isLocked && room.lastPreQueuedId === song.id;
-          const isManualLocked = song.isLocked && !isQueuedNext;
+          const isManualLocked = song.isLocked && !isQueuedNext && !song.isPinned;
 
           return (
             <div
               key={song.id}
               className={`song-card flex items-center gap-3 p-3 rounded-xl border transition-colors ${
-                isQueuedNext
+                song.isPinned
+                  ? "bg-blue-400/5 border-blue-400/20"
+                  : isQueuedNext
                   ? "bg-accent/8 border-accent/30"
                   : isManualLocked
                   ? "bg-yellow-500/5 border-yellow-500/20"
@@ -1193,7 +1239,11 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
               }`}
             >
               <div className="w-5 text-center flex-shrink-0">
-                {isManualLocked ? (
+                {song.isPinned ? (
+                  <svg className="w-3.5 h-3.5 text-blue-400 mx-auto" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z" />
+                  </svg>
+                ) : isManualLocked ? (
                   <svg className="w-3.5 h-3.5 text-yellow-500 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                   </svg>

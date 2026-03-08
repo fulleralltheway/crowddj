@@ -110,6 +110,11 @@ export async function POST(
         ...(value === 1 ? { totalUpvotes: { increment: 1 } } : { totalDownvotes: { increment: 1 } }),
       },
     });
+    // Increment room vote stats
+    await prisma.room.update({
+      where: { id: room.id },
+      data: { totalVotesCast: { increment: 1 } },
+    });
   }
 
   // Only reorder if autoShuffle is enabled

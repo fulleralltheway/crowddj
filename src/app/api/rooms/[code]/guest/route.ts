@@ -87,6 +87,17 @@ export async function POST(
     });
   }
 
+  // Update peak guest count if current count exceeds it
+  const currentGuestCount = await prisma.guest.count({
+    where: { roomId: room.id, name: { not: "" } },
+  });
+  if (currentGuestCount > room.peakGuestCount) {
+    await prisma.room.update({
+      where: { id: room.id },
+      data: { peakGuestCount: currentGuestCount },
+    });
+  }
+
   return NextResponse.json({
     guestId: guest.id,
     votesUsed: actualVotesUsed,

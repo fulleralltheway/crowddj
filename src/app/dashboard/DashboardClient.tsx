@@ -56,6 +56,13 @@ type Room = {
   maxSongDurationSec: number;
   blockedArtists: string;
   blockedSongs: string;
+  scheduledStart: string | null;
+  brandColor: string;
+  brandName: string;
+  totalSongsPlayed: number;
+  totalVotesCast: number;
+  peakGuestCount: number;
+  createdAt: string;
   songs: any[];
 };
 
@@ -403,9 +410,13 @@ function DashboardInner({ user }: { user: any }) {
   const [votesPerUser, setVotesPerUser] = useState(5);
   const [voteResetMinutes, setVoteResetMinutes] = useState(30);
   const [requireApproval, setRequireApproval] = useState(false);
+  const [scheduleEnabled, setScheduleEnabled] = useState(false);
+  const [scheduledStart, setScheduledStart] = useState("");
   const [playlistSearch, setPlaylistSearch] = useState("");
   const [spotifyPlaylists, setSpotifyPlaylists] = useState<any[]>([]);
   const playlistSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Event recap modal state
+  const [recapStats, setRecapStats] = useState<{ totalSongsPlayed: number; totalVotesCast: number; peakGuestCount: number; durationMinutes: number } | null>(null);
 
   // Keep search ref in sync; flush deferred songs when search closes
   useEffect(() => {
@@ -573,6 +584,7 @@ function DashboardInner({ user }: { user: any }) {
         votesPerUser,
         voteResetMinutes,
         requireApproval,
+        ...(scheduleEnabled && scheduledStart ? { scheduledStart: new Date(scheduledStart).toISOString() } : {}),
       }),
     });
     if (res.ok) {
@@ -892,8 +904,11 @@ function DashboardInner({ user }: { user: any }) {
     const res = await fetch(`/api/rooms/${code}`, { method: "DELETE" });
     if (res.ok) {
       getSocket().emit("room-closed", code);
+      const data = await res.json();
+      if (data.stats) {
+        setRecapStats(data.stats);
+      }
       setActiveRoom(null);
-      setView("rooms");
       fetchRooms();
     }
   };
@@ -942,6 +957,29 @@ function DashboardInner({ user }: { user: any }) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ songId, position: position || 1 }),
+    });
+    getSocket().emit("songs-reordered", activeRoom.code);
+    refreshSongs(activeRoom.code);
+  };
+
+  const pinSong = async (songId: string, pin: boolean, position?: number) => {
+    if (!activeRoom) return;
+    // Optimistic UI
+    setActiveRoom((prev) => {
+      if (!prev) return null;
+      return {
+        ...prev,
+        songs: prev.songs.map((s: any) =>
+          s.id === songId
+            ? { ...s, isPinned: pin, pinnedPosition: pin ? (position ?? null) : null, isLocked: pin ? true : false }
+            : s
+        ),
+      };
+    });
+    await fetch(`/api/rooms/${activeRoom.code}/pin`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ songId, pin, position }),
     });
     getSocket().emit("songs-reordered", activeRoom.code);
     refreshSongs(activeRoom.code);
@@ -1102,6 +1140,7 @@ function DashboardInner({ user }: { user: any }) {
 
   // Rooms list view
   if (view === "rooms") {
+    const pastRooms = rooms.filter((r) => !r.isActive);
     return (
       <div className="min-h-dvh flex flex-col items-center justify-center px-4 select-none safe-top">
         <div className="max-w-sm w-full text-center space-y-6 lg:max-w-md lg:bg-bg-card/50 lg:backdrop-blur-xl lg:border lg:border-white/[0.06] lg:rounded-3xl lg:p-10 lg:shadow-[0_8px_32px_rgba(0,0,0,0.3)]">
@@ -1126,7 +1165,73 @@ function DashboardInner({ user }: { user: any }) {
               Create Room
             </button>
           </div>
+
+          {/* Past Events */}
+          {pastRooms.length > 0 && (
+            <div className="text-left space-y-2 pt-2">
+              <p className="text-xs font-medium text-white/40 uppercase tracking-wider">Past Events</p>
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {pastRooms.slice(0, 10).map((r) => {
+                  const created = new Date(r.createdAt);
+                  const durationMin = Math.round((Date.now() - created.getTime()) / 60000);
+                  const durationStr = durationMin >= 60 ? `${Math.floor(durationMin / 60)}h ${durationMin % 60}m` : `${durationMin}m`;
+                  return (
+                    <div key={r.id} className="bg-white/[0.03] border border-white/[0.06] rounded-xl px-4 py-3">
+                      <div className="flex items-center justify-between mb-1">
+                        <p className="text-sm font-medium truncate">{r.name}</p>
+                        <span className="text-white/20 text-[10px] tabular-nums">{created.toLocaleDateString()}</span>
+                      </div>
+                      <p className="text-white/30 text-xs mb-1.5">{r.playlistName}</p>
+                      <div className="flex gap-3 text-[11px] text-white/40">
+                        <span>{r.totalSongsPlayed || 0} songs</span>
+                        <span>{r.totalVotesCast || 0} votes</span>
+                        <span>{r.peakGuestCount || 0} peak guests</span>
+                        <span>{durationStr}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
+
+        {/* Event recap modal */}
+        {recapStats && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-6">
+            <div className="bg-bg-card border border-border rounded-2xl p-6 max-w-sm w-full space-y-5">
+              <p className="font-semibold text-center text-lg">Session Recap</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-white/[0.04] rounded-xl p-3 text-center">
+                  <p className="text-2xl font-bold tabular-nums">{recapStats.totalSongsPlayed}</p>
+                  <p className="text-white/40 text-xs mt-0.5">Songs Played</p>
+                </div>
+                <div className="bg-white/[0.04] rounded-xl p-3 text-center">
+                  <p className="text-2xl font-bold tabular-nums">{recapStats.totalVotesCast}</p>
+                  <p className="text-white/40 text-xs mt-0.5">Votes Cast</p>
+                </div>
+                <div className="bg-white/[0.04] rounded-xl p-3 text-center">
+                  <p className="text-2xl font-bold tabular-nums">{recapStats.peakGuestCount}</p>
+                  <p className="text-white/40 text-xs mt-0.5">Peak Guests</p>
+                </div>
+                <div className="bg-white/[0.04] rounded-xl p-3 text-center">
+                  <p className="text-2xl font-bold tabular-nums">
+                    {recapStats.durationMinutes >= 60
+                      ? `${Math.floor(recapStats.durationMinutes / 60)}h ${recapStats.durationMinutes % 60}m`
+                      : `${recapStats.durationMinutes}m`}
+                  </p>
+                  <p className="text-white/40 text-xs mt-0.5">Duration</p>
+                </div>
+              </div>
+              <button
+                onClick={() => { setRecapStats(null); setView("rooms"); }}
+                className="w-full py-2.5 bg-accent hover:bg-accent-hover text-black font-semibold rounded-xl transition-colors"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -1344,13 +1449,46 @@ function DashboardInner({ user }: { user: any }) {
               </div>
             </div>
 
+            {/* Schedule start time */}
+            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl">
+              <div className="px-4 py-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm">Schedule start time</p>
+                    <p className="text-white/30 text-xs">Show countdown until start</p>
+                  </div>
+                  <button
+                    onClick={() => setScheduleEnabled(!scheduleEnabled)}
+                    className={`w-11 h-6 rounded-full transition-colors flex-shrink-0 flex items-center px-0.5 ${
+                      scheduleEnabled ? "bg-accent" : "bg-white/15"
+                    }`}
+                  >
+                    <span
+                      className={`w-5 h-5 bg-white rounded-full transition-transform shadow-sm ${
+                        scheduleEnabled ? "translate-x-5" : "translate-x-0"
+                      }`}
+                    />
+                  </button>
+                </div>
+                {scheduleEnabled && (
+                  <input
+                    type="datetime-local"
+                    value={scheduledStart}
+                    onChange={(e) => setScheduledStart(e.target.value)}
+                    min={new Date().toISOString().slice(0, 16)}
+                    className="w-full px-3 py-2 bg-white/[0.06] border border-white/[0.08] rounded-lg text-sm focus:outline-none focus:border-accent/40 transition-colors [color-scheme:dark]"
+                  />
+                )}
+              </div>
+            </div>
+
             {/* Create button */}
             <button
               onClick={createRoom}
-              disabled={!roomName.trim() || !selectedPlaylist || loading}
+              disabled={!roomName.trim() || !selectedPlaylist || loading || (scheduleEnabled && !scheduledStart)}
               className="w-full py-3.5 bg-accent hover:bg-accent-hover text-black font-semibold rounded-xl transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              {loading ? "Creating..." : "Create Room"}
+              {loading ? "Creating..." : scheduleEnabled ? "Schedule Room" : "Create Room"}
             </button>
           </div>
         </div>
@@ -1906,6 +2044,65 @@ function DashboardInner({ user }: { user: any }) {
                   </div>
                 )}
               </div>
+              {/* Branding */}
+              <div className="border-t border-border pt-4">
+                <label className="block text-sm font-medium text-text-secondary mb-1">Branding</label>
+                <p className="text-[11px] text-white/30 mb-3">Customize how guests see your room.</p>
+                <div className="mb-3">
+                  <label className="block text-xs font-medium text-text-secondary mb-1">Custom Display Name</label>
+                  <input
+                    type="text"
+                    defaultValue={activeRoom.brandName || ""}
+                    placeholder={activeRoom.name}
+                    onBlur={(e) => {
+                      const val = e.target.value.trim();
+                      if (val !== (activeRoom.brandName || "")) saveSettings({ brandName: val } as any);
+                    }}
+                    className="w-full px-3 py-2 bg-bg-primary border border-border rounded-lg text-sm focus:outline-none focus:border-accent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-text-secondary mb-1">Accent Color</label>
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {[
+                      { label: "Green", hex: "#1db954" },
+                      { label: "Blue", hex: "#3b82f6" },
+                      { label: "Purple", hex: "#8b5cf6" },
+                      { label: "Pink", hex: "#ec4899" },
+                      { label: "Red", hex: "#ef4444" },
+                      { label: "Orange", hex: "#f97316" },
+                      { label: "Yellow", hex: "#eab308" },
+                    ].map(({ label, hex }) => (
+                      <button
+                        key={hex}
+                        title={label}
+                        onClick={() => saveSettings({ brandColor: hex } as any)}
+                        className={`w-8 h-8 rounded-full border-2 transition-all ${
+                          (activeRoom.brandColor || "#1db954") === hex
+                            ? "border-white scale-110"
+                            : "border-transparent hover:border-white/40"
+                        }`}
+                        style={{ backgroundColor: hex }}
+                      />
+                    ))}
+                    <button
+                      onClick={() => saveSettings({ brandColor: "" } as any)}
+                      className="px-3 h-8 rounded-full border border-border text-xs text-text-secondary hover:bg-bg-card-hover transition-colors"
+                    >
+                      Reset
+                    </button>
+                  </div>
+                  {activeRoom.brandColor && (
+                    <div className="flex items-center gap-2 mt-2 text-xs text-text-secondary">
+                      <span
+                        className="w-3 h-3 rounded-full inline-block"
+                        style={{ backgroundColor: activeRoom.brandColor }}
+                      />
+                      Guests will see this accent color
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           )}
 
@@ -1964,6 +2161,18 @@ function DashboardInner({ user }: { user: any }) {
             <h3 className="text-lg font-semibold">Queue</h3>
             <span className="text-white/25 text-xs">{(activeRoom.songs?.filter((s: any) => !s.isPlaying) || []).length} songs</span>
           </div>
+          {(() => {
+            const pinnedCount = (activeRoom.songs || []).filter((s: any) => s.isPinned && !s.isPlaying && !s.isPlayed).length;
+            if (pinnedCount === 0) return null;
+            return (
+              <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-lg border border-blue-400/15 bg-blue-400/5">
+                <svg className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z" />
+                </svg>
+                <span className="text-blue-400 text-xs font-medium">{pinnedCount} song{pinnedCount !== 1 ? "s" : ""} pinned</span>
+              </div>
+            );
+          })()}
           <div ref={dragIdx === null ? songListRef : undefined} className="space-y-1.5 pb-8">
             {(() => {
               const queueSongs = activeRoom.songs?.filter((s: any) => !s.isPlaying) || [];
@@ -1981,7 +2190,9 @@ function DashboardInner({ user }: { user: any }) {
                 <div
                   key={song.id}
                   className={`flex items-center gap-2.5 p-3 border rounded-xl song-card transition-all ${
-                    song.isLocked && activeRoom.lastPreQueuedId === song.id
+                    song.isPinned
+                      ? "border-blue-400/20 bg-blue-400/5"
+                      : song.isLocked && activeRoom.lastPreQueuedId === song.id
                       ? "border-accent/30 bg-accent/8"
                       : song.isLocked
                       ? "border-yellow-500/20 bg-yellow-500/5"
@@ -2093,7 +2304,11 @@ function DashboardInner({ user }: { user: any }) {
                   </div>
 
                   <span className="text-white/30 text-xs w-4 text-center flex-shrink-0 font-medium">
-                    {song.isLocked && activeRoom.lastPreQueuedId !== song.id ? (
+                    {song.isPinned ? (
+                      <svg className="w-3.5 h-3.5 text-blue-400 mx-auto" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z" />
+                      </svg>
+                    ) : song.isLocked && activeRoom.lastPreQueuedId !== song.id ? (
                       <svg className="w-3.5 h-3.5 text-yellow-500 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                       </svg>
@@ -2105,7 +2320,10 @@ function DashboardInner({ user }: { user: any }) {
                     <img src={song.albumArt} alt="" className="w-11 h-11 rounded-lg flex-shrink-0" />
                   )}
                   <div className="flex-1 min-w-0">
-                    {song.isLocked && activeRoom.lastPreQueuedId === song.id && (
+                    {song.isPinned && (
+                      <p className="text-[10px] font-semibold text-blue-400 uppercase tracking-wider">Pinned #{song.pinnedPosition != null ? song.pinnedPosition + 1 : i + 1}</p>
+                    )}
+                    {song.isLocked && !song.isPinned && activeRoom.lastPreQueuedId === song.id && (
                       <p className="text-[10px] font-semibold text-accent uppercase tracking-wider">Queued Next</p>
                     )}
                     <p className="font-medium text-sm truncate">{song.trackName}</p>
@@ -2214,6 +2432,15 @@ function DashboardInner({ user }: { user: any }) {
                                 )}
                               </svg>
                               <span className={song.isLocked ? "text-yellow-500" : ""}>{song.isLocked ? "Unlock" : "DJ Lock"}</span>
+                            </button>
+                            <button
+                              onClick={() => { pinSong(song.id, !song.isPinned, i); setSongMenuOpen(null); }}
+                              className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm hover:bg-white/[0.06] transition-colors text-left"
+                            >
+                              <svg className={`w-4 h-4 ${song.isPinned ? "text-blue-400" : "text-white/40"}`} fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z" />
+                              </svg>
+                              <span className={song.isPinned ? "text-blue-400" : ""}>{song.isPinned ? "Unpin" : "Pin to Position"}</span>
                             </button>
                             <button
                               onClick={() => { handleRemoveClick(song.id, song.trackName); setSongMenuOpen(null); }}

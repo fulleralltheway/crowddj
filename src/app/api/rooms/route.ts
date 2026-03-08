@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
   if (!accessToken) return NextResponse.json({ error: "No Spotify token" }, { status: 401 });
 
   const body = await req.json();
-  const { playlistId, playlistName, name, votesPerUser, voteResetMinutes, requireApproval } = body;
+  const { playlistId, playlistName, name, votesPerUser, voteResetMinutes, requireApproval, scheduledStart } = body;
 
   if (!playlistId || !playlistName || !name) {
     return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
@@ -52,6 +52,7 @@ export async function POST(req: NextRequest) {
       votesPerUser: votesPerUser || 5,
       voteResetMinutes: voteResetMinutes || 30,
       requireApproval: requireApproval || false,
+      ...(scheduledStart ? { scheduledStart: new Date(scheduledStart) } : {}),
       songs: {
         create: tracks.map((track: any, index: number) => ({
           spotifyUri: track.spotifyUri,

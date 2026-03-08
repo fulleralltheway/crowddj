@@ -109,7 +109,7 @@ export default function DisplayPage() {
   return (
     <div
       className="min-h-screen bg-bg-primary overflow-hidden select-none"
-      style={{ cursor: cursorHidden ? "none" : "auto" }}
+      style={{ cursor: cursorHidden ? "none" : "auto", ...(room.brandColor ? { '--color-accent': room.brandColor } as any : {}) }}
     >
       {/* Ambient background glow */}
       <div

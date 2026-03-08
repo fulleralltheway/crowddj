@@ -76,7 +76,7 @@ export async function GET(req: NextRequest) {
               try { await skipToNext(accessToken); } catch {}
               await prisma.room.update({
                 where: { id: room.id },
-                data: { lastPreQueuedId: null, lastSyncAdvance: new Date() },
+                data: { lastPreQueuedId: null, lastSyncAdvance: new Date(), totalSongsPlayed: { increment: 1 } },
               });
               results.push({ code: room.code, status: "auto_transition", detail: nextSong.trackName });
             } else {
@@ -134,7 +134,7 @@ export async function GET(req: NextRequest) {
 
         await prisma.room.update({
           where: { id: room.id },
-          data: { lastSyncAdvance: new Date(), lastPreQueuedId: null },
+          data: { lastSyncAdvance: new Date(), lastPreQueuedId: null, totalSongsPlayed: { increment: 1 } },
         });
         await prisma.roomSong.update({
           where: { id: currentSong.id },
@@ -163,7 +163,7 @@ export async function GET(req: NextRequest) {
 
           await prisma.room.update({
             where: { id: room.id },
-            data: { lastSyncAdvance: new Date(), lastPreQueuedId: null },
+            data: { lastSyncAdvance: new Date(), lastPreQueuedId: null, totalSongsPlayed: { increment: 1 } },
           });
           await prisma.roomSong.update({
             where: { id: currentSong.id },

@@ -106,6 +106,9 @@ export async function PATCH(
   if (body.maxSongDurationSec !== undefined) updates.maxSongDurationSec = Math.max(0, Math.min(600, Number(body.maxSongDurationSec)));
   if (body.blockedArtists !== undefined) updates.blockedArtists = String(body.blockedArtists);
   if (body.blockedSongs !== undefined) updates.blockedSongs = String(body.blockedSongs);
+  if (body.scheduledStart !== undefined) updates.scheduledStart = body.scheduledStart ? new Date(body.scheduledStart) : null;
+  if (body.brandColor !== undefined) updates.brandColor = String(body.brandColor);
+  if (body.brandName !== undefined) updates.brandName = String(body.brandName);
 
   const updated = await prisma.room.update({
     where: { id: room.id },
@@ -133,10 +136,20 @@ export async function DELETE(
     return NextResponse.json({ error: "Not authorized" }, { status: 403 });
   }
 
-  await prisma.room.update({
+  const updated = await prisma.room.update({
     where: { id: room.id },
     data: { isActive: false },
   });
 
-  return NextResponse.json({ success: true });
+  const durationMinutes = Math.round((Date.now() - room.createdAt.getTime()) / 60000);
+
+  return NextResponse.json({
+    success: true,
+    stats: {
+      totalSongsPlayed: updated.totalSongsPlayed,
+      totalVotesCast: updated.totalVotesCast,
+      peakGuestCount: updated.peakGuestCount,
+      durationMinutes,
+    },
+  });
 }
