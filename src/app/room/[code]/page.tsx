@@ -807,7 +807,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       : { trackName: spotifyTrack.name, artistName: spotifyTrack.artist, albumArt: spotifyTrack.albumArt, spotifyUri: spotifyTrack.uri, id: '__spotify__', isPlaying: true } as any)
     : queuePlaying;
   return (
-    <div className="flex flex-col max-w-lg lg:max-w-3xl mx-auto overflow-hidden select-none safe-top" style={{ height: 'var(--app-height, 100dvh)' }}>
+    <div className="flex flex-col max-w-lg lg:max-w-4xl xl:max-w-5xl mx-auto overflow-hidden select-none safe-top" style={{ height: 'var(--app-height, 100dvh)' }}>
       {/* Room closing overlay */}
       {roomClosing && (
         <div className="absolute inset-0 z-[100] flex items-center justify-center bg-bg-primary/80 backdrop-blur-sm" style={{ animation: 'fadeIn 0.5s ease-out' }}>
@@ -846,7 +846,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
 
       {/* Header */}
       <div className="flex-shrink-0 relative z-[60]">
-      <div className="backdrop-blur-xl px-4 pt-3 pb-3">
+      <div className="backdrop-blur-xl px-4 pt-3 pb-3 lg:px-6 lg:pt-5 lg:pb-4">
         {/* Greeting */}
         <p className="text-accent text-xs font-medium mb-1">
           {(() => {
@@ -858,7 +858,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         {/* Room name + vote badge row */}
         <div className="flex items-end justify-between mb-3">
           <div className="min-w-0 flex-1 mr-3">
-            <h1 className="font-bold text-lg tracking-tight truncate leading-tight">{room.name}</h1>
+            <h1 className="font-bold text-lg tracking-tight truncate leading-tight lg:text-2xl">{room.name}</h1>
             <div className="flex items-center gap-1.5 mt-0.5">
               <span className="text-text-secondary text-xs">{room.host.name}</span>
               <span className="inline-block w-[3px] h-[3px] rounded-full bg-white/25" />
@@ -1139,7 +1139,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
 
       {/* Now Playing */}
       {nowPlaying && (
-        <div className="mx-4 mt-3 relative rounded-2xl border border-accent/30">
+        <div className="mx-4 mt-3 relative rounded-2xl border border-accent/30 lg:mx-6">
           {/* Blurred album art background */}
           {nowPlaying.albumArt && (
             <div className="absolute inset-0 rounded-2xl overflow-hidden">
@@ -1149,7 +1149,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
           )}
           <div className="relative flex items-center gap-4 p-4">
             {nowPlaying.albumArt && (
-              <img src={nowPlaying.albumArt} alt="" className="w-16 h-16 rounded-xl shadow-lg flex-shrink-0" />
+              <img src={nowPlaying.albumArt} alt="" className="w-16 h-16 rounded-xl shadow-lg flex-shrink-0 lg:w-20 lg:h-20" />
             )}
             <div className="flex-1 min-w-0">
               <p className="text-[10px] text-accent font-semibold uppercase tracking-wider mb-0.5">Now Playing</p>
@@ -1166,14 +1166,14 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       )}
 
       {/* Song List */}
-      <div className="flex items-center justify-between px-4 pt-4 pb-2">
+      <div className="flex items-center justify-between px-4 pt-4 pb-2 lg:px-6 lg:pt-5 lg:pb-3">
         <p className="text-white/50 text-xs font-semibold tracking-wide">Up Next</p>
         <p className="text-white/25 text-[10px]">
           {room.autoShuffle ? "Sorted by votes" : "DJ-ordered"}
         </p>
       </div>
       <div className="flex-1 relative overflow-hidden">
-      <div ref={songListRef} className="h-full overflow-y-auto px-4 py-1 space-y-1.5 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0 pb-6" style={{ maskImage: 'linear-gradient(to bottom, black 0%, black 85%, transparent 100%)', WebkitMaskImage: 'linear-gradient(to bottom, black 0%, black 85%, transparent 100%)' }}>
+      <div ref={songListRef} className="h-full overflow-y-auto px-4 py-1 space-y-1.5 lg:grid lg:grid-cols-2 lg:gap-4 lg:space-y-0 lg:px-6 xl:grid-cols-3 pb-6" style={{ maskImage: 'linear-gradient(to bottom, black 0%, black 85%, transparent 100%)', WebkitMaskImage: 'linear-gradient(to bottom, black 0%, black 85%, transparent 100%)' }}>
         {songs.filter(s => !s.isPlaying).map((song, i) => {
           const myVotes = song.votes?.filter((v) => v.guestId === guestId) || [];
           const myUpvotes = myVotes.filter((v) => v.value === 1).length;

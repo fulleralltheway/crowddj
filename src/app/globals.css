@@ -109,3 +109,12 @@ button, a, input, [role="button"] {
 .now-playing {
   animation: pulse-glow 2s ease-in-out infinite;
 }
+
+/* Desktop ambient background and glass card */
+@media (min-width: 1024px) {
+  body {
+    background: radial-gradient(ellipse at 50% 0%, rgba(29,185,84,0.06) 0%, transparent 50%),
+                radial-gradient(ellipse at 80% 50%, rgba(29,185,84,0.03) 0%, transparent 40%),
+                var(--color-bg-primary);
+  }
+}

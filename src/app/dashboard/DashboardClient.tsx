@@ -157,7 +157,7 @@ function MiniPlayer({
   const pct = durationMs > 0 ? Math.min((displayProgress / durationMs) * 100, 100) : 0;
 
   return (
-    <div className="flex-shrink-0 px-4 pb-1 safe-bottom relative">
+    <div className="flex-shrink-0 px-4 pb-1 lg:px-6 safe-bottom relative">
       {/* Fade gradient above mini-player */}
       <div className="absolute -top-10 left-0 right-0 h-10 bg-gradient-to-t from-bg-primary to-transparent pointer-events-none z-10" />
       {nowPlaying && (
@@ -906,13 +906,13 @@ function DashboardInner({ user }: { user: any }) {
   if (view === "rooms") {
     return (
       <div className="min-h-dvh flex flex-col items-center justify-center px-4 select-none safe-top">
-        <div className="max-w-sm w-full text-center space-y-6">
+        <div className="max-w-sm w-full text-center space-y-6 lg:max-w-md lg:bg-bg-card/50 lg:backdrop-blur-xl lg:border lg:border-white/[0.06] lg:rounded-3xl lg:p-10 lg:shadow-[0_8px_32px_rgba(0,0,0,0.3)]">
           <div className="flex items-center gap-3 justify-center">
             {user.image && (
-              <img src={user.image} alt="" className="w-10 h-10 rounded-full" />
+              <img src={user.image} alt="" className="w-10 h-10 rounded-full lg:w-14 lg:h-14" />
             )}
             <div className="text-left">
-              <p className="font-medium">{user.name}</p>
+              <p className="font-medium lg:text-lg">{user.name}</p>
               <p className="text-text-secondary text-sm">Host Dashboard</p>
             </div>
           </div>
@@ -923,7 +923,7 @@ function DashboardInner({ user }: { user: any }) {
                 setView("create");
                 fetchPlaylists();
               }}
-              className="w-full py-3.5 bg-accent hover:bg-accent-hover text-black font-semibold rounded-xl transition-colors"
+              className="w-full py-3.5 bg-accent hover:bg-accent-hover text-black font-semibold rounded-xl transition-colors lg:py-4 lg:text-base lg:rounded-2xl"
             >
               Create Room
             </button>
@@ -940,7 +940,7 @@ function DashboardInner({ user }: { user: any }) {
       : playlists;
 
     return (
-      <div className="min-h-dvh max-w-2xl mx-auto select-none safe-top">
+      <div className="min-h-dvh max-w-2xl lg:max-w-3xl mx-auto select-none safe-top">
         {/* Header */}
         <div className="flex items-center justify-between px-4 pt-4 pb-2">
           <button
@@ -1169,7 +1169,7 @@ function DashboardInner({ user }: { user: any }) {
     : queuePlaying;
 
   return (
-    <div className="flex flex-col max-w-6xl mx-auto overflow-hidden relative select-none safe-top" style={{ height: 'var(--app-height, 100dvh)' }}>
+    <div className="flex flex-col max-w-6xl xl:max-w-7xl mx-auto overflow-hidden relative select-none safe-top" style={{ height: 'var(--app-height, 100dvh)' }}>
       {!isOnline && (
         <div className="flex-shrink-0 bg-red-600 text-white text-center text-xs py-1 font-medium z-[70]">
           No internet connection
@@ -1177,7 +1177,7 @@ function DashboardInner({ user }: { user: any }) {
       )}
       {/* Fixed header area */}
       <div className="flex-shrink-0 bg-gradient-to-b from-bg-card/90 to-bg-primary/80 backdrop-blur-xl border-b border-white/[0.06] relative z-[60]">
-      <div className="px-4 pt-4 pb-3">
+      <div className="px-4 pt-4 pb-3 lg:px-6 lg:pt-5">
         {/* Top bar: back + room code */}
         <div className="flex items-center justify-between mb-3">
           <button
@@ -1216,10 +1216,10 @@ function DashboardInner({ user }: { user: any }) {
       {activeRoom && (
         <>
           {/* Room title + search */}
-          <div className="px-4 pb-3">
+          <div className="px-4 pb-3 lg:px-6">
           {/* Room name */}
           <div className="mb-3">
-            <h2 className="text-xl font-bold tracking-tight leading-tight">{activeRoom.name}</h2>
+            <h2 className="text-xl font-bold tracking-tight leading-tight lg:text-2xl">{activeRoom.name}</h2>
             <p className="text-white/30 text-[11px] mt-0.5">{activeRoom.playlistName}</p>
           </div>
 
@@ -1294,7 +1294,7 @@ function DashboardInner({ user }: { user: any }) {
           {/* Scrollable content area */}
           <div
             ref={scrollRef}
-            className={`flex-1 overflow-y-auto overscroll-none px-4 pt-4 pb-20 relative z-10 transition-opacity duration-200 ${showSearch ? "opacity-30 pointer-events-none" : ""}`}
+            className={`flex-1 overflow-y-auto overscroll-none px-4 pt-4 pb-20 lg:px-6 relative z-10 transition-opacity duration-200 ${showSearch ? "opacity-30 pointer-events-none" : ""}`}
           >
           {/* Pull-to-refresh indicator */}
           {pullDistance > 0 && (
@@ -1311,7 +1311,7 @@ function DashboardInner({ user }: { user: any }) {
             </div>
           )}
 
-          <div className="lg:grid lg:grid-cols-[1fr_1.5fr] lg:gap-6">
+          <div className="lg:grid lg:grid-cols-[1fr_1.5fr] lg:gap-6 xl:gap-8">
           {/* Left column: Now Playing, Controls, Panels */}
           <div>
 

@@ -66,16 +66,16 @@ export default function Home() {
 
   return (
     <div className="min-h-dvh flex flex-col items-center justify-center px-4 select-none">
-      <div className="max-w-md w-full text-center space-y-8">
+      <div className="max-w-md w-full text-center space-y-8 lg:max-w-lg lg:bg-bg-card/50 lg:backdrop-blur-xl lg:border lg:border-white/[0.06] lg:rounded-3xl lg:p-10 lg:shadow-[0_8px_32px_rgba(0,0,0,0.3)]">
         {/* Logo / Brand */}
         <div className="space-y-2">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-accent/10 mb-4">
-            <svg className="w-8 h-8 text-accent" fill="currentColor" viewBox="0 0 24 24">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-accent/10 mb-4 lg:w-20 lg:h-20 lg:rounded-3xl">
+            <svg className="w-8 h-8 text-accent lg:w-10 lg:h-10" fill="currentColor" viewBox="0 0 24 24">
               <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55C7.79 13 6 14.79 6 17s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
             </svg>
           </div>
-          <h1 className="text-4xl font-bold tracking-tight">PartyQueue</h1>
-          <p className="text-text-secondary text-lg">
+          <h1 className="text-4xl font-bold tracking-tight lg:text-5xl">PartyQueue</h1>
+          <p className="text-text-secondary text-lg lg:text-xl">
             Your crowd. Your queue.
           </p>
         </div>
@@ -155,6 +155,7 @@ export default function Home() {
           </>
         )}
       </div>
+      <p className="hidden lg:block fixed bottom-6 left-1/2 -translate-x-1/2 text-white/15 text-xs tracking-wide">partyqueue.com</p>
     </div>
   );
 }
