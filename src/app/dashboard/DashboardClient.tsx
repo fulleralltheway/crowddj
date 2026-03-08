@@ -288,6 +288,8 @@ function DashboardInner({ user }: { user: any }) {
   const [pullRefreshing, setPullRefreshing] = useState(false);
   const [pullDistance, setPullDistance] = useState(0);
   const pullStartY = useRef(0);
+  const pullDistRef = useRef(0);
+  const pullRefreshRef = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const PULL_THRESHOLD = 50;
 
@@ -516,6 +518,60 @@ function DashboardInner({ user }: { user: any }) {
     fetchGuestCount(code);
     if (showGuests) fetchGuestDetails();
   };
+
+  // Pull-to-refresh: non-passive touch listeners to prevent native overscroll
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (el.scrollTop <= 0) {
+        pullStartY.current = e.touches[0].clientY;
+      } else {
+        pullStartY.current = 0;
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (!pullStartY.current || pullRefreshRef.current) return;
+      const delta = e.touches[0].clientY - pullStartY.current;
+      if (delta > 0 && el.scrollTop <= 0) {
+        e.preventDefault();
+        const dist = Math.min(delta * 0.5, 80);
+        pullDistRef.current = dist;
+        setPullDistance(dist);
+      } else {
+        pullDistRef.current = 0;
+        setPullDistance(0);
+      }
+    };
+
+    const onTouchEnd = () => {
+      if (pullDistRef.current >= PULL_THRESHOLD && !pullRefreshRef.current) {
+        pullRefreshRef.current = true;
+        setPullRefreshing(true);
+        setPullDistance(PULL_THRESHOLD);
+        pullRefresh().finally(() => {
+          pullRefreshRef.current = false;
+          setPullRefreshing(false);
+          setPullDistance(0);
+        });
+      } else {
+        setPullDistance(0);
+      }
+      pullDistRef.current = 0;
+      pullStartY.current = 0;
+    };
+
+    el.addEventListener("touchstart", onTouchStart, { passive: true });
+    el.addEventListener("touchmove", onTouchMove, { passive: false });
+    el.addEventListener("touchend", onTouchEnd, { passive: true });
+    return () => {
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchmove", onTouchMove);
+      el.removeEventListener("touchend", onTouchEnd);
+    };
+  }, [activeRoom?.code]);
 
   const handleRequest = async (requestId: string, action: "approve" | "reject") => {
     if (!activeRoom) return;
@@ -1170,36 +1226,7 @@ function DashboardInner({ user }: { user: any }) {
           {/* Scrollable content area */}
           <div
             ref={scrollRef}
-            className="flex-1 overflow-y-auto overscroll-contain px-4 pt-4 pb-20 relative z-10"
-            onTouchStart={(e) => {
-              if (scrollRef.current && scrollRef.current.scrollTop <= 0) {
-                pullStartY.current = e.touches[0].clientY;
-              } else {
-                pullStartY.current = 0;
-              }
-            }}
-            onTouchMove={(e) => {
-              if (!pullStartY.current || pullRefreshing) return;
-              const delta = e.touches[0].clientY - pullStartY.current;
-              if (delta > 0 && scrollRef.current && scrollRef.current.scrollTop <= 0) {
-                setPullDistance(Math.min(delta * 0.5, 80));
-              } else {
-                setPullDistance(0);
-              }
-            }}
-            onTouchEnd={() => {
-              if (pullDistance >= PULL_THRESHOLD && !pullRefreshing) {
-                setPullRefreshing(true);
-                setPullDistance(PULL_THRESHOLD);
-                pullRefresh().finally(() => {
-                  setPullRefreshing(false);
-                  setPullDistance(0);
-                });
-              } else {
-                setPullDistance(0);
-              }
-              pullStartY.current = 0;
-            }}
+            className="flex-1 overflow-y-auto overscroll-none px-4 pt-4 pb-20 relative z-10"
           >
           {/* Pull-to-refresh indicator */}
           {pullDistance > 0 && (
