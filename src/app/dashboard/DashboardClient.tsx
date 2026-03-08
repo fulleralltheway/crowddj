@@ -51,6 +51,7 @@ type Room = {
   autoShuffle: boolean;
   queueDisplaySize: number;
   allowDuplicates: boolean;
+  lastPreQueuedId: string | null;
   songs: any[];
 };
 
@@ -1535,7 +1536,7 @@ function DashboardInner({ user }: { user: any }) {
                 <div
                   key={song.id}
                   className={`flex items-center gap-3 p-3 bg-bg-card border rounded-xl song-card transition-all ${
-                    song.isLocked && i === 0
+                    song.isLocked && activeRoom.lastPreQueuedId === song.id
                       ? "border-accent/50 bg-accent/5"
                       : song.isLocked
                       ? "border-yellow-500/50 bg-yellow-500/5"
@@ -1629,7 +1630,7 @@ function DashboardInner({ user }: { user: any }) {
                   </div>
 
                   <span className="text-text-secondary text-sm w-5 text-center flex-shrink-0">
-                    {song.isLocked ? (
+                    {song.isLocked && activeRoom.lastPreQueuedId !== song.id ? (
                       <span className="text-yellow-500">{"\u{1F512}"}</span>
                     ) : (
                       i + 1
@@ -1639,8 +1640,8 @@ function DashboardInner({ user }: { user: any }) {
                     <img src={song.albumArt} alt="" className="w-10 h-10 rounded-lg" />
                   )}
                   <div className="flex-1 min-w-0">
-                    {song.isLocked && i === 0 && (
-                      <p className="text-[10px] font-semibold text-yellow-500 uppercase tracking-wider">Queued Next</p>
+                    {song.isLocked && activeRoom.lastPreQueuedId === song.id && (
+                      <p className="text-[10px] font-semibold text-accent uppercase tracking-wider">Queued Next</p>
                     )}
                     <p className="font-medium text-sm truncate">{song.trackName}</p>
                     <p className="text-text-secondary text-xs truncate">{song.artistName}</p>
@@ -1649,7 +1650,7 @@ function DashboardInner({ user }: { user: any }) {
                     )}
                   </div>
                   <div className="flex items-center gap-1.5">
-                    {!song.isLocked && (
+                    {!(song.isLocked && activeRoom.lastPreQueuedId !== song.id) && (
                       <div className="text-right mr-1">
                         <span className={`text-sm font-semibold ${song.upvotes - song.downvotes > 0 ? "text-upvote" : song.upvotes - song.downvotes < 0 ? "text-downvote" : "text-text-secondary"}`}>
                           {song.upvotes - song.downvotes > 0 ? "+" : ""}{song.upvotes - song.downvotes}

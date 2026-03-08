@@ -1100,7 +1100,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
           const myVotes = song.votes?.filter((v) => v.guestId === guestId) || [];
           const myUpvotes = myVotes.filter((v) => v.value === 1).length;
           const myDownvotes = myVotes.filter((v) => v.value === -1).length;
-          const isQueuedNext = song.isLocked && i === 0;
+          const isQueuedNext = song.isLocked && room.lastPreQueuedId === song.id;
           const isManualLocked = song.isLocked && !isQueuedNext;
 
           return (
@@ -1134,12 +1134,15 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                 <p className="text-text-secondary text-xs truncate">{song.artistName}</p>
               </div>
 
-              {!song.isLocked && (
-                <div className="flex items-center gap-1 flex-shrink-0">
+              {!isManualLocked && (
+                <div className={`flex items-center gap-1 flex-shrink-0 ${isQueuedNext ? "opacity-60" : ""}`}>
                   <button
-                    onClick={() => vote(song.id, 1)}
+                    onClick={() => !isQueuedNext && vote(song.id, 1)}
+                    disabled={isQueuedNext}
                     className={`vote-btn p-2 rounded-lg relative ${
-                      myUpvotes > 0
+                      isQueuedNext
+                        ? "cursor-default"
+                        : myUpvotes > 0
                         ? "bg-upvote/10 hover:bg-upvote/10"
                         : "hover:bg-upvote/10"
                     }`}
@@ -1167,9 +1170,12 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                   </span>
 
                   <button
-                    onClick={() => vote(song.id, -1)}
+                    onClick={() => !isQueuedNext && vote(song.id, -1)}
+                    disabled={isQueuedNext}
                     className={`vote-btn p-2 rounded-lg relative ${
-                      myDownvotes > 0
+                      isQueuedNext
+                        ? "cursor-default"
+                        : myDownvotes > 0
                         ? "bg-downvote/10 hover:bg-downvote/10"
                         : "hover:bg-downvote/10"
                     }`}
