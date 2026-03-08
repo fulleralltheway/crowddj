@@ -285,6 +285,11 @@ function DashboardInner({ user }: { user: any }) {
   const [expandedGuestSection, setExpandedGuestSection] = useState<string | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
   const [songListRef] = useAutoAnimate({ duration: 300 });
+  const [pullRefreshing, setPullRefreshing] = useState(false);
+  const [pullDistance, setPullDistance] = useState(0);
+  const pullStartY = useRef(0);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const PULL_THRESHOLD = 50;
 
   // Create room form state
   const [roomName, setRoomName] = useState("");
@@ -480,6 +485,36 @@ function DashboardInner({ user }: { user: any }) {
       const data = await res.json();
       setGuestList(data.guests || []);
     }
+  };
+
+  const pullRefresh = async () => {
+    if (!activeRoom) return;
+    const code = activeRoom.code;
+    const [roomRes, songsRes, syncRes] = await Promise.all([
+      fetch(`/api/rooms/${code}`),
+      fetch(`/api/rooms/${code}/songs`),
+      fetch(`/api/rooms/${code}/sync`, { method: "POST" }),
+    ]);
+    if (roomRes.ok) {
+      const data = await roomRes.json();
+      setActiveRoom(data);
+      if (data.requireApproval) fetchRequests(code);
+    }
+    if (songsRes.ok) {
+      const songs = await songsRes.json();
+      setActiveRoom((prev) => (prev ? { ...prev, songs } : null));
+    }
+    if (syncRes.ok) {
+      const syncData = await syncRes.json();
+      setIsPlaying(!!syncData.spotifyPlaying);
+      if (typeof syncData.progressMs === "number" && typeof syncData.durationMs === "number") {
+        setProgressMs(syncData.progressMs);
+        setDurationMs(syncData.durationMs);
+        progressSyncedAt.current = Date.now();
+      }
+    }
+    fetchGuestCount(code);
+    if (showGuests) fetchGuestDetails();
   };
 
   const handleRequest = async (requestId: string, action: "approve" | "reject") => {
@@ -1133,7 +1168,53 @@ function DashboardInner({ user }: { user: any }) {
       {activeRoom && (
         <>
           {/* Scrollable content area */}
-          <div className="flex-1 overflow-y-auto overscroll-contain px-4 pt-4 pb-20 relative z-10">
+          <div
+            ref={scrollRef}
+            className="flex-1 overflow-y-auto overscroll-contain px-4 pt-4 pb-20 relative z-10"
+            onTouchStart={(e) => {
+              if (scrollRef.current && scrollRef.current.scrollTop <= 0) {
+                pullStartY.current = e.touches[0].clientY;
+              } else {
+                pullStartY.current = 0;
+              }
+            }}
+            onTouchMove={(e) => {
+              if (!pullStartY.current || pullRefreshing) return;
+              const delta = e.touches[0].clientY - pullStartY.current;
+              if (delta > 0 && scrollRef.current && scrollRef.current.scrollTop <= 0) {
+                setPullDistance(Math.min(delta * 0.5, 80));
+              } else {
+                setPullDistance(0);
+              }
+            }}
+            onTouchEnd={() => {
+              if (pullDistance >= PULL_THRESHOLD && !pullRefreshing) {
+                setPullRefreshing(true);
+                setPullDistance(PULL_THRESHOLD);
+                pullRefresh().finally(() => {
+                  setPullRefreshing(false);
+                  setPullDistance(0);
+                });
+              } else {
+                setPullDistance(0);
+              }
+              pullStartY.current = 0;
+            }}
+          >
+          {/* Pull-to-refresh indicator */}
+          {pullDistance > 0 && (
+            <div className="flex justify-center py-2" style={{ height: pullDistance }}>
+              <div className={`text-accent text-xs font-medium flex items-center gap-2 ${pullRefreshing ? "animate-pulse" : ""}`}>
+                {pullRefreshing ? (
+                  <><div className="w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" /> Refreshing...</>
+                ) : pullDistance >= PULL_THRESHOLD ? (
+                  "Release to refresh"
+                ) : (
+                  "Pull to refresh"
+                )}
+              </div>
+            </div>
+          )}
 
           <div className="lg:grid lg:grid-cols-[1fr_1.5fr] lg:gap-6">
           {/* Left column: Now Playing, Controls, Panels */}
