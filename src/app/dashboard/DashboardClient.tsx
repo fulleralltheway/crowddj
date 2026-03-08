@@ -292,6 +292,8 @@ function DashboardInner({ user }: { user: any }) {
   const pullRefreshRef = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const searchBarRef = useRef<HTMLDivElement>(null);
+  const deferredSongs = useRef<any[] | null>(null);
+  const showSearchRef = useRef(false);
   const PULL_THRESHOLD = 50;
 
   // Create room form state
@@ -303,6 +305,15 @@ function DashboardInner({ user }: { user: any }) {
   const [playlistSearch, setPlaylistSearch] = useState("");
   const [spotifyPlaylists, setSpotifyPlaylists] = useState<any[]>([]);
   const playlistSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Keep search ref in sync; flush deferred songs when search closes
+  useEffect(() => {
+    showSearchRef.current = showSearch;
+    if (!showSearch && deferredSongs.current) {
+      setActiveRoom((prev) => (prev ? { ...prev, songs: deferredSongs.current! } : null));
+      deferredSongs.current = null;
+    }
+  }, [showSearch]);
 
   const fetchRooms = useCallback(async () => {
     const res = await fetch("/api/rooms");
@@ -327,7 +338,11 @@ function DashboardInner({ user }: { user: any }) {
     socket.emit("join-room", code);
 
     const handleSongsUpdate = (songs: any[]) => {
-      setActiveRoom((prev) => (prev ? { ...prev, songs } : null));
+      if (showSearchRef.current) {
+        deferredSongs.current = songs;
+      } else {
+        setActiveRoom((prev) => (prev ? { ...prev, songs } : null));
+      }
     };
     const handleGuestCount = (count: number) => {
       setGuestCount(count);
@@ -447,7 +462,11 @@ function DashboardInner({ user }: { user: any }) {
         } catch { /* notification not supported */ }
       }
       prevSongCount.current = songs.length;
-      setActiveRoom((prev) => (prev ? { ...prev, songs } : null));
+      if (showSearchRef.current) {
+        deferredSongs.current = songs;
+      } else {
+        setActiveRoom((prev) => (prev ? { ...prev, songs } : null));
+      }
     }
   };
 
