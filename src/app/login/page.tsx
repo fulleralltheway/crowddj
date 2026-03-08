@@ -12,7 +12,7 @@ export default function LoginPage() {
               <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55C7.79 13 6 14.79 6 17s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
             </svg>
           </div>
-          <h1 className="text-3xl font-bold">CrowdDJ</h1>
+          <h1 className="text-3xl font-bold">PartyQueue</h1>
           <p className="text-text-secondary">
             Connect your Spotify to start hosting
           </p>

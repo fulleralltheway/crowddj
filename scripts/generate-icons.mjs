@@ -1,6 +1,6 @@
 import sharp from 'sharp';
 
-// CrowdDJ icon: music note on dark background with green accent
+// PartyQueue icon: music note on dark background with green accent
 // Matches the app's existing logo SVG and color scheme
 const sizes = [192, 512];
 

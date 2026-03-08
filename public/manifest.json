@@ -1,7 +1,7 @@
 {
-  "name": "CrowdDJ",
-  "short_name": "CrowdDJ",
-  "description": "Crowd-powered playlist voting",
+  "name": "PartyQueue",
+  "short_name": "PartyQueue",
+  "description": "Your crowd. Your queue.",
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait",

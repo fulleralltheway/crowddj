@@ -3,7 +3,7 @@ import "./globals.css";
 import { ServiceWorker } from "./ServiceWorker";
 
 export const metadata: Metadata = {
-  title: "CrowdDJ - Crowd-Powered Playlists",
+  title: "PartyQueue - Your Crowd. Your Queue.",
   description: "Let your crowd control the music. Vote on songs, request tracks, and shape the playlist in real time.",
   manifest: "/manifest.json",
   icons: {
@@ -17,7 +17,7 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "CrowdDJ",
+    title: "PartyQueue",
     startupImage: [
       { url: "/splash-1170x2532.png", media: "(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3)" },
       { url: "/splash-1179x2556.png", media: "(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3)" },

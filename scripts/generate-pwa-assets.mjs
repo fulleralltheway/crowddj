@@ -58,7 +58,7 @@ async function generateSplashScreens() {
       .png()
       .toBuffer();
 
-    // Create "CrowdDJ" text as SVG
+    // Create "PartyQueue" text as SVG
     const fontSize = Math.round(width * 0.08);
     const textY = Math.round(height / 2 + iconSize / 2 + fontSize * 0.8);
     const textSvg = Buffer.from(`
@@ -74,7 +74,7 @@ async function generateSplashScreens() {
             letter-spacing: 0.02em;
           }
         </style>
-        <text x="${width / 2}" y="${textY}" text-anchor="middle" fill="white" font-size="${fontSize}" font-weight="700" font-family="sans-serif">CrowdDJ</text>
+        <text x="${width / 2}" y="${textY}" text-anchor="middle" fill="white" font-size="${fontSize}" font-weight="700" font-family="sans-serif">PartyQueue</text>
       </svg>
     `);
 

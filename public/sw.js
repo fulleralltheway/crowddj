@@ -1,4 +1,4 @@
-const CACHE_NAME = 'crowddj-v9';
+const CACHE_NAME = 'partyqueue-v1';
 const PRECACHE_URLS = [
   '/',
   '/manifest.json',
