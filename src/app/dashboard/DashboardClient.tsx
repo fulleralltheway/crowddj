@@ -301,6 +301,7 @@ function DashboardInner({ user }: { user: any }) {
   const pullStartY = useRef(0);
   const pullDistRef = useRef(0);
   const pullRefreshRef = useRef(false);
+  const isDragging = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const searchBarRef = useRef<HTMLDivElement>(null);
   const deferredSongs = useRef<any[] | null>(null);
@@ -615,6 +616,8 @@ function DashboardInner({ user }: { user: any }) {
     if (!el) return;
 
     const onTouchStart = (e: TouchEvent) => {
+      // Don't start pull-to-refresh while dragging a song
+      if (isDragging.current) { pullStartY.current = 0; return; }
       if (el.scrollTop <= 0) {
         pullStartY.current = e.touches[0].clientY;
       } else {
@@ -623,6 +626,7 @@ function DashboardInner({ user }: { user: any }) {
     };
 
     const onTouchMove = (e: TouchEvent) => {
+      if (isDragging.current) return; // Disable during drag
       if (!pullStartY.current || pullRefreshRef.current) return;
       const delta = e.touches[0].clientY - pullStartY.current;
       if (delta > 0 && el.scrollTop <= 0) {
@@ -1656,6 +1660,9 @@ function DashboardInner({ user }: { user: any }) {
                     className="cursor-grab active:cursor-grabbing touch-none select-none p-1 -ml-1"
                     onPointerDown={(e) => {
                       e.preventDefault();
+                      isDragging.current = true;
+                      // Capture pointer to prevent browser touch actions (pull-to-refresh, scroll)
+                      (e.target as HTMLElement).setPointerCapture(e.pointerId);
                       // Measure the parent card element (the song row), not the small handle
                       const card = e.currentTarget.parentElement as HTMLElement;
                       const rect = card?.getBoundingClientRect();
@@ -1665,27 +1672,39 @@ function DashboardInner({ user }: { user: any }) {
                       setDragIdx(i);
                       setOverIdx(i);
 
-                      // Auto-scroll when dragging near edges
+                      // Auto-scroll the scroll container when dragging near edges
                       let scrollRAF = 0;
                       let lastPointerY = e.clientY;
-                      const EDGE_ZONE = 80; // px from top/bottom to trigger scroll
-                      const SCROLL_SPEED = 8; // px per frame
+                      const EDGE_ZONE = 100; // px from top/bottom to trigger scroll
+                      const MAX_SCROLL_SPEED = 16; // px per frame at edge
+                      const scrollEl = scrollRef.current;
 
                       const autoScroll = () => {
-                        const vh = window.innerHeight;
-                        if (lastPointerY < EDGE_ZONE) {
-                          window.scrollBy(0, -SCROLL_SPEED);
-                          // Adjust baseline so index tracks with scroll
-                          dragStartY.current += SCROLL_SPEED;
-                        } else if (lastPointerY > vh - EDGE_ZONE) {
-                          window.scrollBy(0, SCROLL_SPEED);
-                          dragStartY.current -= SCROLL_SPEED;
+                        if (!scrollEl) { scrollRAF = requestAnimationFrame(autoScroll); return; }
+                        const rect = scrollEl.getBoundingClientRect();
+                        const distFromTop = lastPointerY - rect.top;
+                        const distFromBottom = rect.bottom - lastPointerY;
+
+                        let scrollDelta = 0;
+                        if (distFromTop < EDGE_ZONE && distFromTop >= 0) {
+                          // Closer to edge = faster scroll (proportional)
+                          const intensity = 1 - distFromTop / EDGE_ZONE;
+                          scrollDelta = -Math.round(MAX_SCROLL_SPEED * intensity);
+                        } else if (distFromBottom < EDGE_ZONE && distFromBottom >= 0) {
+                          const intensity = 1 - distFromBottom / EDGE_ZONE;
+                          scrollDelta = Math.round(MAX_SCROLL_SPEED * intensity);
                         }
-                        // Recalculate index during scroll
-                        const delta = lastPointerY - dragStartY.current;
-                        const off = Math.round(delta / (dragItemHeight.current + 8));
-                        const newIdx = Math.max(0, Math.min(queueSongs.length - 1, i + off));
-                        setOverIdx(newIdx);
+
+                        if (scrollDelta !== 0) {
+                          scrollEl.scrollBy(0, scrollDelta);
+                          // Adjust baseline so index tracks with scroll
+                          dragStartY.current -= scrollDelta;
+                          // Recalculate index during scroll
+                          const delta = lastPointerY - dragStartY.current;
+                          const off = Math.round(delta / (dragItemHeight.current + 8));
+                          const newIdx = Math.max(0, Math.min(queueSongs.length - 1, i + off));
+                          setOverIdx(newIdx);
+                        }
                         scrollRAF = requestAnimationFrame(autoScroll);
                       };
                       scrollRAF = requestAnimationFrame(autoScroll);
@@ -1698,8 +1717,10 @@ function DashboardInner({ user }: { user: any }) {
                         setOverIdx(newIdx);
                       };
 
-                      const onUp = () => {
+                      const onUp = (ev: PointerEvent) => {
+                        isDragging.current = false;
                         cancelAnimationFrame(scrollRAF);
+                        try { (ev.target as HTMLElement).releasePointerCapture(ev.pointerId); } catch {}
                         window.removeEventListener("pointermove", onMove);
                         window.removeEventListener("pointerup", onUp);
                         // Commit reorder
