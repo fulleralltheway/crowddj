@@ -5,12 +5,27 @@ import { NextRequest, NextResponse } from "next/server";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-// Fade step configurations by speed
-const FADE_CONFIGS = {
-  fast:   { multipliers: [0.5, 0.15, 0],         stepMs: 350 },
-  medium: { multipliers: [0.7, 0.45, 0.25, 0.1, 0], stepMs: 500 },
-  slow:   { multipliers: [0.8, 0.6, 0.45, 0.3, 0.18, 0.08, 0], stepMs: 700 },
-};
+/**
+ * Build a smooth fade-out curve for any duration.
+ * Returns an array of volume multipliers (1.0 → 0.0) with even spacing.
+ * Uses an ease-out curve so the fade feels natural (slows down toward silence).
+ */
+function buildFadeCurve(durationMs: number): { multipliers: number[]; stepMs: number } {
+  // ~6-8 steps per second feels smooth without hammering the API
+  const stepsPerSec = 6;
+  const totalSteps = Math.max(2, Math.round((durationMs / 1000) * stepsPerSec));
+  const stepMs = Math.round(durationMs / totalSteps);
+
+  const multipliers: number[] = [];
+  for (let i = 1; i <= totalSteps; i++) {
+    const t = i / totalSteps; // 0→1
+    // Ease-out curve: starts fast, slows near silence
+    const vol = Math.pow(1 - t, 1.8);
+    multipliers.push(Math.max(0, vol));
+  }
+
+  return { multipliers, stepMs };
+}
 
 export async function POST(
   req: NextRequest,
@@ -26,18 +41,20 @@ export async function POST(
     return NextResponse.json({ error: "Not authorized" }, { status: 403 });
   }
 
-  // Parse options from request body
-  let speed: keyof typeof FADE_CONFIGS = "medium";
+  // Parse options: fadeDurationMs (number) and mode ("skip" | "pause")
+  let fadeDurationMs = 2500; // default 2.5s
   let mode: "skip" | "pause" = "skip";
   try {
     const body = await req.json();
-    if (body.speed && body.speed in FADE_CONFIGS) speed = body.speed;
+    if (typeof body.fadeDurationMs === "number") {
+      fadeDurationMs = Math.max(500, Math.min(30000, body.fadeDurationMs));
+    }
     if (body.mode === "pause") mode = "pause";
   } catch {
     // No body or invalid JSON — use defaults
   }
 
-  const config = FADE_CONFIGS[speed];
+  const { multipliers, stepMs } = buildFadeCurve(fadeDurationMs);
 
   try {
     // Get current playback to know the starting volume
@@ -45,15 +62,14 @@ export async function POST(
     const originalVolume = playback?.device?.volume_percent ?? 80;
 
     // Fade out
-    for (const mult of config.multipliers) {
+    for (const mult of multipliers) {
       await setVolume(accessToken, Math.round(originalVolume * mult));
-      await sleep(config.stepMs);
+      await sleep(stepMs);
     }
 
     if (mode === "pause") {
-      // Fade & Pause: just pause playback, don't advance
+      // Fade & Pause: pause playback, restore volume for next resume
       await pausePlayback(accessToken);
-      // Restore volume so when they resume it's at normal level
       await setVolume(accessToken, originalVolume);
       return NextResponse.json({ success: true, action: "paused", originalVolume });
     }
@@ -81,6 +97,9 @@ export async function POST(
         data: { isPlaying: true, isLocked: false },
       });
 
+      // Restore volume to full BEFORE starting next song so it hits at full volume
+      await setVolume(accessToken, originalVolume);
+
       try {
         await startPlayback(accessToken, [nextSong.spotifyUri]);
       } catch {
@@ -88,18 +107,9 @@ export async function POST(
       }
 
       await prisma.room.update({ where: { id: room.id }, data: { lastPreQueuedId: null } });
-    }
-
-    // Fade volume back up (3 quick steps regardless of fade-out speed)
-    const fadeIn = [
-      Math.round(originalVolume * 0.4),
-      Math.round(originalVolume * 0.7),
-      originalVolume,
-    ];
-
-    for (const vol of fadeIn) {
-      await setVolume(accessToken, vol);
-      await sleep(400);
+    } else {
+      // No next song — restore volume anyway
+      await setVolume(accessToken, originalVolume);
     }
 
     return NextResponse.json({ success: true, action: "skipped", song: nextSong, originalVolume });

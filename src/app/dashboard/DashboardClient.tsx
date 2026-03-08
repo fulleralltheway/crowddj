@@ -134,8 +134,8 @@ function MiniPlayer({
   controlsLocked,
   onToggleLock,
   isFading,
-  fadeSpeed,
-  onCycleFadeSpeed,
+  fadeDurationSec,
+  onCycleFadeDuration,
 }: {
   nowPlaying: any;
   isPlaying: boolean;
@@ -149,8 +149,8 @@ function MiniPlayer({
   controlsLocked: boolean;
   onToggleLock: () => void;
   isFading: boolean;
-  fadeSpeed: "fast" | "medium" | "slow";
-  onCycleFadeSpeed: () => void;
+  fadeDurationSec: number;
+  onCycleFadeDuration: () => void;
 }) {
   const [displayProgress, setDisplayProgress] = useState(progressMs);
 
@@ -289,13 +289,13 @@ function MiniPlayer({
                   </svg>
                 )}
               </button>
-              {/* Fade speed indicator — tap to cycle */}
+              {/* Fade duration indicator — tap to cycle presets */}
               <button
-                onClick={onCycleFadeSpeed}
+                onClick={onCycleFadeDuration}
                 className="w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-bold tabular-nums text-white/25 hover:text-white/50 hover:bg-white/[0.04] transition-colors"
-                title={`Fade speed: ${fadeSpeed} (tap to change)`}
+                title={`Fade: ${fadeDurationSec}s (tap to change)`}
               >
-                {fadeSpeed === "fast" ? "1s" : fadeSpeed === "medium" ? "2s" : "5s"}
+                {fadeDurationSec}s
               </button>
             </div>
           </div>
@@ -375,9 +375,10 @@ function DashboardInner({ user }: { user: any }) {
     return localStorage.getItem("pq_controls_locked") === "true";
   });
   const [isFading, setIsFading] = useState(false);
-  const [fadeSpeed, setFadeSpeed] = useState<"fast" | "medium" | "slow">(() => {
-    if (typeof window === "undefined") return "medium";
-    return (localStorage.getItem("pq_fade_speed") as "fast" | "medium" | "slow") || "medium";
+  const [fadeDurationSec, setFadeDurationSec] = useState(() => {
+    if (typeof window === "undefined") return 3;
+    const saved = localStorage.getItem("pq_fade_duration");
+    return saved ? Number(saved) : 3;
   });
   const [songListRef] = useAutoAnimate({ duration: 300 });
   const [pullRefreshing, setPullRefreshing] = useState(false);
@@ -815,7 +816,7 @@ function DashboardInner({ user }: { user: any }) {
       await fetch(`/api/rooms/${activeRoom.code}/fade-skip`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ speed: fadeSpeed, mode: "skip" }),
+        body: JSON.stringify({ fadeDurationMs: fadeDurationSec * 1000, mode: "skip" }),
       });
       getSocket().emit("song-skipped", activeRoom.code);
       refreshSongs(activeRoom.code);
@@ -833,7 +834,7 @@ function DashboardInner({ user }: { user: any }) {
       await fetch(`/api/rooms/${activeRoom.code}/fade-skip`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ speed: fadeSpeed, mode: "pause" }),
+        body: JSON.stringify({ fadeDurationMs: fadeDurationSec * 1000, mode: "pause" }),
       });
       setIsPlaying(false);
     } catch {
@@ -864,12 +865,13 @@ function DashboardInner({ user }: { user: any }) {
     return () => clearInterval(id);
   }, [activeRoom?.maxSongDurationSec, isPlaying, isFading, progressMs]);
 
-  const cycleFadeSpeed = () => {
-    setFadeSpeed((prev) => {
-      const next = prev === "fast" ? "medium" : prev === "medium" ? "slow" : "fast";
-      localStorage.setItem("pq_fade_speed", next);
-      return next;
-    });
+  const cycleFadeDuration = () => {
+    // Cycle through presets: 1 → 3 → 5 → 8 → 12 → 1
+    const presets = [1, 3, 5, 8, 12];
+    const currentIdx = presets.indexOf(fadeDurationSec);
+    const next = presets[(currentIdx + 1) % presets.length];
+    setFadeDurationSec(next);
+    localStorage.setItem("pq_fade_duration", String(next));
   };
 
   const toggleControlsLock = () => {
@@ -1732,6 +1734,45 @@ function DashboardInner({ user }: { user: any }) {
                   onSave={(v) => saveSettings({ maxSongDurationSec: v } as any)}
                 />
               </div>
+              <div>
+                <label className="block text-sm font-medium text-text-secondary mb-1">
+                  Fade Duration (seconds)
+                </label>
+                <p className="text-[11px] text-white/30 mb-1.5">How long the volume fades out before transitioning.</p>
+                <div className="flex gap-2">
+                  {[1, 3, 5, 8, 12].map((sec) => (
+                    <button
+                      key={sec}
+                      onClick={() => {
+                        setFadeDurationSec(sec);
+                        localStorage.setItem("pq_fade_duration", String(sec));
+                      }}
+                      className={`flex-1 py-2 rounded-lg text-xs font-medium transition-colors ${
+                        fadeDurationSec === sec
+                          ? "bg-accent/20 text-accent border border-accent/30"
+                          : "bg-bg-primary border border-border text-text-secondary hover:bg-bg-card-hover"
+                      }`}
+                    >
+                      {sec}s
+                    </button>
+                  ))}
+                </div>
+                <div className="mt-2 flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={1}
+                    max={30}
+                    value={fadeDurationSec}
+                    onChange={(e) => {
+                      const val = Math.max(1, Math.min(30, Number(e.target.value) || 1));
+                      setFadeDurationSec(val);
+                      localStorage.setItem("pq_fade_duration", String(val));
+                    }}
+                    className="w-20 px-3 py-2 bg-bg-primary border border-border rounded-lg text-sm text-center focus:outline-none focus:border-accent"
+                  />
+                  <span className="text-text-secondary text-xs">seconds (1–30)</span>
+                </div>
+              </div>
               <ToggleSwitch
                 enabled={activeRoom.requireApproval}
                 onToggle={() => saveSettings({ requireApproval: !activeRoom.requireApproval } as any)}
@@ -2187,8 +2228,8 @@ function DashboardInner({ user }: { user: any }) {
             controlsLocked={controlsLocked}
             onToggleLock={toggleControlsLock}
             isFading={isFading}
-            fadeSpeed={fadeSpeed}
-            onCycleFadeSpeed={cycleFadeSpeed}
+            fadeDurationSec={fadeDurationSec}
+            onCycleFadeDuration={cycleFadeDuration}
           />
         </>
       )}
