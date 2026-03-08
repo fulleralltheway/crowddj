@@ -115,6 +115,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const [nameInput, setNameInput] = useState("");
   const [votesUsed, setVotesUsed] = useState(0);
   const [error, setError] = useState("");
+  const [roomClosing, setRoomClosing] = useState(false);
   const [spotifyTrack, setSpotifyTrack] = useState<{ uri: string; name: string; artist: string; albumArt: string | null } | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<any[]>([]);
@@ -283,7 +284,10 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
 
     const handleRoomUpdate = (data: any) => {
       if (data && !data.isActive) {
-        setError("This room has been closed");
+        // Graceful close: show overlay first, then transition to closed screen
+        setRoomClosing(true);
+        try { localStorage.removeItem("crowddj_last_room"); } catch {}
+        setTimeout(() => setError("This room has been closed"), 3000);
         return;
       }
       setRoom(data);
@@ -294,8 +298,9 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     };
 
     const handleRoomClosed = () => {
-      setError("This room has been closed by the host");
+      setRoomClosing(true);
       try { localStorage.removeItem("crowddj_last_room"); } catch {}
+      setTimeout(() => setError("This room has been closed by the host"), 3000);
     };
 
     socket.on("songs-update", handleSongsUpdate);
@@ -695,15 +700,18 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   if (error) {
     const isClosed = error.includes("closed") || error.includes("expired");
     return (
-      <div className="min-h-dvh flex items-center justify-center px-4 select-none">
+      <div className="min-h-dvh flex items-center justify-center px-4 select-none" style={{ animation: 'fadeIn 0.4s ease-out' }}>
         <div className="text-center space-y-4">
-          <div className="text-4xl mb-2">{isClosed ? "\u{1F3B5}" : "\u{1F50D}"}</div>
-          <p className="text-2xl font-bold">{isClosed ? "Party's Over" : error}</p>
+          <div className="text-5xl mb-2">{isClosed ? "\u{1F3B5}" : "\u{1F50D}"}</div>
+          <p className="text-2xl font-bold">{isClosed ? "Party's Over!" : error}</p>
           {isClosed && (
-            <p className="text-text-secondary">This room has been closed by the host.</p>
+            <>
+              <p className="text-text-secondary">The host has closed this room.</p>
+              <p className="text-text-secondary text-sm">Thanks for vibing!</p>
+            </>
           )}
-          <a href="/" className="inline-block mt-2 px-6 py-2.5 bg-accent hover:bg-accent-hover text-black font-semibold rounded-xl transition-colors">
-            Back to Home
+          <a href="/" className="inline-block mt-4 px-6 py-2.5 bg-accent hover:bg-accent-hover text-black font-semibold rounded-xl transition-colors">
+            Join Another Room
           </a>
         </div>
       </div>
@@ -802,6 +810,17 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     : queuePlaying;
   return (
     <div className="flex flex-col max-w-lg lg:max-w-3xl mx-auto overflow-hidden select-none safe-top" style={{ height: 'var(--app-height, 100dvh)' }}>
+      {/* Room closing overlay */}
+      {roomClosing && (
+        <div className="absolute inset-0 z-[100] flex items-center justify-center bg-bg-primary/80 backdrop-blur-sm" style={{ animation: 'fadeIn 0.5s ease-out' }}>
+          <div className="text-center space-y-3 px-8">
+            <div className="text-5xl">🎵</div>
+            <p className="text-2xl font-bold">Party's Over!</p>
+            <p className="text-text-secondary">The host has closed this room.</p>
+            <p className="text-text-secondary text-sm">Thanks for vibing!</p>
+          </div>
+        </div>
+      )}
       {!isOnline && (
         <div className="flex-shrink-0 bg-red-600 text-white text-center text-xs py-1 font-medium z-[70]">
           No internet connection
