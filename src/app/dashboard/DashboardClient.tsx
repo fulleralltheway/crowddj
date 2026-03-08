@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef, Component, type ReactNode } f
 import { useAutoAnimate } from "@formkit/auto-animate/react";
 import { QRCodeSVG } from "qrcode.react";
 import { getSocket } from "@/lib/socket";
+import { useAppHeight, useNetworkStatus } from "@/lib/pwa";
 
 class DashboardErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state = { error: null as Error | null };
@@ -156,10 +157,14 @@ function MiniPlayer({
   const pct = durationMs > 0 ? Math.min((displayProgress / durationMs) * 100, 100) : 0;
 
   return (
-    <div className="flex-shrink-0 pointer-events-none absolute bottom-0 left-0 right-0 z-50 pb-[env(safe-area-inset-bottom)]">
-      <div className="bg-gradient-to-t from-bg-primary via-bg-primary/90 to-transparent pt-8 px-4 pb-3">
-        <div className="pointer-events-auto bg-bg-card border border-border rounded-2xl shadow-2xl overflow-hidden">
-          <div className="flex items-center gap-3 p-3">
+    <div className="flex-shrink-0 px-4 pb-1 safe-bottom relative">
+      {/* Fade gradient above mini-player */}
+      <div className="absolute -top-10 left-0 right-0 h-10 bg-gradient-to-t from-bg-primary to-transparent pointer-events-none z-10" />
+      {nowPlaying && (
+        <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 w-3/4 h-16 rounded-full blur-2xl opacity-30 pointer-events-none" style={{ background: 'radial-gradient(ellipse, var(--color-accent) 0%, transparent 70%)' }} />
+      )}
+      <div className="relative z-20 bg-bg-card border border-border rounded-2xl shadow-2xl overflow-hidden">
+        <div className="flex items-center gap-3 p-3">
             {/* Album art */}
             {nowPlaying?.albumArt ? (
               <img src={nowPlaying.albumArt} alt="" className="w-12 h-12 rounded-lg shadow-md flex-shrink-0" />
@@ -222,7 +227,6 @@ function MiniPlayer({
           </div>
         </div>
       </div>
-    </div>
   );
 }
 
@@ -235,7 +239,9 @@ export default function DashboardClient({ user }: { user: any }) {
 }
 
 function DashboardInner({ user }: { user: any }) {
-  const [view, setView] = useState<"rooms" | "create" | "manage">("rooms");
+  useAppHeight();
+  const isOnline = useNetworkStatus();
+  const [view, setView] = useState<"loading" | "rooms" | "create" | "manage">("loading");
   const [rooms, setRooms] = useState<Room[]>([]);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [activeRoom, setActiveRoom] = useState<Room | null>(null);
@@ -249,11 +255,13 @@ function DashboardInner({ user }: { user: any }) {
   const [showSettings, setShowSettings] = useState(false);
   const [showQR, setShowQR] = useState(false);
   const [guestCount, setGuestCount] = useState(0);
+  const [spotifyTrack, setSpotifyTrack] = useState<{ uri: string; name: string; artist: string; albumArt: string | null } | null>(null);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [searching, setSearching] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState<{ songId: string; name: string } | null>(null);
+  const [songMenuOpen, setSongMenuOpen] = useState<string | null>(null);
   const [skipRemoveConfirm, setSkipRemoveConfirm] = useState(() => {
     if (typeof window === "undefined") return false;
     const ts = localStorage.getItem("skipRemoveConfirm_ts");
@@ -278,6 +286,7 @@ function DashboardInner({ user }: { user: any }) {
   const [confirmClose, setConfirmClose] = useState(false);
   const [searchStatus, setSearchStatus] = useState("");
   const [recentlyAdded, setRecentlyAdded] = useState<Set<string>>(new Set());
+  const [songAddedToast, setSongAddedToast] = useState("");
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const prevRequestCount = useRef<number>(0);
@@ -322,14 +331,40 @@ function DashboardInner({ user }: { user: any }) {
 
   const fetchRooms = useCallback(async () => {
     const res = await fetch("/api/rooms");
-    if (res.ok) setRooms(await res.json());
+    if (res.ok) {
+      const data = await res.json();
+      setRooms(data);
+      return data as Room[];
+    }
+    return [] as Room[];
   }, []);
 
+  // On mount: if there's an active room, jump straight to managing it
+  const hasAutoOpened = useRef(false);
   useEffect(() => {
-    fetchRooms();
-    if (typeof window !== "undefined" && "Notification" in window) {
-      setNotificationsEnabled(Notification.permission === "granted");
-    }
+    (async () => {
+      const fetchedRooms = await fetchRooms();
+      if (typeof window !== "undefined" && "Notification" in window) {
+        setNotificationsEnabled(Notification.permission === "granted");
+      }
+      if (!hasAutoOpened.current) {
+        hasAutoOpened.current = true;
+        const active = fetchedRooms.find((r) => r.isActive);
+        if (active) {
+          // Inline manageRoom logic to avoid dependency on not-yet-defined function
+          const res = await fetch(`/api/rooms/${active.code}`);
+          if (res.ok) {
+            const data = await res.json();
+            setActiveRoom(data);
+            setView("manage");
+          } else {
+            setView("rooms");
+          }
+        } else {
+          setView("rooms");
+        }
+      }
+    })();
   }, [fetchRooms]);
 
   // Socket.io + fallback polling for real-time updates when managing a room
@@ -355,14 +390,20 @@ function DashboardInner({ user }: { user: any }) {
     const handleRequestReceived = () => {
       if (needsApproval) fetchRequests(code);
     };
+    const handleRoomUpdate = (room: any) => {
+      setActiveRoom((prev) => prev ? { ...prev, lastPreQueuedId: room.lastPreQueuedId } : null);
+    };
 
     socket.on("songs-update", handleSongsUpdate);
     socket.on("guest-count", handleGuestCount);
     socket.on("request-received", handleRequestReceived);
+    socket.on("room-update", handleRoomUpdate);
 
     // Fallback polling (slower when socket is connected, full speed when not)
+    let pollCount = 0;
     const interval = setInterval(async () => {
       try {
+        pollCount++;
         const syncRes = await fetch(`/api/rooms/${code}/sync`, { method: "POST" });
         if (syncRes.ok) {
           const syncData = await syncRes.json();
@@ -376,12 +417,24 @@ function DashboardInner({ user }: { user: any }) {
             setDurationMs(syncData.durationMs);
             progressSyncedAt.current = Date.now();
           }
+          if (syncData.spotifyTrack) {
+            setSpotifyTrack(syncData.spotifyTrack);
+          }
         }
         if (!socket.connected) {
           refreshSongs(code);
           fetchGuestCount(code);
         }
         if (needsApproval) fetchRequests(code);
+        // Periodically fetch full room state to keep lastPreQueuedId in sync
+        if (pollCount % 6 === 0) {
+          fetch(`/api/rooms/${code}`).then(async (res) => {
+            if (res.ok) {
+              const room = await res.json();
+              setActiveRoom((prev) => prev ? { ...prev, lastPreQueuedId: room.lastPreQueuedId } : null);
+            }
+          }).catch(() => {});
+        }
       } catch {}
     }, 5000);
 
@@ -390,6 +443,7 @@ function DashboardInner({ user }: { user: any }) {
       socket.off("songs-update", handleSongsUpdate);
       socket.off("guest-count", handleGuestCount);
       socket.off("request-received", handleRequestReceived);
+      socket.off("room-update", handleRoomUpdate);
       clearInterval(interval);
     };
   }, [view, activeRoom?.code, activeRoom?.requireApproval]);
@@ -415,6 +469,11 @@ function DashboardInner({ user }: { user: any }) {
       }),
     });
     if (res.ok) {
+      // Notify guests of any previously active rooms that were auto-closed
+      const prevActive = rooms.find((r) => r.isActive);
+      if (prevActive) {
+        getSocket().emit("room-closed", prevActive.code);
+      }
       const room = await res.json();
       setActiveRoom(room);
       setView("manage");
@@ -440,6 +499,9 @@ function DashboardInner({ user }: { user: any }) {
           setProgressMs(syncData.progressMs);
           setDurationMs(syncData.durationMs);
           progressSyncedAt.current = Date.now();
+        }
+        if (syncData.spotifyTrack) {
+          setSpotifyTrack(syncData.spotifyTrack);
         }
       }
     }
@@ -538,6 +600,9 @@ function DashboardInner({ user }: { user: any }) {
         setProgressMs(syncData.progressMs);
         setDurationMs(syncData.durationMs);
         progressSyncedAt.current = Date.now();
+      }
+      if (syncData.spotifyTrack) {
+        setSpotifyTrack(syncData.spotifyTrack);
       }
     }
     fetchGuestCount(code);
@@ -639,9 +704,10 @@ function DashboardInner({ user }: { user: any }) {
 
   const closeRoom = async () => {
     if (!activeRoom) return;
-    getSocket().emit("room-settings-changed", activeRoom.code);
-    const res = await fetch(`/api/rooms/${activeRoom.code}`, { method: "DELETE" });
+    const code = activeRoom.code;
+    const res = await fetch(`/api/rooms/${code}`, { method: "DELETE" });
     if (res.ok) {
+      getSocket().emit("room-closed", code);
       setActiveRoom(null);
       setView("rooms");
       fetchRooms();
@@ -799,6 +865,8 @@ function DashboardInner({ user }: { user: any }) {
         refreshSongs(room.code);
         setShowSearch(false);
         onSearchChange("");
+        setSongAddedToast(`"${track.trackName}" added to queue`);
+        setTimeout(() => setSongAddedToast(""), 3000);
       } else {
         setSearchStatus(data.error || "Failed to add song");
       }
@@ -812,267 +880,300 @@ function DashboardInner({ user }: { user: any }) {
     ? `${typeof window !== "undefined" ? window.location.origin : ""}/room/${activeRoom.code}`
     : "";
 
+  if (view === "loading") {
+    return (
+      <div className="min-h-dvh flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
   // Rooms list view
   if (view === "rooms") {
     return (
-      <div className="min-h-dvh p-4 max-w-2xl mx-auto">
-        <div className="flex items-center justify-between mb-8 pt-4">
-          <div className="flex items-center gap-3">
+      <div className="min-h-dvh flex flex-col items-center justify-center px-4 select-none safe-top">
+        <div className="max-w-sm w-full text-center space-y-6">
+          <div className="flex items-center gap-3 justify-center">
             {user.image && (
               <img src={user.image} alt="" className="w-10 h-10 rounded-full" />
             )}
-            <div>
+            <div className="text-left">
               <p className="font-medium">{user.name}</p>
               <p className="text-text-secondary text-sm">Host Dashboard</p>
             </div>
           </div>
-          <button
-            onClick={() => {
-              setView("create");
-              fetchPlaylists();
-            }}
-            className="px-4 py-2 bg-accent hover:bg-accent-hover text-black font-semibold rounded-xl transition-colors"
-          >
-            + New Room
-          </button>
-        </div>
-
-        {rooms.length === 0 ? (
-          <div className="text-center py-20 text-text-secondary">
-            <p className="text-lg mb-2">No rooms yet</p>
-            <p className="text-sm">Create your first room to get started</p>
-          </div>
-        ) : (
           <div className="space-y-3">
-            {rooms.map((room) => (
-              <button
-                key={room.id}
-                onClick={() => room.isActive && manageRoom(room)}
-                className={`w-full p-4 border rounded-xl text-left transition-colors ${
-                  room.isActive
-                    ? "bg-bg-card hover:bg-bg-card-hover border-border"
-                    : "bg-bg-card/50 border-border/50 opacity-50 cursor-default"
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="font-medium">{room.name}</p>
-                    <p className="text-text-secondary text-sm">{room.playlistName}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className={`font-mono text-lg ${room.isActive ? "text-accent" : "text-text-secondary"}`}>{room.code}</p>
-                    <p className={`text-xs ${room.isActive ? "text-upvote" : "text-downvote"}`}>
-                      {room.isActive ? "Active" : "Closed"}
-                    </p>
-                  </div>
-                </div>
-              </button>
-            ))}
+            <p className="text-text-secondary">No active room. Create one to get started.</p>
+            <button
+              onClick={() => {
+                setView("create");
+                fetchPlaylists();
+              }}
+              className="w-full py-3.5 bg-accent hover:bg-accent-hover text-black font-semibold rounded-xl transition-colors"
+            >
+              Create Room
+            </button>
           </div>
-        )}
+        </div>
       </div>
     );
   }
 
   // Create room view
   if (view === "create") {
+    const displayPlaylists = playlistSearch.trim()
+      ? playlists.filter((pl) => pl.name.toLowerCase().includes(playlistSearch.toLowerCase()))
+      : playlists;
+
     return (
-      <div className="min-h-dvh p-4 max-w-2xl mx-auto">
-        <button
-          onClick={() => setView("rooms")}
-          className="text-text-secondary hover:text-white mb-6 mt-4 flex items-center gap-1 transition-colors"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
-          Back
-        </button>
+      <div className="min-h-dvh max-w-2xl mx-auto select-none safe-top">
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 pt-4 pb-2">
+          <button
+            onClick={() => activeRoom ? setView("manage") : setView("rooms")}
+            className="text-white/40 hover:text-white/70 flex items-center gap-1.5 transition-colors text-[13px]"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+            Back
+          </button>
+        </div>
 
-        <h2 className="text-2xl font-bold mb-6">Create Room</h2>
+        <div className="px-4 pb-8">
+          <h2 className="text-2xl font-bold mb-6">New Room</h2>
 
-        <div className="space-y-6">
-          <div>
-            <label className="block text-sm font-medium text-text-secondary mb-2">Room Name</label>
-            <input
-              type="text"
-              value={roomName}
-              onChange={(e) => setRoomName(e.target.value)}
-              placeholder="Friday Night Vibes"
-              className="w-full px-4 py-3 bg-bg-card border border-border rounded-xl focus:outline-none focus:border-accent"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-text-secondary mb-2">Select Playlist</label>
-            <div className="relative mb-2">
-              <svg className="w-4 h-4 text-text-secondary absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
+          <div className="space-y-5">
+            {/* Room Name */}
+            <div>
+              <label className="block text-xs font-medium text-white/40 uppercase tracking-wider mb-1.5">Room Name</label>
               <input
                 type="text"
-                value={playlistSearch}
-                onChange={(e) => {
-                  setPlaylistSearch(e.target.value);
-                  if (playlistSearchTimer.current) clearTimeout(playlistSearchTimer.current);
-                  if (e.target.value.trim()) {
-                    playlistSearchTimer.current = setTimeout(async () => {
-                      const res = await fetch(`/api/spotify/playlists/search?q=${encodeURIComponent(e.target.value.trim())}`);
-                      if (res.ok) setSpotifyPlaylists(await res.json());
-                    }, 400);
-                  } else {
-                    setSpotifyPlaylists([]);
-                  }
-                }}
-                placeholder="Search Spotify playlists..."
-                className="w-full pl-9 pr-4 py-2.5 bg-bg-card border border-border rounded-xl text-sm focus:outline-none focus:border-accent"
+                value={roomName}
+                onChange={(e) => setRoomName(e.target.value)}
+                placeholder="Friday Night Vibes"
+                className="w-full px-4 py-3 bg-white/[0.06] border border-white/[0.08] rounded-xl focus:outline-none focus:border-accent/40 focus:bg-white/[0.08] transition-colors placeholder:text-white/20"
               />
             </div>
-            {playlists.length === 0 && !playlistSearch ? (
-              <p className="text-text-secondary text-sm">Loading playlists...</p>
-            ) : (
-              <div className="grid grid-cols-1 gap-2 max-h-64 overflow-y-auto pr-1">
-                {playlistSearch.trim() && spotifyPlaylists.length > 0 && (
-                  <>
-                    <p className="text-text-secondary text-[10px] font-semibold uppercase tracking-wider px-1">Spotify Results</p>
-                    {spotifyPlaylists.filter((pl: any) => pl).map((pl: any) => (
-                      <button
-                        key={pl.id}
-                        onClick={() => { setSelectedPlaylist(pl); setPlaylistSearch(""); setSpotifyPlaylists([]); }}
-                        className={`flex items-center gap-3 p-3 rounded-xl border transition-colors text-left ${
-                          selectedPlaylist?.id === pl.id
-                            ? "border-accent bg-accent/10"
-                            : "border-border bg-bg-card hover:bg-bg-card-hover"
-                        }`}
-                      >
-                        {pl.images?.[0] && (
-                          <img src={pl.images[0].url} alt="" className="w-12 h-12 rounded-lg" />
-                        )}
-                        <div className="min-w-0 flex-1">
-                          <p className="font-medium truncate">{pl.name}</p>
-                          <p className="text-text-secondary text-sm">{pl.tracks?.total || 0} tracks{pl.owner?.display_name ? ` · ${pl.owner.display_name}` : ""}</p>
-                        </div>
-                      </button>
-                    ))}
-                  </>
-                )}
-                {(!playlistSearch.trim() || playlists.length > 0) && (
-                  <>
-                    {playlistSearch.trim() && <p className="text-text-secondary text-[10px] font-semibold uppercase tracking-wider px-1 mt-2">Your Playlists</p>}
-                    {(playlistSearch.trim()
-                      ? playlists.filter((pl) => pl.name.toLowerCase().includes(playlistSearch.toLowerCase()))
-                      : playlists
-                    ).map((pl) => (
-                      <button
-                        key={pl.id}
-                        onClick={() => setSelectedPlaylist(pl)}
-                        className={`flex items-center gap-3 p-3 rounded-xl border transition-colors text-left ${
-                          selectedPlaylist?.id === pl.id
-                            ? "border-accent bg-accent/10"
-                            : "border-border bg-bg-card hover:bg-bg-card-hover"
-                        }`}
-                      >
-                        {pl.images?.[0] && (
-                          <img src={pl.images[0].url} alt="" className="w-12 h-12 rounded-lg" />
-                        )}
-                        <div className="min-w-0 flex-1">
-                          <p className="font-medium truncate">{pl.name}</p>
-                          <p className="text-text-secondary text-sm">{pl.tracks.total} tracks</p>
-                        </div>
-                      </button>
-                    ))}
-                  </>
-                )}
+
+            {/* Playlist Selection */}
+            <div>
+              <label className="block text-xs font-medium text-white/40 uppercase tracking-wider mb-1.5">Playlist</label>
+
+              {/* Selected playlist preview */}
+              {selectedPlaylist && !playlistSearch.trim() && (
+                <div className="flex items-center gap-3 p-3 mb-2 rounded-xl border border-accent/30 bg-accent/8">
+                  {selectedPlaylist.images?.[0] && (
+                    <img src={selectedPlaylist.images[0].url} alt="" className="w-14 h-14 rounded-lg shadow-md" />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium truncate">{selectedPlaylist.name}</p>
+                    <p className="text-accent text-xs">{selectedPlaylist.tracks?.total || 0} tracks</p>
+                  </div>
+                  <button
+                    onClick={() => setSelectedPlaylist(null)}
+                    className="text-white/30 hover:text-white/60 p-1"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              )}
+
+              {/* Search */}
+              <div className="relative mb-2">
+                <svg className="w-4 h-4 text-white/30 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <input
+                  type="text"
+                  value={playlistSearch}
+                  onChange={(e) => {
+                    setPlaylistSearch(e.target.value);
+                    if (playlistSearchTimer.current) clearTimeout(playlistSearchTimer.current);
+                    if (e.target.value.trim()) {
+                      playlistSearchTimer.current = setTimeout(async () => {
+                        const res = await fetch(`/api/spotify/playlists/search?q=${encodeURIComponent(e.target.value.trim())}`);
+                        if (res.ok) setSpotifyPlaylists(await res.json());
+                      }, 400);
+                    } else {
+                      setSpotifyPlaylists([]);
+                    }
+                  }}
+                  placeholder={selectedPlaylist ? "Change playlist..." : "Search Spotify playlists..."}
+                  className="w-full pl-10 pr-4 py-2.5 bg-white/[0.06] border border-white/[0.08] rounded-xl text-sm focus:outline-none focus:border-accent/40 focus:bg-white/[0.08] transition-colors placeholder:text-white/20"
+                />
               </div>
-            )}
-          </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-text-secondary mb-2">
-                Votes per User
-              </label>
-              <input
-                type="text"
-                inputMode="numeric"
-                value={votesPerUser}
-                onChange={(e) => {
-                  const raw = e.target.value.replace(/[^0-9]/g, "");
-                  setVotesPerUser(raw === "" ? 0 : Number(raw));
-                }}
-                onFocus={(e) => e.target.select()}
-                className="w-full px-4 py-3 bg-bg-card border border-border rounded-xl focus:outline-none focus:border-accent"
-              />
+              {/* Playlist list */}
+              {playlists.length === 0 && !playlistSearch ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="w-5 h-5 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+                  <span className="text-white/30 text-sm ml-2">Loading playlists...</span>
+                </div>
+              ) : (
+                <div className="space-y-1.5 max-h-56 overflow-y-auto">
+                  {playlistSearch.trim() && spotifyPlaylists.length > 0 && (
+                    <>
+                      <p className="text-white/30 text-[10px] font-semibold uppercase tracking-wider px-1 pt-1">Spotify Results</p>
+                      {spotifyPlaylists.filter((pl: any) => pl).map((pl: any) => (
+                        <button
+                          key={pl.id}
+                          onClick={() => { setSelectedPlaylist(pl); setPlaylistSearch(""); setSpotifyPlaylists([]); }}
+                          className={`w-full flex items-center gap-3 p-2.5 rounded-xl border transition-colors text-left ${
+                            selectedPlaylist?.id === pl.id
+                              ? "border-accent/30 bg-accent/8"
+                              : "border-white/[0.06] bg-white/[0.03] hover:bg-white/[0.06]"
+                          }`}
+                        >
+                          {pl.images?.[0] && (
+                            <img src={pl.images[0].url} alt="" className="w-11 h-11 rounded-lg" />
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium truncate">{pl.name}</p>
+                            <p className="text-white/30 text-xs">{pl.tracks?.total || 0} tracks{pl.owner?.display_name ? ` · ${pl.owner.display_name}` : ""}</p>
+                          </div>
+                          {selectedPlaylist?.id === pl.id && (
+                            <svg className="w-4 h-4 text-accent flex-shrink-0" fill="currentColor" viewBox="0 0 24 24">
+                              <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+                            </svg>
+                          )}
+                        </button>
+                      ))}
+                    </>
+                  )}
+                  {(!playlistSearch.trim() || displayPlaylists.length > 0) && (
+                    <>
+                      {playlistSearch.trim() && <p className="text-white/30 text-[10px] font-semibold uppercase tracking-wider px-1 pt-2">Your Playlists</p>}
+                      {displayPlaylists.map((pl) => (
+                        <button
+                          key={pl.id}
+                          onClick={() => setSelectedPlaylist(pl)}
+                          className={`w-full flex items-center gap-3 p-2.5 rounded-xl border transition-colors text-left ${
+                            selectedPlaylist?.id === pl.id
+                              ? "border-accent/30 bg-accent/8"
+                              : "border-white/[0.06] bg-white/[0.03] hover:bg-white/[0.06]"
+                          }`}
+                        >
+                          {pl.images?.[0] && (
+                            <img src={pl.images[0].url} alt="" className="w-11 h-11 rounded-lg" />
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium truncate">{pl.name}</p>
+                            <p className="text-white/30 text-xs">{pl.tracks.total} tracks</p>
+                          </div>
+                          {selectedPlaylist?.id === pl.id && (
+                            <svg className="w-4 h-4 text-accent flex-shrink-0" fill="currentColor" viewBox="0 0 24 24">
+                              <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+                            </svg>
+                          )}
+                        </button>
+                      ))}
+                    </>
+                  )}
+                </div>
+              )}
             </div>
-            <div>
-              <label className="block text-sm font-medium text-text-secondary mb-2">
-                Vote Reset (min)
-              </label>
-              <input
-                type="text"
-                inputMode="numeric"
-                value={voteResetMinutes}
-                onChange={(e) => {
-                  const raw = e.target.value.replace(/[^0-9]/g, "");
-                  setVoteResetMinutes(raw === "" ? 0 : Number(raw));
-                }}
-                onFocus={(e) => e.target.select()}
-                className="w-full px-4 py-3 bg-bg-card border border-border rounded-xl focus:outline-none focus:border-accent"
-              />
-            </div>
-          </div>
 
-          <div className="flex items-center justify-between p-4 bg-bg-card border border-border rounded-xl">
-            <div>
-              <p className="font-medium">Require Approval</p>
-              <p className="text-text-secondary text-sm">Approve song requests before they&apos;re added</p>
+            {/* Settings section */}
+            <div className="pt-1">
+              <p className="text-xs font-medium text-white/40 uppercase tracking-wider mb-3">Settings</p>
+              <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl divide-y divide-white/[0.06]">
+                {/* Votes per user */}
+                <div className="flex items-center justify-between px-4 py-3">
+                  <span className="text-sm">Votes per user</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setVotesPerUser(Math.max(1, votesPerUser - 1))}
+                      className="w-7 h-7 rounded-lg bg-white/[0.06] hover:bg-white/[0.1] flex items-center justify-center text-white/50 transition-colors"
+                    >-</button>
+                    <span className="text-sm font-semibold w-6 text-center tabular-nums">{votesPerUser}</span>
+                    <button
+                      onClick={() => setVotesPerUser(Math.min(50, votesPerUser + 1))}
+                      className="w-7 h-7 rounded-lg bg-white/[0.06] hover:bg-white/[0.1] flex items-center justify-center text-white/50 transition-colors"
+                    >+</button>
+                  </div>
+                </div>
+                {/* Vote reset */}
+                <div className="flex items-center justify-between px-4 py-3">
+                  <span className="text-sm">Vote reset</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setVoteResetMinutes(Math.max(5, voteResetMinutes - 5))}
+                      className="w-7 h-7 rounded-lg bg-white/[0.06] hover:bg-white/[0.1] flex items-center justify-center text-white/50 transition-colors"
+                    >-</button>
+                    <span className="text-sm font-semibold w-10 text-center tabular-nums">{voteResetMinutes}m</span>
+                    <button
+                      onClick={() => setVoteResetMinutes(Math.min(1440, voteResetMinutes + 5))}
+                      className="w-7 h-7 rounded-lg bg-white/[0.06] hover:bg-white/[0.1] flex items-center justify-center text-white/50 transition-colors"
+                    >+</button>
+                  </div>
+                </div>
+                {/* Require approval */}
+                <div className="flex items-center justify-between px-4 py-3">
+                  <div>
+                    <p className="text-sm">Require approval</p>
+                    <p className="text-white/30 text-xs">Review requests before adding</p>
+                  </div>
+                  <button
+                    onClick={() => setRequireApproval(!requireApproval)}
+                    className={`w-11 h-6 rounded-full transition-colors flex-shrink-0 flex items-center px-0.5 ${
+                      requireApproval ? "bg-accent" : "bg-white/15"
+                    }`}
+                  >
+                    <span
+                      className={`w-5 h-5 bg-white rounded-full transition-transform shadow-sm ${
+                        requireApproval ? "translate-x-5" : "translate-x-0"
+                      }`}
+                    />
+                  </button>
+                </div>
+              </div>
             </div>
+
+            {/* Create button */}
             <button
-              onClick={() => setRequireApproval(!requireApproval)}
-              className={`w-12 h-7 rounded-full transition-colors flex-shrink-0 flex items-center px-0.5 ${
-                requireApproval ? "bg-accent" : "bg-border"
-              }`}
+              onClick={createRoom}
+              disabled={!roomName.trim() || !selectedPlaylist || loading}
+              className="w-full py-3.5 bg-accent hover:bg-accent-hover text-black font-semibold rounded-xl transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              <span
-                className={`w-6 h-6 bg-white rounded-full transition-transform ${
-                  requireApproval ? "translate-x-5" : "translate-x-0"
-                }`}
-              />
+              {loading ? "Creating..." : "Create Room"}
             </button>
           </div>
-
-          <button
-            onClick={createRoom}
-            disabled={!roomName.trim() || !selectedPlaylist || loading}
-            className="w-full py-3.5 bg-accent hover:bg-accent-hover text-black font-semibold rounded-xl transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {loading ? "Creating..." : "Create Room"}
-          </button>
         </div>
       </div>
     );
   }
 
-  // Manage room view
-  const nowPlaying = activeRoom?.songs?.find((s: any) => s.isPlaying);
+  // Manage room view — prefer actual Spotify playback over queue's isPlaying flag
+  const queuePlaying = activeRoom?.songs?.find((s: any) => s.isPlaying);
+  const nowPlaying = spotifyTrack
+    ? (queuePlaying && queuePlaying.spotifyUri === spotifyTrack.uri
+      ? queuePlaying
+      : { trackName: spotifyTrack.name, artistName: spotifyTrack.artist, albumArt: spotifyTrack.albumArt, spotifyUri: spotifyTrack.uri })
+    : queuePlaying;
 
   return (
-    <div className="h-dvh flex flex-col max-w-6xl mx-auto overflow-hidden relative">
+    <div className="flex flex-col max-w-6xl mx-auto overflow-hidden relative select-none safe-top" style={{ height: 'var(--app-height, 100dvh)' }}>
+      {!isOnline && (
+        <div className="flex-shrink-0 bg-red-600 text-white text-center text-xs py-1 font-medium z-[70]">
+          No internet connection
+        </div>
+      )}
       {/* Fixed header area */}
       <div className="flex-shrink-0 bg-gradient-to-b from-bg-card/90 to-bg-primary/80 backdrop-blur-xl border-b border-white/[0.06] relative z-[60]">
       <div className="px-4 pt-4 pb-3">
         {/* Top bar: back + room code */}
         <div className="flex items-center justify-between mb-3">
           <button
-            onClick={() => {
-              setView("rooms");
-              setActiveRoom(null);
-            }}
-            className="text-white/40 hover:text-white/70 flex items-center gap-1.5 transition-colors text-[13px]"
+            onClick={() => setConfirmClose(true)}
+            className="text-downvote/60 hover:text-downvote flex items-center gap-1.5 transition-colors text-[13px]"
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
-            Rooms
+            End Session
           </button>
           <div className="flex items-center gap-2">
             {guestCount > 0 && (
@@ -1179,7 +1280,7 @@ function DashboardInner({ user }: { user: any }) {
           {/* Scrollable content area */}
           <div
             ref={scrollRef}
-            className="flex-1 overflow-y-auto overscroll-none px-4 pt-4 pb-20 relative z-10"
+            className={`flex-1 overflow-y-auto overscroll-none px-4 pt-4 pb-20 relative z-10 transition-opacity duration-200 ${showSearch ? "opacity-30 pointer-events-none" : ""}`}
           >
           {/* Pull-to-refresh indicator */}
           {pullDistance > 0 && (
@@ -1200,6 +1301,13 @@ function DashboardInner({ user }: { user: any }) {
           {/* Left column: Now Playing, Controls, Panels */}
           <div>
 
+          {/* Song added toast */}
+          {songAddedToast && (
+            <div className="mb-3 px-4 py-2 bg-accent/10 border border-accent/20 rounded-xl text-sm text-center text-accent animate-pulse">
+              {songAddedToast}
+            </div>
+          )}
+
           {/* Play error toast */}
           {playError && (
             <div className="mb-3 px-4 py-2 bg-downvote/10 border border-downvote/20 rounded-xl text-sm text-center text-downvote">
@@ -1218,7 +1326,7 @@ function DashboardInner({ user }: { user: any }) {
                 level="M"
               />
               <p className="text-text-secondary text-sm mt-3">Scan to join</p>
-              <p className="font-mono text-2xl text-accent font-bold mt-1">{activeRoom.code}</p>
+              <p className="font-mono text-2xl text-accent font-bold mt-1 select-text">{activeRoom.code}</p>
               <div className="flex items-center gap-3 mt-3">
                 <button
                   onClick={() => {
@@ -1461,14 +1569,6 @@ function DashboardInner({ user }: { user: any }) {
                 label="Notifications"
                 description="Get notified when guests add or request songs"
               />
-              <div className="pt-2 border-t border-border">
-                <button
-                  onClick={() => setConfirmClose(true)}
-                  className="w-full py-2.5 text-downvote text-sm font-medium hover:bg-downvote/10 rounded-xl transition-colors"
-                >
-                  Close Room
-                </button>
-              </div>
             </div>
           )}
 
@@ -1523,8 +1623,11 @@ function DashboardInner({ user }: { user: any }) {
           )}
 
           {/* Song Queue */}
-          <h3 className="text-lg font-semibold mb-3">Queue</h3>
-          <div ref={dragIdx === null ? songListRef : undefined} className="space-y-2 pb-8">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-lg font-semibold">Queue</h3>
+            <span className="text-white/25 text-xs">{(activeRoom.songs?.filter((s: any) => !s.isPlaying) || []).length} songs</span>
+          </div>
+          <div ref={dragIdx === null ? songListRef : undefined} className="space-y-1.5 pb-8">
             {(() => {
               const queueSongs = activeRoom.songs?.filter((s: any) => !s.isPlaying) || [];
               // Build display order: if dragging, show reordered preview
@@ -1540,12 +1643,12 @@ function DashboardInner({ user }: { user: any }) {
               return displaySongs.map((song: any, i: number) => (
                 <div
                   key={song.id}
-                  className={`flex items-center gap-3 p-3 bg-bg-card border rounded-xl song-card transition-all ${
+                  className={`flex items-center gap-2.5 p-3 border rounded-xl song-card transition-all ${
                     song.isLocked && activeRoom.lastPreQueuedId === song.id
-                      ? "border-accent/50 bg-accent/5"
+                      ? "border-accent/30 bg-accent/8"
                       : song.isLocked
-                      ? "border-yellow-500/50 bg-yellow-500/5"
-                      : "border-border"
+                      ? "border-yellow-500/20 bg-yellow-500/5"
+                      : "border-white/[0.06] bg-white/[0.03]"
                   } ${dragIdx !== null && overIdx === i ? "ring-2 ring-accent/40" : ""}`}
                 >
                   {/* Drag handle */}
@@ -1624,25 +1727,27 @@ function DashboardInner({ user }: { user: any }) {
                       window.addEventListener("pointerup", onUp);
                     }}
                   >
-                    <svg className="w-4 h-4 text-text-secondary" viewBox="0 0 24 24" fill="currentColor">
-                      <circle cx="9" cy="6" r="1.5" />
-                      <circle cx="15" cy="6" r="1.5" />
+                    <svg className="w-3.5 h-3.5 text-white/20" viewBox="0 0 24 24" fill="currentColor">
+                      <circle cx="9" cy="7" r="1.5" />
+                      <circle cx="15" cy="7" r="1.5" />
                       <circle cx="9" cy="12" r="1.5" />
                       <circle cx="15" cy="12" r="1.5" />
-                      <circle cx="9" cy="18" r="1.5" />
-                      <circle cx="15" cy="18" r="1.5" />
+                      <circle cx="9" cy="17" r="1.5" />
+                      <circle cx="15" cy="17" r="1.5" />
                     </svg>
                   </div>
 
-                  <span className="text-text-secondary text-sm w-5 text-center flex-shrink-0">
+                  <span className="text-white/30 text-xs w-4 text-center flex-shrink-0 font-medium">
                     {song.isLocked && activeRoom.lastPreQueuedId !== song.id ? (
-                      <span className="text-yellow-500">{"\u{1F512}"}</span>
+                      <svg className="w-3.5 h-3.5 text-yellow-500 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                      </svg>
                     ) : (
                       i + 1
                     )}
                   </span>
                   {song.albumArt && (
-                    <img src={song.albumArt} alt="" className="w-10 h-10 rounded-lg" />
+                    <img src={song.albumArt} alt="" className="w-11 h-11 rounded-lg flex-shrink-0" />
                   )}
                   <div className="flex-1 min-w-0">
                     {song.isLocked && activeRoom.lastPreQueuedId === song.id && (
@@ -1654,41 +1759,72 @@ function DashboardInner({ user }: { user: any }) {
                       <p className="text-accent text-xs truncate">Req&apos;d by {song.addedByName?.split(" ")[0] || song.addedByName}</p>
                     )}
                   </div>
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1">
                     {!(song.isLocked && activeRoom.lastPreQueuedId !== song.id) && (
-                      <div className="text-right mr-1">
-                        <span className={`text-sm font-semibold ${song.upvotes - song.downvotes > 0 ? "text-upvote" : song.upvotes - song.downvotes < 0 ? "text-downvote" : "text-text-secondary"}`}>
-                          {song.upvotes - song.downvotes > 0 ? "+" : ""}{song.upvotes - song.downvotes}
-                        </span>
-                        <p className="text-[10px] text-text-secondary">
-                          <span className="text-upvote/70">{song.upvotes}&#x2191;</span>
-                          {" "}
-                          <span className="text-downvote/70">{song.downvotes}&#x2193;</span>
-                        </p>
+                      <div className="text-right mr-0.5">
+                        {(() => {
+                          const net = song.upvotes - song.downvotes;
+                          const hasVotes = song.upvotes > 0 || song.downvotes > 0;
+                          const hasMixed = song.upvotes > 0 && song.downvotes > 0;
+                          return (
+                            <>
+                              <span className={`text-sm font-semibold tabular-nums ${net > 0 ? "text-upvote" : net < 0 ? "text-downvote" : "text-white/20"}`}>
+                                {hasVotes ? (net > 0 ? `+${net}` : net) : "\u00B7"}
+                              </span>
+                              {hasMixed && (
+                                <p className="text-[10px] text-white/30">
+                                  <span className="text-upvote/60">{song.upvotes}&#x2191;</span>
+                                  {" "}
+                                  <span className="text-downvote/60">{song.downvotes}&#x2193;</span>
+                                </p>
+                              )}
+                            </>
+                          );
+                        })()}
                       </div>
                     )}
-                    {/* Lock button */}
-                    <button
-                      onClick={() => lockSong(song.id)}
-                      className={`p-1.5 rounded-lg text-xs font-medium transition-colors ${
-                        song.isLocked
-                          ? "bg-yellow-500/20 text-yellow-500 hover:bg-yellow-500/30"
-                          : "bg-bg-card-hover text-text-secondary hover:text-white"
-                      }`}
-                      title={song.isLocked ? "Unlock" : "DJ Lock"}
-                    >
-                      {song.isLocked ? "\u{1F513}" : "\u{1F512}"}
-                    </button>
-                    {/* Remove button */}
-                    <button
-                      onClick={() => handleRemoveClick(song.id, song.trackName)}
-                      className="p-1.5 rounded-lg text-text-secondary hover:text-downvote hover:bg-downvote/10 transition-colors"
-                      title="Remove"
-                    >
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
+                    {/* Overflow menu */}
+                    <div className="relative">
+                      <button
+                        onClick={() => setSongMenuOpen(songMenuOpen === song.id ? null : song.id)}
+                        className={`p-1.5 rounded-lg transition-colors ${songMenuOpen === song.id ? "text-white/60 bg-white/[0.08]" : "text-white/20 hover:text-white/40 hover:bg-white/[0.04]"}`}
+                      >
+                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                          <circle cx="12" cy="6" r="1.5" />
+                          <circle cx="12" cy="12" r="1.5" />
+                          <circle cx="12" cy="18" r="1.5" />
+                        </svg>
+                      </button>
+                      {songMenuOpen === song.id && (
+                        <>
+                          <div className="fixed inset-0 z-40" onClick={() => setSongMenuOpen(null)} />
+                          <div className="absolute right-0 top-full mt-1 z-50 bg-bg-card border border-white/[0.1] rounded-xl shadow-2xl overflow-hidden min-w-[140px]">
+                            <button
+                              onClick={() => { lockSong(song.id); setSongMenuOpen(null); }}
+                              className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm hover:bg-white/[0.06] transition-colors text-left"
+                            >
+                              <svg className={`w-4 h-4 ${song.isLocked ? "text-yellow-500" : "text-white/40"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
+                                {song.isLocked ? (
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 11V7a4 4 0 118 0m-4 8v2m-2 4h4a2 2 0 002-2v-6a2 2 0 00-2-2H10a2 2 0 00-2 2v6a2 2 0 002 2z" />
+                                ) : (
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                                )}
+                              </svg>
+                              <span className={song.isLocked ? "text-yellow-500" : ""}>{song.isLocked ? "Unlock" : "DJ Lock"}</span>
+                            </button>
+                            <button
+                              onClick={() => { handleRemoveClick(song.id, song.trackName); setSongMenuOpen(null); }}
+                              className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm hover:bg-downvote/10 transition-colors text-left text-downvote/80"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                              Remove
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
               ));
@@ -1784,9 +1920,9 @@ function DashboardInner({ user }: { user: any }) {
           {confirmClose && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-6">
               <div className="bg-bg-card border border-border rounded-2xl p-6 max-w-sm w-full space-y-4">
-                <p className="font-semibold text-center">Close this room?</p>
+                <p className="font-semibold text-center">End this session?</p>
                 <p className="text-text-secondary text-sm text-center">
-                  This will end the session for all guests. This action cannot be undone.
+                  This will close the room and disconnect all guests. You can create a new room anytime.
                 </p>
                 <div className="flex gap-2">
                   <button
@@ -1802,7 +1938,7 @@ function DashboardInner({ user }: { user: any }) {
                     }}
                     className="flex-1 py-2.5 bg-downvote text-white rounded-xl text-sm font-semibold transition-colors"
                   >
-                    Close Room
+                    End Session
                   </button>
                 </div>
               </div>
@@ -1887,6 +2023,8 @@ function DashboardInner({ user }: { user: any }) {
                                 saveOrder(arr, song.id);
                                 setShowSearch(false);
                                 onSearchChange("");
+                                setSongAddedToast(`"${song.trackName}" moved to #${targetPos}`);
+                                setTimeout(() => setSongAddedToast(""), 3000);
                               }}
                             >
                               <option value="">Move to...</option>
@@ -1903,7 +2041,13 @@ function DashboardInner({ user }: { user: any }) {
                               }`}
                               title={song.isLocked ? "Unlock" : "Lock"}
                             >
-                              {song.isLocked ? "\u{1F513}" : "\u{1F512}"}
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
+                                {song.isLocked ? (
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 10.5V6.75a4.5 4.5 0 1 1 9 0v3.75M3.75 21.75h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H3.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
+                                ) : (
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
+                                )}
+                              </svg>
                             </button>
                           </div>
                         </div>

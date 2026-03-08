@@ -94,6 +94,13 @@ io.on("connection", (socket) => {
     await broadcastRoomState(roomCode);
   });
 
+  socket.on("room-closed", (roomCode: string) => {
+    io.to(roomCode).emit("room-closed");
+    console.log(`[${roomCode}] Room closed by host`);
+    // Clean up tracking
+    activeRooms.delete(roomCode);
+  });
+
   socket.on("disconnect", () => {
     if (currentRoom) {
       activeRooms.get(currentRoom)?.delete(socket.id);
@@ -151,6 +158,10 @@ async function syncAllRooms() {
       for (const result of data.results || []) {
         if (result.status !== "playing" && result.status !== "no_current_song" && result.status !== "debounced") {
           await broadcastSongs(result.code);
+          // Broadcast room state when lastPreQueuedId changes (queued_next sets it, advanced/advanced_prequeued clears it)
+          if (result.status === "queued_next" || result.status === "advanced" || result.status === "advanced_prequeued") {
+            await broadcastRoomState(result.code);
+          }
         }
       }
     } else {

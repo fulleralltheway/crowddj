@@ -36,9 +36,7 @@ async function getAccessToken(account: any) {
   return accessToken;
 }
 
-// Read-only sync endpoint: reports current playback state but does NOT advance songs
-// or call startPlayback. All advancing is handled by the cron endpoint on Fly.io
-// to prevent race conditions between two sync systems.
+// Read-only sync endpoint: reports current Spotify playback state
 export async function POST(
   _req: NextRequest,
   { params }: { params: Promise<{ code: string }> }
@@ -62,14 +60,6 @@ export async function POST(
     return NextResponse.json({ synced: false });
   }
 
-  const currentSong = await prisma.roomSong.findFirst({
-    where: { roomId: room.id, isPlaying: true },
-  });
-
-  if (!currentSong) {
-    return NextResponse.json({ synced: true, playing: false });
-  }
-
   try {
     const playback = await getCurrentPlayback(accessToken);
 
@@ -77,12 +67,20 @@ export async function POST(
       return NextResponse.json({ synced: true, playing: false, reason: "no_playback" });
     }
 
+    const track = playback.item;
     return NextResponse.json({
       synced: true,
       playing: true,
       spotifyPlaying: !!playback.is_playing,
       progressMs: playback.progress_ms,
-      durationMs: playback.item.duration_ms,
+      durationMs: track.duration_ms,
+      // Always return what Spotify is actually playing
+      spotifyTrack: {
+        uri: track.uri,
+        name: track.name,
+        artist: track.artists?.map((a: any) => a.name).join(", ") || "Unknown",
+        albumArt: track.album?.images?.[0]?.url || null,
+      },
     });
   } catch {
     return NextResponse.json({ synced: false });

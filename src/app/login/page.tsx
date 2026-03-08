@@ -4,7 +4,7 @@ import { signIn } from "next-auth/react";
 
 export default function LoginPage() {
   return (
-    <div className="min-h-dvh flex flex-col items-center justify-center px-4">
+    <div className="min-h-dvh flex flex-col items-center justify-center px-4 select-none">
       <div className="max-w-sm w-full text-center space-y-8">
         <div className="space-y-2">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-accent/10 mb-4">

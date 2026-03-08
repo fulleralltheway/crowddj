@@ -1,11 +1,52 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+
+function getLastRoom(): { code: string; roomName: string } | null {
+  try {
+    const raw = localStorage.getItem("crowddj_last_room");
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  // Fallback to cookie
+  if (typeof document !== "undefined") {
+    const match = document.cookie.match(/(?:^|; )crowddj_last_room=([^;]*)/);
+    if (match) {
+      try { return JSON.parse(decodeURIComponent(match[1])); } catch {}
+    }
+  }
+  return null;
+}
 
 export default function Home() {
   const [roomCode, setRoomCode] = useState("");
+  const [lastRoom, setLastRoom] = useState<{ code: string; roomName: string } | null>(null);
+  const [checking, setChecking] = useState(true);
   const router = useRouter();
+
+  // Check for a saved room and verify it's still active
+  useEffect(() => {
+    const saved = getLastRoom();
+    if (!saved) {
+      setChecking(false);
+      return;
+    }
+    // Verify the room is still active before showing rejoin
+    fetch(`/api/rooms/${saved.code}`)
+      .then(async (res) => {
+        if (res.ok) {
+          const data = await res.json();
+          if (data.isActive) {
+            setLastRoom({ code: saved.code, roomName: data.name });
+          } else {
+            // Room closed — clear saved data
+            try { localStorage.removeItem("crowddj_last_room"); } catch {}
+          }
+        }
+      })
+      .catch(() => {})
+      .finally(() => setChecking(false));
+  }, []);
 
   const handleJoin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -15,8 +56,16 @@ export default function Home() {
     }
   };
 
+  if (checking) {
+    return (
+      <div className="min-h-dvh flex items-center justify-center select-none">
+        <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-dvh flex flex-col items-center justify-center px-4">
+    <div className="min-h-dvh flex flex-col items-center justify-center px-4 select-none">
       <div className="max-w-md w-full text-center space-y-8">
         {/* Logo / Brand */}
         <div className="space-y-2">
@@ -31,12 +80,36 @@ export default function Home() {
           </p>
         </div>
 
+        {/* Rejoin active room */}
+        {lastRoom && (
+          <div className="space-y-3">
+            <button
+              onClick={() => router.push(`/room/${lastRoom.code}`)}
+              className="w-full py-3.5 bg-accent hover:bg-accent-hover text-black font-semibold rounded-xl transition-colors"
+            >
+              Rejoin {lastRoom.roomName}
+            </button>
+            <p className="text-text-secondary text-xs">
+              Room {lastRoom.code} is still active
+            </p>
+          </div>
+        )}
+
         {/* Join Room */}
         <form onSubmit={handleJoin} className="space-y-4">
+          {lastRoom && (
+            <div className="flex items-center gap-4">
+              <div className="flex-1 h-px bg-border" />
+              <span className="text-text-secondary text-sm">or join a different room</span>
+              <div className="flex-1 h-px bg-border" />
+            </div>
+          )}
           <div className="space-y-2">
-            <label htmlFor="roomCode" className="block text-sm font-medium text-text-secondary">
-              Enter Room Code
-            </label>
+            {!lastRoom && (
+              <label htmlFor="roomCode" className="block text-sm font-medium text-text-secondary">
+                Enter Room Code
+              </label>
+            )}
             <input
               id="roomCode"
               type="text"
@@ -50,31 +123,37 @@ export default function Home() {
           <button
             type="submit"
             disabled={roomCode.trim().length < 4}
-            className="w-full py-3 bg-accent hover:bg-accent-hover text-black font-semibold rounded-xl transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            className={`w-full py-3 font-semibold rounded-xl transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+              lastRoom
+                ? "bg-bg-card hover:bg-bg-card-hover border border-border"
+                : "bg-accent hover:bg-accent-hover text-black"
+            }`}
           >
             Join Room
           </button>
         </form>
 
-        {/* Divider */}
-        <div className="flex items-center gap-4">
-          <div className="flex-1 h-px bg-border" />
-          <span className="text-text-secondary text-sm">or</span>
-          <div className="flex-1 h-px bg-border" />
-        </div>
-
         {/* Host CTA */}
-        <div className="space-y-3">
-          <p className="text-text-secondary text-sm">
-            Want to host? Create a room and let your crowd decide the vibe.
-          </p>
-          <a
-            href="/dashboard"
-            className="inline-block w-full py-3 bg-bg-card hover:bg-bg-card-hover border border-border rounded-xl font-medium transition-colors"
-          >
-            Host a Room
-          </a>
-        </div>
+        {!lastRoom && (
+          <>
+            <div className="flex items-center gap-4">
+              <div className="flex-1 h-px bg-border" />
+              <span className="text-text-secondary text-sm">or</span>
+              <div className="flex-1 h-px bg-border" />
+            </div>
+            <div className="space-y-3">
+              <p className="text-text-secondary text-sm">
+                Want to host? Create a room and let your crowd decide the vibe.
+              </p>
+              <a
+                href="/dashboard"
+                className="inline-block w-full py-3 bg-bg-card hover:bg-bg-card-hover border border-border rounded-xl font-medium transition-colors"
+              >
+                Host a Room
+              </a>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

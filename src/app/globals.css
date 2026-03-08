@@ -20,6 +20,8 @@
 
 html {
   color-scheme: dark;
+  overflow: hidden;
+  height: 100%;
 }
 
 body {
@@ -29,6 +31,35 @@ body {
   min-height: 100dvh;
   -webkit-font-smoothing: antialiased;
   overscroll-behavior: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  margin: 0;
+}
+
+/* Prevent pull-to-refresh and rubber-band bounce in PWA */
+@media all and (display-mode: standalone) {
+  body {
+    overscroll-behavior-y: contain;
+  }
+}
+
+/* Double-tap zoom prevention on all interactive elements */
+button, a, input, [role="button"] {
+  touch-action: manipulation;
+}
+
+/* Momentum scrolling for scroll containers */
+.scroll-native {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Safe area utilities for notch/home indicator on iOS */
+.safe-top { padding-top: env(safe-area-inset-top); }
+.safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+.safe-area-shell {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 ::-webkit-scrollbar {

@@ -26,6 +26,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
   }
 
+  // Auto-close any existing active rooms for this host (only one at a time)
+  await prisma.room.updateMany({
+    where: { hostId: session.user.id, isActive: true },
+    data: { isActive: false },
+  });
+
   // Generate unique room code
   let code = generateRoomCode();
   while (await prisma.room.findUnique({ where: { code } })) {
