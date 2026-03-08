@@ -1675,8 +1675,8 @@ function DashboardInner({ user }: { user: any }) {
                       // Auto-scroll the scroll container when dragging near edges
                       let scrollRAF = 0;
                       let lastPointerY = e.clientY;
-                      const EDGE_ZONE = 100; // px from top/bottom to trigger scroll
-                      const MAX_SCROLL_SPEED = 16; // px per frame at edge
+                      const EDGE_ZONE = 80; // px from top/bottom to trigger scroll
+                      const MAX_SCROLL_SPEED = 6; // px per frame at edge — keep it slow so drag tracks
                       const scrollEl = scrollRef.current;
 
                       const autoScroll = () => {
@@ -1687,19 +1687,20 @@ function DashboardInner({ user }: { user: any }) {
 
                         let scrollDelta = 0;
                         if (distFromTop < EDGE_ZONE && distFromTop >= 0) {
-                          // Closer to edge = faster scroll (proportional)
                           const intensity = 1 - distFromTop / EDGE_ZONE;
-                          scrollDelta = -Math.round(MAX_SCROLL_SPEED * intensity);
+                          scrollDelta = -Math.ceil(MAX_SCROLL_SPEED * intensity);
                         } else if (distFromBottom < EDGE_ZONE && distFromBottom >= 0) {
                           const intensity = 1 - distFromBottom / EDGE_ZONE;
-                          scrollDelta = Math.round(MAX_SCROLL_SPEED * intensity);
+                          scrollDelta = Math.ceil(MAX_SCROLL_SPEED * intensity);
                         }
 
                         if (scrollDelta !== 0) {
+                          const before = scrollEl.scrollTop;
                           scrollEl.scrollBy(0, scrollDelta);
-                          // Adjust baseline so index tracks with scroll
-                          dragStartY.current -= scrollDelta;
-                          // Recalculate index during scroll
+                          const actual = scrollEl.scrollTop - before; // how much it really scrolled
+                          // Adjust baseline so the held item follows the scroll
+                          dragStartY.current -= actual;
+                          // Recalculate index
                           const delta = lastPointerY - dragStartY.current;
                           const off = Math.round(delta / (dragItemHeight.current + 8));
                           const newIdx = Math.max(0, Math.min(queueSongs.length - 1, i + off));
