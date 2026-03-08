@@ -84,9 +84,11 @@ export async function searchTracks(accessToken: string, query: string) {
 export async function startPlayback(
   accessToken: string,
   uris: string[],
-  deviceId?: string
+  deviceId?: string,
+  positionMs?: number
 ) {
   const body: any = { uris };
+  if (positionMs !== undefined) body.position_ms = positionMs;
   const params = deviceId ? `?device_id=${deviceId}` : "";
   const res = await fetch(`${SPOTIFY_API}/me/player/play${params}`, {
     method: "PUT",

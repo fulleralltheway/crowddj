@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { startPlayback, addToQueue } from "@/lib/spotify";
+import { startPlayback } from "@/lib/spotify";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(
@@ -36,25 +36,21 @@ export async function POST(
   });
 
   if (nextSong) {
+    // Unlock it (may have been locked as "queued next") and set as playing
     await prisma.roomSong.update({
       where: { id: nextSong.id },
-      data: { isPlaying: true },
+      data: { isPlaying: true, isLocked: false },
     });
 
-    // Play the specific song URI on Spotify
+    // Play this song
     try {
       await startPlayback(accessToken, [nextSong.spotifyUri]);
-      // Pre-queue the song after that for gapless playback
-      const songAfterNext = await prisma.roomSong.findFirst({
-        where: { roomId: room.id, isPlayed: false, isPlaying: false, id: { not: nextSong.id } },
-        orderBy: { sortOrder: "asc" },
-      });
-      if (songAfterNext) {
-        await addToQueue(accessToken, songAfterNext.spotifyUri);
-      }
     } catch {
       // Spotify playback failed (e.g. no active device)
     }
+
+    // Clear pre-queue — cron will queue the next song when ~15s remain
+    await prisma.room.update({ where: { id: room.id }, data: { lastPreQueuedId: null } });
   }
 
   return NextResponse.json({ success: true, song: nextSong });

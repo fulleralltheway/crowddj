@@ -114,12 +114,14 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [showNotifGuide, setShowNotifGuide] = useState(false);
   const [inAppNotif, setInAppNotif] = useState<{ title: string; body: string; art?: string } | null>(null);
-  const lastInteraction = useRef(0);
+  const lastInteraction = useRef(0); // last vote or scroll activity
   const pendingSongs = useRef<Song[] | null>(null);
   const inFlightVotes = useRef(0);
   const votesUsedRef = useRef(0);
   const serverTimeOffset = useRef(0); // serverTime - localTime, for timer sync
   const postVoteSyncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reorderTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastScrollTime = useRef(0);
   const [songListRef] = useAutoAnimate({ duration: 300 });
   const knownApproved = useRef<Set<string>>(new Set());
   const [pullRefreshing, setPullRefreshing] = useState(false);
@@ -139,18 +141,42 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     }
   }, [guestId]);
 
+  const isUserBusy = useCallback(() =>
+    inFlightVotes.current > 0 ||
+    Date.now() - lastInteraction.current < 2000 ||
+    Date.now() - lastScrollTime.current < 3000
+  , []);
+
   const fetchSongs = useCallback(async () => {
     const res = await fetch(`/api/rooms/${code}/songs`);
     if (res.ok) {
-      const data = await res.json();
-      if (inFlightVotes.current > 0 || Date.now() - lastInteraction.current < 2000) {
+      const data: Song[] = (await res.json()).map((s: any) => ({
+        ...s,
+        netScore: s.upvotes - s.downvotes,
+        votes: s.votes || [],
+      }));
+      // Always update now-playing immediately
+      const newPlaying = data.find((s: Song) => s.isPlaying);
+      setSongs((prev) => {
+        const curPlaying = prev.find((s) => s.isPlaying);
+        if (newPlaying && curPlaying?.id !== newPlaying.id) {
+          const hasIt = prev.some((s) => s.id === newPlaying.id);
+          let updated = prev
+            .filter((s) => s.id !== curPlaying?.id) // remove old playing song
+            .map((s) => ({ ...s, isPlaying: s.id === newPlaying.id }));
+          if (!hasIt) updated = [newPlaying, ...updated];
+          return updated;
+        }
+        return prev;
+      });
+      if (isUserBusy()) {
         pendingSongs.current = data;
       } else {
         applySongs(data);
         pendingSongs.current = null;
       }
     }
-  }, [code, applySongs]);
+  }, [code, applySongs, isUserBusy]);
 
   useEffect(() => {
     // Run both room fetch and fingerprint check in parallel,
@@ -214,7 +240,24 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         netScore: s.upvotes - s.downvotes,
         votes: s.votes || [],
       }));
-      if (inFlightVotes.current > 0 || Date.now() - lastInteraction.current < 2000) {
+      // Always update which song is playing immediately (never defer this)
+      const newPlaying = mapped.find((s: Song) => s.isPlaying);
+      setSongs((prev) => {
+        const curPlaying = prev.find((s) => s.isPlaying);
+        if (!newPlaying && curPlaying) {
+          return prev.map((s) => ({ ...s, isPlaying: false }));
+        }
+        if (newPlaying && curPlaying?.id !== newPlaying.id) {
+          const hasNewSong = prev.some((s) => s.id === newPlaying.id);
+          let updated = prev
+            .filter((s) => s.id !== curPlaying?.id)
+            .map((s) => ({ ...s, isPlaying: s.id === newPlaying.id }));
+          if (!hasNewSong) updated = [newPlaying, ...updated];
+          return updated;
+        }
+        return prev;
+      });
+      if (isUserBusy()) {
         pendingSongs.current = mapped;
       } else {
         applySongs(mapped);
@@ -223,6 +266,10 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     };
 
     const handleRoomUpdate = (data: any) => {
+      if (data && !data.isActive) {
+        setError("This room has been closed");
+        return;
+      }
       setRoom(data);
     };
 
@@ -268,7 +315,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     }, 5000);
 
     const flushInterval = setInterval(() => {
-      if (pendingSongs.current && inFlightVotes.current === 0 && Date.now() - lastInteraction.current >= 2000) {
+      if (pendingSongs.current && !isUserBusy()) {
         applySongs(pendingSongs.current);
         pendingSongs.current = null;
       }
@@ -359,6 +406,27 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     return () => clearInterval(timer);
   }, [room, lastVoteReset]);
 
+  // Re-sort songs by netScore locally (keeps playing + locked songs in place)
+  const optimisticReorder = (songs: Song[]): Song[] => {
+    const playing = songs.filter((s) => s.isPlaying);
+    const locked = songs.filter((s) => !s.isPlaying && s.isLocked);
+    const rest = songs.filter((s) => !s.isPlaying && !s.isLocked);
+    rest.sort((a, b) => b.netScore - a.netScore || 0);
+    // Rebuild: playing first, then merge locked (keep relative position) and sorted rest
+    const queue: Song[] = [];
+    let restIdx = 0;
+    const nonPlaying = songs.filter((s) => !s.isPlaying);
+    for (let i = 0; i < nonPlaying.length; i++) {
+      const original = nonPlaying[i];
+      if (original.isLocked) {
+        queue.push(original);
+      } else if (restIdx < rest.length) {
+        queue.push(rest[restIdx++]);
+      }
+    }
+    return [...playing, ...queue];
+  };
+
   const vote = async (songId: string, value: 1 | -1) => {
     if (!fingerprint) return;
     if (room?.votingPaused) {
@@ -376,40 +444,87 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
 
     const limit = room?.votesPerUser ?? 5;
 
-    // Use ref for gate check — synchronous, no React batching delay
-    if (votesUsedRef.current >= limit) {
-      setRequestStatus("Out of votes! They'll reset soon.");
-      setTimeout(() => setRequestStatus(""), 3000);
-      return;
+    // Check if there's an opposite vote to reclaim
+    // e.g. downvoting when you have upvotes removes one upvote (refunds the vote)
+    const song = songs.find((s) => s.id === songId);
+    const myVotes = song?.votes?.filter((v) => v.guestId === guestId) || [];
+    const oppositeVote = myVotes.find((v) => v.value !== value);
+    const isReclaim = !!oppositeVote;
+
+    if (isReclaim) {
+      // RECLAIM: remove one opposite vote, refund it
+      votesUsedRef.current = Math.max(0, votesUsedRef.current - 1);
+      setVotesUsed(votesUsedRef.current);
+      // Update score immediately, defer reorder
+      let removed = false;
+      setSongs((prev) =>
+        prev.map((s) => {
+          if (s.id !== songId) return s;
+          const filtered = s.votes.filter((v) => {
+            if (!removed && v.guestId === guestId && v.value !== value) {
+              removed = true;
+              return false;
+            }
+            return true;
+          });
+          const oppositeWasUp = oppositeVote!.value === 1;
+          const newUp = s.upvotes - (oppositeWasUp ? 1 : 0);
+          const newDown = s.downvotes - (oppositeWasUp ? 0 : 1);
+          return { ...s, votes: filtered, upvotes: newUp, downvotes: newDown, netScore: newUp - newDown };
+        })
+      );
+    } else {
+      // NEW VOTE: check limit
+      if (votesUsedRef.current >= limit) {
+        setRequestStatus("Out of votes! They'll reset soon.");
+        setTimeout(() => setRequestStatus(""), 3000);
+        return;
+      }
+      votesUsedRef.current = Math.min(votesUsedRef.current + 1, limit);
+      setVotesUsed(votesUsedRef.current);
+      // Update score immediately, defer reorder
+      setSongs((prev) =>
+        prev.map((s) => {
+          if (s.id !== songId) return s;
+          const newUp = s.upvotes + (value === 1 ? 1 : 0);
+          const newDown = s.downvotes + (value === -1 ? 1 : 0);
+          return {
+            ...s,
+            votes: [...(s.votes || []), { guestId, value }],
+            upvotes: newUp,
+            downvotes: newDown,
+            netScore: newUp - newDown,
+          };
+        })
+      );
     }
 
-    // Update ref immediately (synchronous — blocks rapid taps)
-    votesUsedRef.current = Math.min(votesUsedRef.current + 1, limit);
-    setVotesUsed(votesUsedRef.current);
+    // Defer reorder — waits 1s after last vote so songs don't jump on every tap
+    if (reorderTimer.current) clearTimeout(reorderTimer.current);
+    reorderTimer.current = setTimeout(() => {
+      setSongs((prev) => optimisticReorder(prev));
+      reorderTimer.current = null;
+    }, 1000);
 
-    // Minimal optimistic update: mark vote for visual highlighting only
-    // (button turns green immediately; actual numbers come from server sync)
-    setSongs((prev) =>
-      prev.map((s) =>
-        s.id === songId
-          ? { ...s, votes: [...(s.votes || []), { guestId, value }] }
-          : s
-      )
-    );
-
-    // Schedule reorder sync 800ms from THIS click (resets on each click)
+    // Schedule server sync 800ms from THIS click (resets on each click)
     if (postVoteSyncTimer.current) clearTimeout(postVoteSyncTimer.current);
     postVoteSyncTimer.current = setTimeout(async () => {
-      // Wait for any in-flight API calls to finish
+      // Wait for all vote API calls to finish on server
       while (inFlightVotes.current > 0) {
         await new Promise((r) => setTimeout(r, 100));
       }
-      lastInteraction.current = 0;
-      pendingSongs.current = null;
-      // Notify Socket.io server to broadcast fresh data to all clients
+      // Notify other clients via socket
       getSocket().emit("vote-update", code);
+      // Fetch authoritative data and apply BEFORE clearing busy state
+      // so stale socket broadcasts can't overwrite in the gap
       const res = await fetch(`/api/rooms/${code}/songs`);
-      if (res.ok) applySongs(await res.json());
+      if (res.ok) {
+        const data = (await res.json()).map((s: any) => ({
+          ...s, netScore: s.upvotes - s.downvotes, votes: s.votes || [],
+        }));
+        applySongs(data);
+      }
+      pendingSongs.current = null;
     }, 800);
 
     inFlightVotes.current++;
@@ -422,7 +537,11 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
 
       if (!res.ok) {
         // Revert the optimistic ref update
-        votesUsedRef.current = Math.max(0, votesUsedRef.current - 1);
+        if (isReclaim) {
+          votesUsedRef.current = Math.min(votesUsedRef.current + 1, limit);
+        } else {
+          votesUsedRef.current = Math.max(0, votesUsedRef.current - 1);
+        }
         setVotesUsed(votesUsedRef.current);
         if (res.status === 429) {
           setRequestStatus("Out of votes! They'll reset soon.");
@@ -614,7 +733,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       )}
 
       {/* Header */}
-      <div className="relative z-30">
+      <div className="relative z-[60]">
       <div className="backdrop-blur-xl px-4 pt-3 pb-3">
         {/* Greeting */}
         <p className="text-accent text-xs font-medium mb-1">
@@ -776,22 +895,28 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                           <div className="flex items-center gap-1 flex-shrink-0">
                             <button
                               onClick={() => vote(song.id, 1)}
-                              className={`p-1.5 rounded-lg hover:bg-upvote/10 ${myUp > 0 ? "bg-upvote/10" : ""}`}
+                              className={`relative p-1.5 rounded-lg hover:bg-upvote/10 ${myUp > 0 ? "bg-upvote/10" : ""}`}
                             >
                               <svg className={`w-4 h-4 ${myUp > 0 ? "text-upvote" : "text-text-secondary"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
                               </svg>
+                              {myUp > 0 && (
+                                <span className="absolute -top-1 -right-1 w-4 h-4 bg-upvote text-black text-[10px] font-bold rounded-full flex items-center justify-center">{myUp}</span>
+                              )}
                             </button>
                             <span className={`text-xs font-medium min-w-[1.2rem] text-center ${song.netScore > 0 ? "text-upvote" : song.netScore < 0 ? "text-downvote" : "text-text-secondary"}`}>
                               {song.netScore}
                             </span>
                             <button
                               onClick={() => vote(song.id, -1)}
-                              className={`p-1.5 rounded-lg hover:bg-downvote/10 ${myDown > 0 ? "bg-downvote/10" : ""}`}
+                              className={`relative p-1.5 rounded-lg hover:bg-downvote/10 ${myDown > 0 ? "bg-downvote/10" : ""}`}
                             >
                               <svg className={`w-4 h-4 ${myDown > 0 ? "text-downvote" : "text-text-secondary"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                               </svg>
+                              {myDown > 0 && (
+                                <span className="absolute -top-1 -right-1 w-4 h-4 bg-downvote text-white text-[10px] font-bold rounded-full flex items-center justify-center">{myDown}</span>
+                              )}
                             </button>
                           </div>
                         )}
@@ -868,6 +993,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       <div
         ref={scrollRef}
         className="flex-1 overflow-y-auto overscroll-contain"
+        onScroll={() => { lastScrollTime.current = Date.now(); }}
         onTouchStart={(e) => {
           if (scrollRef.current && scrollRef.current.scrollTop <= 0) {
             pullStartY.current = e.touches[0].clientY;
@@ -944,29 +1070,36 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
           const myVotes = song.votes?.filter((v) => v.guestId === guestId) || [];
           const myUpvotes = myVotes.filter((v) => v.value === 1).length;
           const myDownvotes = myVotes.filter((v) => v.value === -1).length;
+          const isQueuedNext = song.isLocked && i === 0;
+          const isManualLocked = song.isLocked && !isQueuedNext;
 
           return (
             <div
               key={song.id}
               className={`song-card flex items-center gap-3 p-3 rounded-xl border ${
-                song.isLocked
+                isQueuedNext
+                  ? "bg-accent/5 border-accent/40"
+                  : isManualLocked
                   ? "bg-yellow-500/5 border-yellow-500/30"
                   : "bg-bg-card border-border"
               }`}
             >
               <div className="w-6 text-center flex-shrink-0">
-                {song.isLocked ? (
+                {isManualLocked ? (
                   <span className="text-yellow-500 text-sm">{"\u{1F512}"}</span>
                 ) : (
-                  <span className="text-text-secondary text-sm">{i + 1}</span>
+                  <span className={`text-sm ${isQueuedNext ? "text-accent font-bold" : "text-text-secondary"}`}>{i + 1}</span>
                 )}
               </div>
 
               {song.albumArt && (
-                <img src={song.albumArt} alt="" className="w-11 h-11 rounded-lg flex-shrink-0" />
+                <img src={song.albumArt} alt="" className={`w-11 h-11 rounded-lg flex-shrink-0 ${isQueuedNext ? "ring-2 ring-accent/50" : ""}`} />
               )}
 
               <div className="flex-1 min-w-0">
+                {isQueuedNext && (
+                  <p className="text-[10px] font-semibold text-accent uppercase tracking-wider">Up Next</p>
+                )}
                 <p className="font-medium text-sm truncate">{song.trackName}</p>
                 <p className="text-text-secondary text-xs truncate">{song.artistName}</p>
               </div>
@@ -975,8 +1108,10 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                 <div className="flex items-center gap-1 flex-shrink-0">
                   <button
                     onClick={() => vote(song.id, 1)}
-                    className={`vote-btn p-2 rounded-lg hover:bg-upvote/10 relative ${
-                      myUpvotes > 0 ? "bg-upvote/10" : ""
+                    className={`vote-btn p-2 rounded-lg relative ${
+                      myUpvotes > 0
+                        ? "bg-upvote/10 hover:bg-upvote/10"
+                        : "hover:bg-upvote/10"
                     }`}
                   >
                     <svg className={`w-4 h-4 ${myUpvotes > 0 ? "text-upvote" : "text-text-secondary"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1003,8 +1138,10 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
 
                   <button
                     onClick={() => vote(song.id, -1)}
-                    className={`vote-btn p-2 rounded-lg hover:bg-downvote/10 relative ${
-                      myDownvotes > 0 ? "bg-downvote/10" : ""
+                    className={`vote-btn p-2 rounded-lg relative ${
+                      myDownvotes > 0
+                        ? "bg-downvote/10 hover:bg-downvote/10"
+                        : "hover:bg-downvote/10"
                     }`}
                   >
                     <svg className={`w-4 h-4 ${myDownvotes > 0 ? "text-downvote" : "text-text-secondary"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">

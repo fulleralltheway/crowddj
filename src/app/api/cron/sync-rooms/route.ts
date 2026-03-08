@@ -1,11 +1,10 @@
 import { prisma } from "@/lib/db";
-import { getCurrentPlayback, startPlayback, addToQueue } from "@/lib/spotify";
+import { getCurrentPlayback, addToQueue } from "@/lib/spotify";
 import { NextRequest, NextResponse } from "next/server";
 
-export const maxDuration = 30; // Vercel function timeout
+export const maxDuration = 30;
 
 export async function GET(req: NextRequest) {
-  // Auth: require CRON_SECRET to prevent abuse
   const secret = req.nextUrl.searchParams.get("secret");
   if (!process.env.CRON_SECRET || secret !== process.env.CRON_SECRET) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -21,7 +20,7 @@ export async function GET(req: NextRequest) {
     },
   });
 
-  const results: { code: string; status: string }[] = [];
+  const results: { code: string; status: string; detail?: string }[] = [];
 
   for (const room of rooms) {
     const currentSong = room.songs[0];
@@ -48,81 +47,108 @@ export async function GET(req: NextRequest) {
       const playback = await getCurrentPlayback(accessToken);
 
       if (!playback || !playback.item) {
-        await prisma.roomSong.update({
-          where: { id: currentSong.id },
-          data: { isPlaying: false },
-        });
         results.push({ code: room.code, status: "no_playback" });
         continue;
       }
 
-      // Check if Spotify auto-advanced to the next CrowdDJ song
-      if (playback.item.uri !== currentSong.spotifyUri) {
-        const nextSong = await prisma.roomSong.findFirst({
-          where: { roomId: room.id, isPlayed: false, isPlaying: false },
-          orderBy: { sortOrder: "asc" },
-        });
+      // CASE 1: Spotify is playing our current song
+      if (playback.item.uri === currentSong.spotifyUri) {
+        const remaining = playback.item.duration_ms - playback.progress_ms;
 
-        if (nextSong && playback.item.uri === nextSong.spotifyUri && playback.is_playing) {
-          const timeSinceLastAdvance = Date.now() - room.lastSyncAdvance.getTime();
-          if (timeSinceLastAdvance < 10000) {
-            results.push({ code: room.code, status: "debounced" });
+        // At 15 seconds remaining, queue the next song and lock it in
+        if (remaining <= 15000 && playback.is_playing && !room.lastPreQueuedId) {
+          const nextSong = await prisma.roomSong.findFirst({
+            where: { roomId: room.id, isPlayed: false, isPlaying: false },
+            orderBy: { sortOrder: "asc" },
+          });
+
+          if (nextSong) {
+            try {
+              await addToQueue(accessToken, nextSong.spotifyUri);
+              // Lock the song and record that we queued it
+              await prisma.roomSong.update({
+                where: { id: nextSong.id },
+                data: { isLocked: true },
+              });
+              await prisma.room.update({
+                where: { id: room.id },
+                data: { lastPreQueuedId: nextSong.id },
+              });
+              results.push({ code: room.code, status: "queued_next", detail: nextSong.trackName });
+            } catch {
+              results.push({ code: room.code, status: "queue_failed" });
+            }
             continue;
           }
-          await prisma.room.update({ where: { id: room.id }, data: { lastSyncAdvance: new Date() } });
-          await prisma.roomSong.update({ where: { id: currentSong.id }, data: { isPlaying: false, isPlayed: true } });
-          await prisma.roomSong.update({ where: { id: nextSong.id }, data: { isPlaying: true } });
-          await queueNext(room.id, nextSong.id, accessToken);
-          results.push({ code: room.code, status: "advanced" });
-          continue;
         }
 
-        await prisma.roomSong.update({ where: { id: currentSong.id }, data: { isPlaying: false } });
-        results.push({ code: room.code, status: "external_override" });
+        results.push({ code: room.code, status: "playing" });
         continue;
       }
 
-      // Check if song finished
-      const isFinished =
-        (!playback.is_playing && playback.progress_ms > playback.item.duration_ms - 3000) ||
-        (!playback.is_playing && playback.progress_ms === 0 && playback.item.duration_ms > 0);
+      // CASE 2: Spotify moved to a different song
+      const nextSong = await prisma.roomSong.findFirst({
+        where: { roomId: room.id, isPlayed: false, isPlaying: false },
+        orderBy: { sortOrder: "asc" },
+      });
 
-      if (isFinished) {
-        const timeSinceLastAdvance = Date.now() - room.lastSyncAdvance.getTime();
-        if (timeSinceLastAdvance < 10000) {
+      // Check if Spotify advanced to our next queue song
+      if (nextSong && playback.item.uri === nextSong.spotifyUri) {
+        const timeSince = Date.now() - room.lastSyncAdvance.getTime();
+        if (timeSince < 10000) {
           results.push({ code: room.code, status: "debounced" });
           continue;
         }
 
-        await prisma.room.update({ where: { id: room.id }, data: { lastSyncAdvance: new Date() } });
-        await prisma.roomSong.update({ where: { id: currentSong.id }, data: { isPlaying: false, isPlayed: true } });
-
-        const nextSong = await prisma.roomSong.findFirst({
-          where: { roomId: room.id, isPlayed: false, isPlaying: false },
-          orderBy: { sortOrder: "asc" },
+        await prisma.room.update({
+          where: { id: room.id },
+          data: { lastSyncAdvance: new Date(), lastPreQueuedId: null },
+        });
+        await prisma.roomSong.update({
+          where: { id: currentSong.id },
+          data: { isPlaying: false, isPlayed: true },
+        });
+        await prisma.roomSong.update({
+          where: { id: nextSong.id },
+          data: { isPlaying: true, isLocked: false },
         });
 
-        if (nextSong) {
-          await prisma.roomSong.update({ where: { id: nextSong.id }, data: { isPlaying: true } });
-          try {
-            await startPlayback(accessToken, [nextSong.spotifyUri]);
-            await queueNext(room.id, nextSong.id, accessToken);
-          } catch {}
-          results.push({ code: room.code, status: "advanced_playback" });
-        } else {
-          results.push({ code: room.code, status: "queue_empty" });
-        }
+        results.push({ code: room.code, status: "advanced", detail: nextSong.trackName });
         continue;
       }
 
-      // Pre-queue next song in last 45 seconds
-      const remaining = playback.item.duration_ms - playback.progress_ms;
-      if (playback.is_playing && remaining < 45000 && remaining > 5000) {
-        await queueNext(room.id, currentSong.id, accessToken);
-        results.push({ code: room.code, status: "pre_queued" });
-      } else {
-        results.push({ code: room.code, status: "playing" });
+      // Check if Spotify advanced to the song we pre-queued
+      if (room.lastPreQueuedId) {
+        const preQueued = await prisma.roomSong.findUnique({
+          where: { id: room.lastPreQueuedId },
+        });
+        if (preQueued && playback.item.uri === preQueued.spotifyUri) {
+          const timeSince = Date.now() - room.lastSyncAdvance.getTime();
+          if (timeSince < 10000) {
+            results.push({ code: room.code, status: "debounced" });
+            continue;
+          }
+
+          await prisma.room.update({
+            where: { id: room.id },
+            data: { lastSyncAdvance: new Date(), lastPreQueuedId: null },
+          });
+          await prisma.roomSong.update({
+            where: { id: currentSong.id },
+            data: { isPlaying: false, isPlayed: true },
+          });
+          await prisma.roomSong.update({
+            where: { id: preQueued.id },
+            data: { isPlaying: true, isLocked: false },
+          });
+
+          results.push({ code: room.code, status: "advanced_prequeued", detail: preQueued.trackName });
+          continue;
+        }
       }
+
+      // Spotify is playing something not in our queue
+      results.push({ code: room.code, status: "external", detail: playback.item.name });
     } catch (err) {
       results.push({ code: room.code, status: "error" });
     }
@@ -163,16 +189,4 @@ async function getAccessToken(account: any) {
   }
 
   return accessToken;
-}
-
-async function queueNext(roomId: string, currentSongId: string, accessToken: string) {
-  try {
-    const nextSong = await prisma.roomSong.findFirst({
-      where: { roomId, isPlayed: false, isPlaying: false, id: { not: currentSongId } },
-      orderBy: { sortOrder: "asc" },
-    });
-    if (nextSong) {
-      await addToQueue(accessToken, nextSong.spotifyUri);
-    }
-  } catch {}
 }

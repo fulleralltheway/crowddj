@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { startPlayback, pausePlayback, resumePlayback, getCurrentPlayback, addToQueue, getDevices } from "@/lib/spotify";
+import { startPlayback, pausePlayback, resumePlayback, getCurrentPlayback, getDevices } from "@/lib/spotify";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(
@@ -17,28 +17,26 @@ export async function POST(
     return NextResponse.json({ error: "Not authorized" }, { status: 403 });
   }
 
-  // Check current Spotify playback state
   try {
     const playback = await getCurrentPlayback(accessToken);
 
-    // If Spotify is currently playing the CrowdDJ song, pause it (toggle behavior)
     const currentSong = await prisma.roomSong.findFirst({
       where: { roomId: room.id, isPlaying: true },
     });
 
+    // If Spotify is playing our song, pause it (toggle)
     if (playback?.is_playing && currentSong && playback?.item?.uri === currentSong.spotifyUri) {
       await pausePlayback(accessToken);
       return NextResponse.json({ success: true, action: "paused" });
     }
 
-    // If CrowdDJ song is loaded but paused on Spotify — resume it
+    // If our song is loaded but paused — resume
     if (!playback?.is_playing && currentSong && playback?.item?.uri === currentSong.spotifyUri) {
       await resumePlayback(accessToken);
       return NextResponse.json({ success: true, action: "resumed" });
     }
 
-    // Otherwise, always start the CrowdDJ queue song explicitly
-    // (Spotify might be playing its own content — we override it)
+    // Otherwise, start the current queue song
     let song = currentSong;
     if (!song) {
       song = await prisma.roomSong.findFirst({
@@ -57,11 +55,10 @@ export async function POST(
       return NextResponse.json({ error: "No songs in queue" }, { status: 404 });
     }
 
-    // Start playback with the CrowdDJ song, overriding whatever Spotify had
+    // Play this song
     try {
       await startPlayback(accessToken, [song.spotifyUri]);
     } catch {
-      // No active device — try to find one and play on it
       const devices = await getDevices(accessToken);
       if (devices.length === 0) {
         return NextResponse.json({
@@ -69,7 +66,6 @@ export async function POST(
           noDevice: true,
         }, { status: 502 });
       }
-      // Pick the active device, or the first available one
       const target = devices.find((d: any) => d.is_active) || devices[0];
       try {
         await startPlayback(accessToken, [song.spotifyUri], target.id);
@@ -81,22 +77,11 @@ export async function POST(
       }
     }
 
-    // Pre-queue the next song for gapless playback
-    try {
-      const nextSong = await prisma.roomSong.findFirst({
-        where: { roomId: room.id, isPlayed: false, isPlaying: false, id: { not: song.id } },
-        orderBy: { sortOrder: "asc" },
-      });
-      if (nextSong) {
-        await addToQueue(accessToken, nextSong.spotifyUri);
-      }
-    } catch {
-      // Best-effort
-    }
+    // Next song will be queued by the cron when ~20s remain (to allow voting until then)
+    await prisma.room.update({ where: { id: room.id }, data: { lastPreQueuedId: null } });
 
     return NextResponse.json({ success: true, action: "playing", song });
   } catch (e: any) {
-    // Fallback — try to list devices for a helpful message
     try {
       const devices = await getDevices(accessToken);
       if (devices.length === 0) {

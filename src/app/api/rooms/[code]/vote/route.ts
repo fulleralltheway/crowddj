@@ -62,14 +62,18 @@ export async function POST(
     return NextResponse.json({ error: "This song is locked by the DJ" }, { status: 403 });
   }
 
-  // Check if guest has an opposite vote on this song they can undo
+  // Check if guest has an opposite vote on this song they can reclaim
+  // e.g. downvoting when you have upvotes removes one upvote and refunds the vote
   const oppositeValue = value === 1 ? -1 : 1;
   const oppositeVote = await prisma.vote.findFirst({
     where: { guestId: guest.id, songId, value: oppositeValue },
   });
 
+  let action: "reclaim" | "vote";
+
   if (oppositeVote) {
-    // Undo the opposite vote — delete it, update song counts, refund the vote
+    // Opposite vote exists — remove one, refund the vote
+    action = "reclaim";
     await prisma.vote.delete({ where: { id: oppositeVote.id } });
     await prisma.roomSong.update({
       where: { id: songId },
@@ -82,8 +86,8 @@ export async function POST(
       data: { votesUsed: { decrement: 1 } },
     });
   } else {
-    // No opposite vote to undo — this is a new vote, check limit
-    // Count actual votes (not the stored counter) to prevent race conditions
+    // No opposite vote — this is a new vote, check limit
+    action = "vote";
     const currentVoteCount = await prisma.vote.count({
       where: { guestId: guest.id },
     });
@@ -126,5 +130,5 @@ export async function POST(
     });
   }
 
-  return NextResponse.json({ success: true, action: oppositeVote ? "undo" : "vote", votesUsed: actualVotesUsed });
+  return NextResponse.json({ success: true, action, votesUsed: actualVotesUsed });
 }

@@ -3,7 +3,7 @@ import { Server } from "socket.io";
 
 const VERCEL_URL = process.env.VERCEL_URL || "https://crowddj.vercel.app";
 const CRON_SECRET = process.env.CRON_SECRET || "";
-const SYNC_INTERVAL = 10_000; // 10 seconds
+const SYNC_INTERVAL = 5_000; // 5 seconds — fast enough to catch song endings quickly
 const CORS_ORIGINS = [
   VERCEL_URL,
   "https://crowddj.vercel.app",
@@ -130,22 +130,31 @@ async function broadcastRoomState(roomCode: string) {
   }
 }
 
-// Background sync loop — keeps rooms alive even with zero browser tabs open
+// Background sync loop — keeps ALL active rooms alive even with zero browser tabs open
 async function syncAllRooms() {
-  if (activeRooms.size === 0 && !CRON_SECRET) return; // Nothing to sync
+  if (!CRON_SECRET) {
+    console.warn("CRON_SECRET not set — sync loop disabled");
+    return;
+  }
 
   try {
-    // Call the Vercel cron endpoint which handles all Spotify sync logic
+    // Call the Vercel cron endpoint which syncs ALL active rooms in the DB
     const url = `${VERCEL_URL}/api/cron/sync-rooms?secret=${encodeURIComponent(CRON_SECRET)}`;
     const res = await fetch(url);
     if (res.ok) {
       const data = await res.json();
-      // If any rooms advanced or changed, broadcast updates
+      const nonPlaying = (data.results || []).filter((r: any) => r.status !== "playing" && r.status !== "no_current_song");
+      if (nonPlaying.length > 0) {
+        console.log("Sync results:", JSON.stringify(nonPlaying));
+      }
+      // If any rooms advanced or changed, broadcast updates to connected clients
       for (const result of data.results || []) {
-        if (["advanced", "advanced_playback", "pre_queued", "external_override", "no_playback"].includes(result.status)) {
+        if (result.status !== "playing" && result.status !== "no_current_song" && result.status !== "debounced") {
           await broadcastSongs(result.code);
         }
       }
+    } else {
+      console.error(`Sync loop got ${res.status}: ${await res.text()}`);
     }
   } catch (err) {
     console.error("Sync loop error:", err);

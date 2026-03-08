@@ -111,6 +111,120 @@ function ToggleSwitch({ enabled, onToggle, label, description }: { enabled: bool
   );
 }
 
+function formatTime(ms: number) {
+  const totalSec = Math.max(0, Math.floor(ms / 1000));
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+function MiniPlayer({
+  nowPlaying,
+  isPlaying,
+  progressMs,
+  durationMs,
+  progressSyncedAt,
+  onTogglePlay,
+  onSkip,
+}: {
+  nowPlaying: any;
+  isPlaying: boolean;
+  progressMs: number;
+  durationMs: number;
+  progressSyncedAt: number;
+  onTogglePlay: () => void;
+  onSkip: () => void;
+}) {
+  const [displayProgress, setDisplayProgress] = useState(progressMs);
+
+  useEffect(() => {
+    if (!isPlaying || !durationMs) {
+      setDisplayProgress(progressMs);
+      return;
+    }
+    // Tick every 500ms to smoothly interpolate progress
+    const tick = () => {
+      const elapsed = Date.now() - progressSyncedAt;
+      setDisplayProgress(Math.min(progressMs + elapsed, durationMs));
+    };
+    tick();
+    const id = setInterval(tick, 500);
+    return () => clearInterval(id);
+  }, [progressMs, durationMs, isPlaying, progressSyncedAt]);
+
+  const pct = durationMs > 0 ? Math.min((displayProgress / durationMs) * 100, 100) : 0;
+
+  return (
+    <div className="flex-shrink-0 pointer-events-none absolute bottom-0 left-0 right-0 pb-[env(safe-area-inset-bottom)]">
+      <div className="bg-gradient-to-t from-bg-primary via-bg-primary/90 to-transparent pt-8 px-4 pb-3">
+        <div className="pointer-events-auto bg-bg-card border border-border rounded-2xl shadow-2xl overflow-hidden">
+          <div className="flex items-center gap-3 p-3">
+            {/* Album art */}
+            {nowPlaying?.albumArt ? (
+              <img src={nowPlaying.albumArt} alt="" className="w-12 h-12 rounded-lg shadow-md flex-shrink-0" />
+            ) : (
+              <div className="w-12 h-12 rounded-lg bg-bg-card-hover flex items-center justify-center flex-shrink-0">
+                <svg className="w-5 h-5 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+                </svg>
+              </div>
+            )}
+            {/* Track info + progress */}
+            <div className="flex-1 min-w-0">
+              {nowPlaying ? (
+                <>
+                  <p className="text-sm font-semibold truncate">{nowPlaying.trackName}</p>
+                  <p className="text-xs text-text-secondary truncate">{nowPlaying.artistName}</p>
+                </>
+              ) : (
+                <p className="text-sm text-text-secondary">No song playing</p>
+              )}
+              {nowPlaying && durationMs > 0 && (
+                <div className="flex items-center gap-2 mt-1.5">
+                  <span className="text-[10px] text-text-secondary tabular-nums w-8 text-right">{formatTime(displayProgress)}</span>
+                  <div className="flex-1 h-1 bg-border rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-accent rounded-full transition-[width] duration-500 ease-linear"
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                  <span className="text-[10px] text-text-secondary tabular-nums w-8">{formatTime(durationMs)}</span>
+                </div>
+              )}
+            </div>
+            {/* Controls */}
+            <div className="flex items-center gap-0.5 flex-shrink-0">
+              <button
+                onClick={onTogglePlay}
+                className="w-11 h-11 rounded-xl flex items-center justify-center transition-colors hover:bg-bg-card-hover active:bg-border"
+              >
+                {isPlaying ? (
+                  <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
+                    <rect x="6" y="4" width="4" height="16" rx="1" />
+                    <rect x="14" y="4" width="4" height="16" rx="1" />
+                  </svg>
+                ) : (
+                  <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M8 5v14l11-7z" />
+                  </svg>
+                )}
+              </button>
+              <button
+                onClick={onSkip}
+                className="w-11 h-11 rounded-xl flex items-center justify-center transition-colors hover:bg-bg-card-hover active:bg-border"
+              >
+                <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M5 4v16l10-8zm12 0v16h2V4z" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function DashboardClient({ user }: { user: any }) {
   return (
     <DashboardErrorBoundary>
@@ -128,6 +242,9 @@ function DashboardInner({ user }: { user: any }) {
   const [loading, setLoading] = useState(false);
   const [playError, setPlayError] = useState("");
   const [isPlaying, setIsPlaying] = useState(false);
+  const [progressMs, setProgressMs] = useState(0);
+  const [durationMs, setDurationMs] = useState(0);
+  const progressSyncedAt = useRef(0); // local timestamp when progressMs was last set from server
   const [showSettings, setShowSettings] = useState(false);
   const [showQR, setShowQR] = useState(false);
   const [guestCount, setGuestCount] = useState(0);
@@ -226,6 +343,11 @@ function DashboardInner({ user }: { user: any }) {
           } else if (syncData.playing === false || syncData.queueEmpty) {
             setIsPlaying(false);
           }
+          if (typeof syncData.progressMs === "number" && typeof syncData.durationMs === "number") {
+            setProgressMs(syncData.progressMs);
+            setDurationMs(syncData.durationMs);
+            progressSyncedAt.current = Date.now();
+          }
         }
         if (!socket.connected) {
           refreshSongs(code);
@@ -286,6 +408,11 @@ function DashboardInner({ user }: { user: any }) {
       if (syncRes.ok) {
         const syncData = await syncRes.json();
         setIsPlaying(!!syncData.spotifyPlaying);
+        if (typeof syncData.progressMs === "number" && typeof syncData.durationMs === "number") {
+          setProgressMs(syncData.progressMs);
+          setDurationMs(syncData.durationMs);
+          progressSyncedAt.current = Date.now();
+        }
       }
     }
   };
@@ -363,6 +490,10 @@ function DashboardInner({ user }: { user: any }) {
       body: JSON.stringify({ requestId, action }),
     });
     fetchRequests(activeRoom.code);
+    // Approved songs get added to the queue — notify all clients
+    if (action === "approve") {
+      getSocket().emit("request-handled", activeRoom.code);
+    }
   };
 
   const togglePlay = async () => {
@@ -372,6 +503,7 @@ function DashboardInner({ user }: { user: any }) {
     if (res.ok) {
       const data = await res.json();
       setIsPlaying(data.action === "playing" || data.action === "resumed");
+      getSocket().emit("song-skipped", activeRoom.code); // notify guests of playback change
     } else {
       const data = await res.json();
       setPlayError(data.error || "Open Spotify on a device and try again.");
@@ -382,6 +514,8 @@ function DashboardInner({ user }: { user: any }) {
 
   const skipSong = async () => {
     if (!activeRoom) return;
+    setProgressMs(0);
+    setDurationMs(0);
     await fetch(`/api/rooms/${activeRoom.code}/skip`, { method: "POST" });
     getSocket().emit("song-skipped", activeRoom.code);
     refreshSongs(activeRoom.code);
@@ -389,6 +523,7 @@ function DashboardInner({ user }: { user: any }) {
 
   const closeRoom = async () => {
     if (!activeRoom) return;
+    getSocket().emit("room-settings-changed", activeRoom.code);
     const res = await fetch(`/api/rooms/${activeRoom.code}`, { method: "DELETE" });
     if (res.ok) {
       setActiveRoom(null);
@@ -399,11 +534,22 @@ function DashboardInner({ user }: { user: any }) {
 
   const lockSong = async (songId: string, position?: number) => {
     if (!activeRoom) return;
+    // Optimistic UI: toggle lock immediately
+    setActiveRoom((prev) => {
+      if (!prev) return null;
+      return {
+        ...prev,
+        songs: prev.songs.map((s: any) =>
+          s.id === songId ? { ...s, isLocked: !s.isLocked } : s
+        ),
+      };
+    });
     await fetch(`/api/rooms/${activeRoom.code}/lock`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ songId, position: position || 1 }),
     });
+    getSocket().emit("songs-reordered", activeRoom.code);
     refreshSongs(activeRoom.code);
   };
 
@@ -414,6 +560,7 @@ function DashboardInner({ user }: { user: any }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ songId }),
     });
+    getSocket().emit("songs-reordered", activeRoom.code);
     refreshSongs(activeRoom.code);
   };
 
@@ -486,6 +633,7 @@ function DashboardInner({ user }: { user: any }) {
     if (res.ok) {
       const updated = await res.json();
       setActiveRoom((prev) => prev ? { ...prev, ...updated } : null);
+      getSocket().emit("room-settings-changed", activeRoom.code);
     }
   };
 
@@ -532,6 +680,7 @@ function DashboardInner({ user }: { user: any }) {
       const data = await res.json();
       if (res.ok) {
         setSearchStatus("Song added to queue!");
+        getSocket().emit("songs-reordered", room.code);
         refreshSongs(room.code);
       } else {
         setSearchStatus(data.error || "Failed to add song");
@@ -835,7 +984,7 @@ function DashboardInner({ user }: { user: any }) {
       {activeRoom && (
         <>
           {/* Room title + search */}
-          <div className="px-4 pb-3">
+          <div className="px-4 pb-3 relative z-[60]">
           {/* Room name */}
           <div className="mb-3">
             <h2 className="text-xl font-bold tracking-tight leading-tight">{activeRoom.name}</h2>
@@ -843,7 +992,7 @@ function DashboardInner({ user }: { user: any }) {
           </div>
 
           {/* Search bar + action buttons */}
-          <div className="relative z-20">
+          <div className="relative z-[60]">
           <div className="flex gap-2">
             <div className="flex-1 relative">
               <svg className="w-4 h-4 text-white/30 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -984,7 +1133,7 @@ function DashboardInner({ user }: { user: any }) {
       {activeRoom && (
         <>
           {/* Scrollable content area */}
-          <div className="flex-1 overflow-y-auto overscroll-contain px-4 pt-4 pb-20">
+          <div className="flex-1 overflow-y-auto overscroll-contain px-4 pt-4 pb-20 relative z-10">
 
           <div className="lg:grid lg:grid-cols-[1fr_1.5fr] lg:gap-6">
           {/* Left column: Now Playing, Controls, Panels */}
@@ -1331,7 +1480,9 @@ function DashboardInner({ user }: { user: any }) {
                 <div
                   key={song.id}
                   className={`flex items-center gap-3 p-3 bg-bg-card border rounded-xl song-card transition-all ${
-                    song.isLocked
+                    song.isLocked && i === 0
+                      ? "border-accent/50 bg-accent/5"
+                      : song.isLocked
                       ? "border-yellow-500/50 bg-yellow-500/5"
                       : "border-border"
                   } ${dragIdx !== null && overIdx === i ? "ring-2 ring-accent/40" : ""}`}
@@ -1433,6 +1584,9 @@ function DashboardInner({ user }: { user: any }) {
                     <img src={song.albumArt} alt="" className="w-10 h-10 rounded-lg" />
                   )}
                   <div className="flex-1 min-w-0">
+                    {song.isLocked && i === 0 && (
+                      <p className="text-[10px] font-semibold text-yellow-500 uppercase tracking-wider">Queued Next</p>
+                    )}
                     <p className="font-medium text-sm truncate">{song.trackName}</p>
                     <p className="text-text-secondary text-xs truncate">{song.artistName}</p>
                     {song.addedByName && (
@@ -1440,16 +1594,18 @@ function DashboardInner({ user }: { user: any }) {
                     )}
                   </div>
                   <div className="flex items-center gap-1.5">
-                    <div className="text-right mr-1">
-                      <span className={`text-sm font-semibold ${song.upvotes - song.downvotes > 0 ? "text-upvote" : song.upvotes - song.downvotes < 0 ? "text-downvote" : "text-text-secondary"}`}>
-                        {song.upvotes - song.downvotes > 0 ? "+" : ""}{song.upvotes - song.downvotes}
-                      </span>
-                      <p className="text-[10px] text-text-secondary">
-                        <span className="text-upvote/70">{song.upvotes}&#x2191;</span>
-                        {" "}
-                        <span className="text-downvote/70">{song.downvotes}&#x2193;</span>
-                      </p>
-                    </div>
+                    {!song.isLocked && (
+                      <div className="text-right mr-1">
+                        <span className={`text-sm font-semibold ${song.upvotes - song.downvotes > 0 ? "text-upvote" : song.upvotes - song.downvotes < 0 ? "text-downvote" : "text-text-secondary"}`}>
+                          {song.upvotes - song.downvotes > 0 ? "+" : ""}{song.upvotes - song.downvotes}
+                        </span>
+                        <p className="text-[10px] text-text-secondary">
+                          <span className="text-upvote/70">{song.upvotes}&#x2191;</span>
+                          {" "}
+                          <span className="text-downvote/70">{song.downvotes}&#x2193;</span>
+                        </p>
+                      </div>
+                    )}
                     {/* Lock button */}
                     <button
                       onClick={() => lockSong(song.id)}
@@ -1597,61 +1753,15 @@ function DashboardInner({ user }: { user: any }) {
           </div>
 
           {/* Floating mini-player bar */}
-          <div className="flex-shrink-0 pointer-events-none absolute bottom-0 left-0 right-0 pb-[env(safe-area-inset-bottom)]">
-            <div className="bg-gradient-to-t from-bg-primary via-bg-primary/90 to-transparent pt-8 px-4 pb-3">
-              <div className="pointer-events-auto bg-bg-card border border-border rounded-2xl shadow-2xl overflow-hidden">
-                <div className="flex items-center gap-3 p-3">
-                  {/* Album art */}
-                  {nowPlaying?.albumArt ? (
-                    <img src={nowPlaying.albumArt} alt="" className="w-12 h-12 rounded-lg shadow-md flex-shrink-0" />
-                  ) : (
-                    <div className="w-12 h-12 rounded-lg bg-bg-card-hover flex items-center justify-center flex-shrink-0">
-                      <svg className="w-5 h-5 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
-                      </svg>
-                    </div>
-                  )}
-                  {/* Track info */}
-                  <div className="flex-1 min-w-0">
-                    {nowPlaying ? (
-                      <>
-                        <p className="text-sm font-semibold truncate">{nowPlaying.trackName}</p>
-                        <p className="text-xs text-text-secondary truncate">{nowPlaying.artistName}</p>
-                      </>
-                    ) : (
-                      <p className="text-sm text-text-secondary">No song playing</p>
-                    )}
-                  </div>
-                  {/* Controls */}
-                  <div className="flex items-center gap-0.5 flex-shrink-0">
-                    <button
-                      onClick={togglePlay}
-                      className="w-11 h-11 rounded-xl flex items-center justify-center transition-colors hover:bg-bg-card-hover active:bg-border"
-                    >
-                      {isPlaying ? (
-                        <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
-                          <rect x="6" y="4" width="4" height="16" rx="1" />
-                          <rect x="14" y="4" width="4" height="16" rx="1" />
-                        </svg>
-                      ) : (
-                        <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
-                          <path d="M8 5v14l11-7z" />
-                        </svg>
-                      )}
-                    </button>
-                    <button
-                      onClick={skipSong}
-                      className="w-11 h-11 rounded-xl flex items-center justify-center transition-colors hover:bg-bg-card-hover active:bg-border"
-                    >
-                      <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
-                        <path d="M5 4v16l10-8zm12 0v16h2V4z" />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+          <MiniPlayer
+            nowPlaying={nowPlaying}
+            isPlaying={isPlaying}
+            progressMs={progressMs}
+            durationMs={durationMs}
+            progressSyncedAt={progressSyncedAt.current}
+            onTogglePlay={togglePlay}
+            onSkip={skipSong}
+          />
         </>
       )}
     </div>
