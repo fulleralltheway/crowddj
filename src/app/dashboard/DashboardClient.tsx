@@ -291,6 +291,7 @@ function DashboardInner({ user }: { user: any }) {
   const pullDistRef = useRef(0);
   const pullRefreshRef = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const searchBarRef = useRef<HTMLDivElement>(null);
   const PULL_THRESHOLD = 50;
 
   // Create room form state
@@ -1032,7 +1033,7 @@ function DashboardInner({ user }: { user: any }) {
   return (
     <div className="h-dvh flex flex-col max-w-6xl mx-auto overflow-hidden relative">
       {/* Fixed header area */}
-      <div className="flex-shrink-0 bg-gradient-to-b from-bg-card/90 to-bg-primary/80 backdrop-blur-xl border-b border-white/[0.06]">
+      <div className="flex-shrink-0 bg-gradient-to-b from-bg-card/90 to-bg-primary/80 backdrop-blur-xl border-b border-white/[0.06] relative z-[60]">
       <div className="px-4 pt-4 pb-3">
         {/* Top bar: back + room code */}
         <div className="flex items-center justify-between mb-3">
@@ -1075,7 +1076,7 @@ function DashboardInner({ user }: { user: any }) {
       {activeRoom && (
         <>
           {/* Room title + search */}
-          <div className="px-4 pb-3 relative z-[60]">
+          <div className="px-4 pb-3">
           {/* Room name */}
           <div className="mb-3">
             <h2 className="text-xl font-bold tracking-tight leading-tight">{activeRoom.name}</h2>
@@ -1083,9 +1084,9 @@ function DashboardInner({ user }: { user: any }) {
           </div>
 
           {/* Search bar + action buttons */}
-          <div className="relative z-[60]">
+          <div className="relative">
           <div className="flex gap-2">
-            <div className="flex-1 relative">
+            <div className="flex-1 relative" ref={searchBarRef}>
               <svg className="w-4 h-4 text-white/30 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
@@ -1137,84 +1138,7 @@ function DashboardInner({ user }: { user: any }) {
               </svg>
             </button>
           </div>
-          {/* Search results overlay */}
-          {showSearch && searchQuery && (searchResults.length > 0 || searching) && (
-            <div className="absolute left-0 right-0 mx-4 mt-1 bg-bg-card border border-border rounded-xl overflow-hidden shadow-2xl z-50">
-              <div className="max-h-72 overflow-y-auto divide-y divide-border/50">
-                {/* Queue matches */}
-                {(() => {
-                  const q = searchQuery.toLowerCase();
-                  const queueMatches = (activeRoom?.songs || []).filter((s: any) =>
-                    !s.isPlaying &&
-                    (s.trackName.toLowerCase().includes(q) ||
-                     s.artistName.toLowerCase().includes(q))
-                  );
-                  if (queueMatches.length === 0) return null;
-                  return (
-                    <div className="p-2 space-y-1">
-                      <p className="text-text-secondary text-[10px] font-semibold uppercase tracking-wider px-1">In Queue</p>
-                      {queueMatches.map((song: any) => (
-                        <div key={song.id} className="flex items-center gap-3 p-2 rounded-lg">
-                          {song.albumArt && (
-                            <img src={song.albumArt} alt="" className="w-9 h-9 rounded-md" />
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium truncate">{song.trackName}</p>
-                            <p className="text-text-secondary text-xs truncate">{song.artistName}</p>
-                          </div>
-                          <span className="text-xs text-text-secondary">In queue</span>
-                        </div>
-                      ))}
-                    </div>
-                  );
-                })()}
-
-                {searchResults.length > 0 && (
-                  <div className="p-2 space-y-1">
-                    <p className="text-text-secondary text-[10px] font-semibold uppercase tracking-wider px-1">From Spotify</p>
-                    {searchResults.map((track: any) => {
-                      const inQueue = (activeRoom?.songs || []).some(
-                        (s: any) => s.spotifyUri === track.spotifyUri
-                      );
-                      return (
-                        <button
-                          key={track.spotifyUri}
-                          onClick={() => !inQueue && addSongToQueue(track)}
-                          disabled={inQueue}
-                          className={`w-full flex items-center gap-3 p-2 rounded-lg text-left transition-colors ${
-                            inQueue ? "opacity-50 cursor-default" : "hover:bg-bg-card-hover"
-                          }`}
-                        >
-                          {track.albumArt && (
-                            <img src={track.albumArt} alt="" className="w-9 h-9 rounded-md" />
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium truncate">
-                              {track.trackName}
-                              {track.isExplicit && (
-                                <span className="ml-1 text-[10px] text-text-secondary bg-text-secondary/20 px-1 rounded">E</span>
-                              )}
-                            </p>
-                            <p className="text-text-secondary text-xs truncate">{track.artistName}</p>
-                          </div>
-                          <span className={`text-xs font-medium ${inQueue ? "text-text-secondary" : "text-accent"}`}>
-                            {inQueue ? "In queue" : "+ Add"}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {searching && (
-                  <div className="p-3 text-center text-text-secondary text-xs">Searching...</div>
-                )}
-              </div>
-              {searchStatus && (
-                <div className="px-3 py-2 border-t border-border/50 text-center text-xs text-accent">{searchStatus}</div>
-              )}
-            </div>
-          )}
+          {/* Search results rendered as fixed overlay — see below */}
           </div>
           </div>
         </>
@@ -1872,6 +1796,97 @@ function DashboardInner({ user }: { user: any }) {
           />
         </>
       )}
+
+      {/* Fixed search results overlay — rendered outside all stacking contexts */}
+      {showSearch && searchQuery && (searchResults.length > 0 || searching) && (() => {
+        const rect = searchBarRef.current?.getBoundingClientRect();
+        if (!rect) return null;
+        return (
+          <div
+            className="fixed bg-bg-card border border-border rounded-xl overflow-hidden shadow-2xl"
+            style={{
+              top: rect.bottom + 4,
+              left: rect.left,
+              right: window.innerWidth - rect.right,
+              zIndex: 9999,
+            }}
+          >
+            <div className="max-h-72 overflow-y-auto divide-y divide-border/50">
+              {/* Queue matches */}
+              {(() => {
+                const q = searchQuery.toLowerCase();
+                const queueMatches = (activeRoom?.songs || []).filter((s: any) =>
+                  !s.isPlaying &&
+                  (s.trackName.toLowerCase().includes(q) ||
+                   s.artistName.toLowerCase().includes(q))
+                );
+                if (queueMatches.length === 0) return null;
+                return (
+                  <div className="p-2 space-y-1">
+                    <p className="text-text-secondary text-[10px] font-semibold uppercase tracking-wider px-1">In Queue</p>
+                    {queueMatches.map((song: any) => (
+                      <div key={song.id} className="flex items-center gap-3 p-2 rounded-lg">
+                        {song.albumArt && (
+                          <img src={song.albumArt} alt="" className="w-9 h-9 rounded-md" />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{song.trackName}</p>
+                          <p className="text-text-secondary text-xs truncate">{song.artistName}</p>
+                        </div>
+                        <span className="text-xs text-text-secondary">In queue</span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+
+              {searchResults.length > 0 && (
+                <div className="p-2 space-y-1">
+                  <p className="text-text-secondary text-[10px] font-semibold uppercase tracking-wider px-1">From Spotify</p>
+                  {searchResults.map((track: any) => {
+                    const inQueue = (activeRoom?.songs || []).some(
+                      (s: any) => s.spotifyUri === track.spotifyUri
+                    );
+                    return (
+                      <button
+                        key={track.spotifyUri}
+                        onClick={() => !inQueue && addSongToQueue(track)}
+                        disabled={inQueue}
+                        className={`w-full flex items-center gap-3 p-2 rounded-lg text-left transition-colors ${
+                          inQueue ? "opacity-50 cursor-default" : "hover:bg-bg-card-hover"
+                        }`}
+                      >
+                        {track.albumArt && (
+                          <img src={track.albumArt} alt="" className="w-9 h-9 rounded-md" />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">
+                            {track.trackName}
+                            {track.isExplicit && (
+                              <span className="ml-1 text-[10px] text-text-secondary bg-text-secondary/20 px-1 rounded">E</span>
+                            )}
+                          </p>
+                          <p className="text-text-secondary text-xs truncate">{track.artistName}</p>
+                        </div>
+                        <span className={`text-xs font-medium ${inQueue ? "text-text-secondary" : "text-accent"}`}>
+                          {inQueue ? "In queue" : "+ Add"}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {searching && (
+                <div className="p-3 text-center text-text-secondary text-xs">Searching...</div>
+              )}
+            </div>
+            {searchStatus && (
+              <div className="px-3 py-2 border-t border-border/50 text-center text-xs text-accent">{searchStatus}</div>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }
