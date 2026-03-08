@@ -7,6 +7,8 @@ const SYNC_INTERVAL = 5_000; // 5 seconds — fast enough to catch song endings 
 const CORS_ORIGINS = [
   VERCEL_URL,
   "https://crowddj.vercel.app",
+  "https://www.partyqueue.com",
+  "https://partyqueue.com",
   "http://localhost:3000",
 ];
 
