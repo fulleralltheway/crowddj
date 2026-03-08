@@ -63,6 +63,7 @@ model Room {
   autoShuffle      Boolean  @default(true)
   queueDisplaySize Int      @default(50)
   allowDuplicates  Boolean  @default(false) // allow songs to be replayed after being played
+  maxSongDurationSec Int    @default(0) // 0 = full length, otherwise max seconds per song before auto-transition
   lastSyncAdvance  DateTime @default(now()) // debounce sync advances
   lastPreQueuedId  String?  // ID of the song we last pre-queued, to avoid duplicate queue adds
   createdAt        DateTime @default(now())

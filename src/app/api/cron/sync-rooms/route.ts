@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { getCurrentPlayback, addToQueue } from "@/lib/spotify";
+import { getCurrentPlayback, addToQueue, skipToNext } from "@/lib/spotify";
 import { NextRequest, NextResponse } from "next/server";
 
 export const maxDuration = 30;
@@ -55,8 +55,40 @@ export async function GET(req: NextRequest) {
       if (playback.item.uri === currentSong.spotifyUri) {
         const remaining = playback.item.duration_ms - playback.progress_ms;
 
+        // Auto-transition: if maxSongDurationSec is set and exceeded, skip to next
+        if (room.maxSongDurationSec > 0 && playback.is_playing) {
+          const maxMs = room.maxSongDurationSec * 1000;
+          if (playback.progress_ms >= maxMs) {
+            // Mark current as played
+            await prisma.roomSong.update({
+              where: { id: currentSong.id },
+              data: { isPlaying: false, isPlayed: true },
+            });
+            const nextSong = await prisma.roomSong.findFirst({
+              where: { roomId: room.id, isPlayed: false, isPlaying: false },
+              orderBy: { sortOrder: "asc" },
+            });
+            if (nextSong) {
+              await prisma.roomSong.update({
+                where: { id: nextSong.id },
+                data: { isPlaying: true, isLocked: false },
+              });
+              try { await skipToNext(accessToken); } catch {}
+              await prisma.room.update({
+                where: { id: room.id },
+                data: { lastPreQueuedId: null, lastSyncAdvance: new Date() },
+              });
+              results.push({ code: room.code, status: "auto_transition", detail: nextSong.trackName });
+            } else {
+              results.push({ code: room.code, status: "auto_transition_end" });
+            }
+            continue;
+          }
+        }
+
         // At 15 seconds remaining, queue the next song and lock it in
-        if (remaining <= 15000 && playback.is_playing && !room.lastPreQueuedId) {
+        // Skip pre-queue when maxSongDurationSec is active (auto-transition handles it)
+        if (remaining <= 15000 && playback.is_playing && !room.lastPreQueuedId && !(room.maxSongDurationSec > 0)) {
           const nextSong = await prisma.roomSong.findFirst({
             where: { roomId: room.id, isPlayed: false, isPlaying: false },
             orderBy: { sortOrder: "asc" },

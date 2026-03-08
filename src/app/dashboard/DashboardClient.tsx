@@ -53,6 +53,7 @@ type Room = {
   queueDisplaySize: number;
   allowDuplicates: boolean;
   lastPreQueuedId: string | null;
+  maxSongDurationSec: number;
   songs: any[];
 };
 
@@ -541,6 +542,14 @@ function DashboardInner({ user }: { user: any }) {
     prevSpotifyUri.current = spotifyTrack.uri;
   }, [spotifyTrack?.uri, activeRoom?.code]);
 
+  // Auto-transition: refs declared here, effect below after fadeSkipSong
+  const autoTransitionFired = useRef(false);
+  const fadeSkipRef = useRef<() => void>(() => {});
+
+  useEffect(() => {
+    autoTransitionFired.current = false;
+  }, [spotifyTrack?.uri]);
+
   const fetchPlaylists = async () => {
     const res = await fetch("/api/spotify/playlists");
     if (res.ok) setPlaylists(await res.json());
@@ -834,6 +843,26 @@ function DashboardInner({ user }: { user: any }) {
       setIsFading(false);
     }
   };
+
+  // Auto-transition effect: fade-skip when max song duration is reached
+  fadeSkipRef.current = fadeSkipSong;
+  useEffect(() => {
+    const maxDur = activeRoom?.maxSongDurationSec;
+    if (!maxDur || maxDur <= 0 || !isPlaying || isFading) return;
+
+    const maxMs = maxDur * 1000;
+    const id = setInterval(() => {
+      if (autoTransitionFired.current) return;
+      const elapsed = Date.now() - progressSyncedAt.current;
+      const currentProgress = progressMs + elapsed;
+      if (currentProgress >= maxMs) {
+        autoTransitionFired.current = true;
+        fadeSkipRef.current();
+      }
+    }, 1000);
+
+    return () => clearInterval(id);
+  }, [activeRoom?.maxSongDurationSec, isPlaying, isFading, progressMs]);
 
   const cycleFadeSpeed = () => {
     setFadeSpeed((prev) => {
@@ -1675,6 +1704,34 @@ function DashboardInner({ user }: { user: any }) {
                 max={500}
                 onSave={(v) => saveSettings({ queueDisplaySize: v } as any)}
               />
+              <div>
+                <label className="block text-sm font-medium text-text-secondary mb-1">
+                  Max Song Duration (seconds)
+                </label>
+                <p className="text-[11px] text-white/30 mb-1.5">0 = full length. Auto-fades to next song at this time.</p>
+                <div className="flex gap-2">
+                  {[0, 60, 90, 120, 180].map((sec) => (
+                    <button
+                      key={sec}
+                      onClick={() => saveSettings({ maxSongDurationSec: sec } as any)}
+                      className={`flex-1 py-2 rounded-lg text-xs font-medium transition-colors ${
+                        (activeRoom.maxSongDurationSec ?? 0) === sec
+                          ? "bg-accent/20 text-accent border border-accent/30"
+                          : "bg-bg-primary border border-border text-text-secondary hover:bg-bg-card-hover"
+                      }`}
+                    >
+                      {sec === 0 ? "Full" : `${sec}s`}
+                    </button>
+                  ))}
+                </div>
+                <NumInput
+                  label="Custom (seconds)"
+                  value={activeRoom.maxSongDurationSec ?? 0}
+                  min={0}
+                  max={600}
+                  onSave={(v) => saveSettings({ maxSongDurationSec: v } as any)}
+                />
+              </div>
               <ToggleSwitch
                 enabled={activeRoom.requireApproval}
                 onToggle={() => saveSettings({ requireApproval: !activeRoom.requireApproval } as any)}
