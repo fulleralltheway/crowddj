@@ -1802,6 +1802,8 @@ function DashboardInner({ user }: { user: any }) {
         const rect = searchBarRef.current?.getBoundingClientRect();
         if (!rect) return null;
         return (
+          <>
+          <div className="fixed inset-0" style={{ zIndex: 9998 }} onClick={() => { setShowSearch(false); onSearchChange(""); }} />
           <div
             className="fixed bg-bg-card border border-border rounded-xl overflow-hidden shadow-2xl"
             style={{
@@ -1885,6 +1887,7 @@ function DashboardInner({ user }: { user: any }) {
               <div className="px-3 py-2 border-t border-border/50 text-center text-xs text-accent">{searchStatus}</div>
             )}
           </div>
+          </>
         );
       })()}
     </div>

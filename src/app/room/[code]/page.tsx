@@ -928,6 +928,8 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         if (queueMatches.length === 0 && searchResults.length === 0 && !searching) return null;
 
         return (
+          <>
+          <div className="fixed inset-0 z-40" onClick={() => { setShowSearch(false); setSearchQuery(""); setSearchResults([]); }} />
           <div className="absolute left-0 right-0 mx-4 mt-1 z-50 bg-bg-card border border-white/[0.08] rounded-xl overflow-hidden shadow-2xl">
             <div className="max-h-72 overflow-y-auto divide-y divide-border/50">
               {queueMatches.length > 0 && (
@@ -1032,6 +1034,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
               )}
             </div>
           </div>
+          </>
         );
       })()}
       </div>
