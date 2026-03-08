@@ -1817,27 +1817,67 @@ function DashboardInner({ user }: { user: any }) {
               {/* Queue matches */}
               {(() => {
                 const q = searchQuery.toLowerCase();
-                const queueMatches = (activeRoom?.songs || []).filter((s: any) =>
-                  !s.isPlaying &&
-                  (s.trackName.toLowerCase().includes(q) ||
-                   s.artistName.toLowerCase().includes(q))
+                const queueSongs = (activeRoom?.songs || []).filter((s: any) => !s.isPlaying);
+                const queueMatches = queueSongs.filter((s: any) =>
+                  s.trackName.toLowerCase().includes(q) ||
+                  s.artistName.toLowerCase().includes(q)
                 );
                 if (queueMatches.length === 0) return null;
                 return (
                   <div className="p-2 space-y-1">
                     <p className="text-text-secondary text-[10px] font-semibold uppercase tracking-wider px-1">In Queue</p>
-                    {queueMatches.map((song: any) => (
-                      <div key={song.id} className="flex items-center gap-3 p-2 rounded-lg">
-                        {song.albumArt && (
-                          <img src={song.albumArt} alt="" className="w-9 h-9 rounded-md" />
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium truncate">{song.trackName}</p>
-                          <p className="text-text-secondary text-xs truncate">{song.artistName}</p>
+                    {queueMatches.map((song: any) => {
+                      const queueIdx = queueSongs.findIndex((s: any) => s.id === song.id);
+                      return (
+                        <div key={song.id} className={`flex items-center gap-3 p-2 rounded-lg ${song.isLocked ? "bg-yellow-500/5" : ""}`}>
+                          {song.albumArt && (
+                            <img src={song.albumArt} alt="" className="w-9 h-9 rounded-md" />
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate">{song.trackName}</p>
+                            <p className="text-text-secondary text-xs truncate">
+                              {song.artistName} &middot; #{queueIdx + 1} in queue
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            <select
+                              className="bg-bg-primary border border-border rounded-lg text-xs px-1.5 py-1 focus:outline-none focus:border-accent"
+                              value=""
+                              onChange={(e) => {
+                                const targetPos = Number(e.target.value);
+                                if (!targetPos || !activeRoom) return;
+                                const arr = [...queueSongs];
+                                const fromIdx = arr.findIndex((s: any) => s.id === song.id);
+                                const [moved] = arr.splice(fromIdx, 1);
+                                arr.splice(targetPos - 1, 0, moved);
+                                setActiveRoom((prev) => {
+                                  if (!prev) return null;
+                                  const playing = prev.songs?.filter((s: any) => s.isPlaying) || [];
+                                  return { ...prev, songs: [...playing, ...arr] };
+                                });
+                                saveOrder(arr, song.id);
+                              }}
+                            >
+                              <option value="">Move to...</option>
+                              {queueSongs.map((_: any, idx: number) => (
+                                <option key={idx} value={idx + 1}>#{idx + 1}</option>
+                              ))}
+                            </select>
+                            <button
+                              onClick={() => lockSong(song.id)}
+                              className={`p-1.5 rounded-lg text-xs transition-colors ${
+                                song.isLocked
+                                  ? "bg-yellow-500/20 text-yellow-500"
+                                  : "bg-bg-card-hover text-text-secondary hover:text-white"
+                              }`}
+                              title={song.isLocked ? "Unlock" : "Lock"}
+                            >
+                              {song.isLocked ? "\u{1F513}" : "\u{1F512}"}
+                            </button>
+                          </div>
                         </div>
-                        <span className="text-xs text-text-secondary">In queue</span>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 );
               })()}
