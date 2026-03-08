@@ -32,6 +32,7 @@ type Room = {
   explicitFilter: boolean;
   requireApproval: boolean;
   maxSongsPerGuest: number;
+  lastPreQueuedId: string | null;
   host: { name: string; image: string | null };
 };
 
@@ -1022,8 +1023,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                       </span>
                     </button>
                     );
-                  }
-                  ))}
+                  })}
                 </div>
               )}
 
