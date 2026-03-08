@@ -61,6 +61,7 @@ export async function getPlaylistTracks(accessToken: string, playlistId: string)
       artistName: item.track.artists.map((a: any) => a.name).join(", "),
       albumArt: item.track.album.images?.[0]?.url || null,
       durationMs: item.track.duration_ms,
+      previewUrl: item.track.preview_url || null,
     }));
 }
 
@@ -77,6 +78,7 @@ export async function searchTracks(accessToken: string, query: string) {
     artistName: track.artists.map((a: any) => a.name).join(", "),
     albumArt: track.album.images?.[0]?.url || null,
     durationMs: track.duration_ms,
+    previewUrl: track.preview_url || null,
     isExplicit: track.explicit ?? false,
   }));
 }
@@ -164,4 +166,46 @@ export async function getCurrentPlayback(accessToken: string) {
   if (res.status === 204) return null;
   if (!res.ok) throw new Error("Failed to get playback");
   return res.json();
+}
+
+export async function getAudioFeatures(
+  accessToken: string,
+  trackIds: string[]
+): Promise<({ id: string; tempo: number; energy: number; danceability: number } | null)[]> {
+  if (trackIds.length === 0) return [];
+
+  const results: ({ id: string; tempo: number; energy: number; danceability: number } | null)[] = [];
+
+  // Batch in chunks of 100 (Spotify API limit)
+  for (let i = 0; i < trackIds.length; i += 100) {
+    const batch = trackIds.slice(i, i + 100);
+    const ids = batch.join(",");
+    try {
+      const res = await fetch(`${SPOTIFY_API}/audio-features?ids=${ids}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!res.ok) {
+        // Push nulls for failed batch
+        results.push(...batch.map(() => null));
+        continue;
+      }
+      const data = await res.json();
+      for (const feature of data.audio_features) {
+        if (feature) {
+          results.push({
+            id: feature.id,
+            tempo: feature.tempo,
+            energy: feature.energy,
+            danceability: feature.danceability,
+          });
+        } else {
+          results.push(null);
+        }
+      }
+    } catch {
+      results.push(...batch.map(() => null));
+    }
+  }
+
+  return results;
 }

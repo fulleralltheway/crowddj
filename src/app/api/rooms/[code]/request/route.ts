@@ -6,7 +6,7 @@ export async function POST(
   { params }: { params: Promise<{ code: string }> }
 ) {
   const { code } = await params;
-  const { spotifyUri, trackName, artistName, albumArt, durationMs, fingerprint, isExplicit } = await req.json();
+  const { spotifyUri, trackName, artistName, albumArt, durationMs, fingerprint, isExplicit, previewUrl } = await req.json();
 
   if (!spotifyUri || !trackName || !fingerprint) {
     return NextResponse.json({ error: "Missing fields" }, { status: 400 });
@@ -22,6 +22,25 @@ export async function POST(
   // Explicit filter (skip for host)
   if (!isHost && room.explicitFilter && isExplicit) {
     return NextResponse.json({ error: "Explicit songs are not allowed in this room" }, { status: 403 });
+  }
+
+  // Block list enforcement (skip for host)
+  if (!isHost) {
+    // Check blocked artists (case-insensitive)
+    if (room.blockedArtists) {
+      const blockedArtists = room.blockedArtists.split(",").map((a: string) => a.trim().toLowerCase()).filter(Boolean);
+      const requestArtist = (artistName || "").toLowerCase();
+      if (blockedArtists.some((blocked: string) => requestArtist.includes(blocked) || blocked.includes(requestArtist))) {
+        return NextResponse.json({ error: "This artist is blocked in this room" }, { status: 403 });
+      }
+    }
+    // Check blocked songs (by Spotify URI)
+    if (room.blockedSongs) {
+      const blockedSongs = room.blockedSongs.split(",").map((s: string) => s.trim()).filter(Boolean);
+      if (blockedSongs.includes(spotifyUri)) {
+        return NextResponse.json({ error: "This song is blocked in this room" }, { status: 403 });
+      }
+    }
   }
 
   // Max songs per guest (skip for host)
@@ -115,6 +134,7 @@ export async function POST(
       artistName,
       albumArt,
       durationMs,
+      previewUrl: previewUrl || null,
       sortOrder: (maxOrder?.sortOrder ?? -1) + 1,
       isRequested: true,
       addedBy: fingerprint,

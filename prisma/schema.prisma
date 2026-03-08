@@ -64,6 +64,14 @@ model Room {
   queueDisplaySize Int      @default(50)
   allowDuplicates  Boolean  @default(false) // allow songs to be replayed after being played
   maxSongDurationSec Int    @default(0) // 0 = full length, otherwise max seconds per song before auto-transition
+  blockedArtists   String   @default("") // comma-separated blocked artist names
+  blockedSongs     String   @default("") // comma-separated blocked spotify URIs
+  scheduledStart   DateTime? // optional scheduled start time
+  brandColor       String   @default("") // custom accent color hex, empty = default green
+  brandName        String   @default("") // custom display name for branding
+  totalSongsPlayed Int      @default(0) // event stats
+  totalVotesCast   Int      @default(0) // event stats
+  peakGuestCount   Int      @default(0) // event stats
   lastSyncAdvance  DateTime @default(now()) // debounce sync advances
   lastPreQueuedId  String?  // ID of the song we last pre-queued, to avoid duplicate queue adds
   createdAt        DateTime @default(now())
@@ -89,6 +97,12 @@ model RoomSong {
   isPlayed      Boolean @default(false)
   isLocked      Boolean @default(false)
   isRequested   Boolean @default(false) // true if guest-requested (always shown in display)
+  isPinned      Boolean @default(false) // set list planner: pinned to position
+  pinnedPosition Int?   // target position in set list
+  previewUrl    String? // Spotify 30s preview MP3 URL
+  tempo         Float?  // BPM from Spotify audio features
+  energy        Float?  // 0.0-1.0 energy level
+  danceability  Float?  // 0.0-1.0 danceability
   addedBy       String? // fingerprint of who requested it, null if from original playlist
   addedByName   String?
   createdAt     DateTime @default(now())

@@ -104,6 +104,8 @@ export async function PATCH(
   if (body.queueDisplaySize !== undefined) updates.queueDisplaySize = Number(body.queueDisplaySize);
   if (body.allowDuplicates !== undefined) updates.allowDuplicates = Boolean(body.allowDuplicates);
   if (body.maxSongDurationSec !== undefined) updates.maxSongDurationSec = Math.max(0, Math.min(600, Number(body.maxSongDurationSec)));
+  if (body.blockedArtists !== undefined) updates.blockedArtists = String(body.blockedArtists);
+  if (body.blockedSongs !== undefined) updates.blockedSongs = String(body.blockedSongs);
 
   const updated = await prisma.room.update({
     where: { id: room.id },

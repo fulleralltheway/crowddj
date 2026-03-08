@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getPlaylistTracks } from "@/lib/spotify";
+import { getPlaylistTracks, getAudioFeatures } from "@/lib/spotify";
 import { NextRequest, NextResponse } from "next/server";
 
 function generateRoomCode(): string {
@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
   // Fetch playlist tracks from Spotify
   const tracks = await getPlaylistTracks(accessToken, playlistId);
 
-  // Create room with songs
+  // Create room with songs (include previewUrl)
   const room = await prisma.room.create({
     data: {
       code,
@@ -59,12 +59,56 @@ export async function POST(req: NextRequest) {
           artistName: track.artistName,
           albumArt: track.albumArt,
           durationMs: track.durationMs,
+          previewUrl: track.previewUrl,
           sortOrder: index,
         })),
       },
     },
     include: { songs: true },
   });
+
+  // Batch-fetch audio features and update songs
+  try {
+    const trackIds = room.songs
+      .map((s) => {
+        const match = s.spotifyUri.match(/spotify:track:(.+)/);
+        return match ? match[1] : null;
+      })
+      .filter((id): id is string => id !== null);
+
+    if (trackIds.length > 0) {
+      const features = await getAudioFeatures(accessToken, trackIds);
+      const featureMap = new Map<string, { tempo: number; energy: number; danceability: number }>();
+      for (const f of features) {
+        if (f) featureMap.set(f.id, { tempo: f.tempo, energy: f.energy, danceability: f.danceability });
+      }
+
+      // Update songs with audio features in parallel
+      const updates = room.songs
+        .map((song) => {
+          const match = song.spotifyUri.match(/spotify:track:(.+)/);
+          const id = match ? match[1] : null;
+          const feat = id ? featureMap.get(id) : null;
+          if (!feat) return null;
+          return prisma.roomSong.update({
+            where: { id: song.id },
+            data: { tempo: feat.tempo, energy: feat.energy, danceability: feat.danceability },
+          });
+        })
+        .filter(Boolean);
+
+      await Promise.all(updates);
+
+      // Re-fetch songs with updated features
+      const updatedSongs = await prisma.roomSong.findMany({
+        where: { roomId: room.id },
+        orderBy: { sortOrder: "asc" },
+      });
+      return NextResponse.json({ ...room, songs: updatedSongs });
+    }
+  } catch {
+    // Audio features are non-critical — return room without them
+  }
 
   return NextResponse.json(room);
 }

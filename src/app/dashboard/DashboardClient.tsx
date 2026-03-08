@@ -54,6 +54,8 @@ type Room = {
   allowDuplicates: boolean;
   lastPreQueuedId: string | null;
   maxSongDurationSec: number;
+  blockedArtists: string;
+  blockedSongs: string;
   songs: any[];
 };
 
@@ -380,6 +382,8 @@ function DashboardInner({ user }: { user: any }) {
     const saved = localStorage.getItem("pq_fade_duration");
     return saved ? Number(saved) : 3;
   });
+  const [previewSongId, setPreviewSongId] = useState<string | null>(null);
+  const previewAudioRef = useRef<HTMLAudioElement | null>(null);
   const [songListRef] = useAutoAnimate({ duration: 300 });
   const [pullRefreshing, setPullRefreshing] = useState(false);
   const [pullDistance, setPullDistance] = useState(0);
@@ -893,6 +897,34 @@ function DashboardInner({ user }: { user: any }) {
       fetchRooms();
     }
   };
+
+  const togglePreview = (songId: string, previewUrl: string) => {
+    if (previewSongId === songId) {
+      // Stop current preview
+      previewAudioRef.current?.pause();
+      previewAudioRef.current = null;
+      setPreviewSongId(null);
+      return;
+    }
+    // Stop previous preview if any
+    previewAudioRef.current?.pause();
+    const audio = new Audio(previewUrl);
+    audio.volume = 0.5;
+    audio.play().catch(() => {});
+    audio.onended = () => {
+      setPreviewSongId(null);
+      previewAudioRef.current = null;
+    };
+    previewAudioRef.current = audio;
+    setPreviewSongId(songId);
+  };
+
+  // Cleanup preview audio on unmount
+  useEffect(() => {
+    return () => {
+      previewAudioRef.current?.pause();
+    };
+  }, []);
 
   const lockSong = async (songId: string, position?: number) => {
     if (!activeRoom) return;
@@ -1527,6 +1559,15 @@ function DashboardInner({ user }: { user: any }) {
                   </button>
                 )}
               </div>
+              <button
+                onClick={() => window.open(`/room/${activeRoom.code}/display`, '_blank')}
+                className="mt-3 flex items-center justify-center gap-2 px-4 py-2 w-full bg-bg-card-hover text-text-secondary text-sm font-medium rounded-lg hover:bg-border hover:text-white transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+                TV Display Mode
+              </button>
             </div>
           )}
 
@@ -1816,6 +1857,55 @@ function DashboardInner({ user }: { user: any }) {
                 label="Notifications"
                 description="Get notified when guests add or request songs"
               />
+              {/* Block List */}
+              <div>
+                <label className="block text-sm font-medium text-text-secondary mb-1">Blocked Artists</label>
+                <p className="text-[11px] text-white/30 mb-1.5">Guests cannot request songs by these artists.</p>
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const input = (e.target as HTMLFormElement).elements.namedItem("blockedArtistInput") as HTMLInputElement;
+                    const val = input.value.trim();
+                    if (!val) return;
+                    const current = (activeRoom.blockedArtists || "").split(",").map((s) => s.trim()).filter(Boolean);
+                    if (current.some((a) => a.toLowerCase() === val.toLowerCase())) { input.value = ""; return; }
+                    const updated = [...current, val].join(",");
+                    saveSettings({ blockedArtists: updated } as any);
+                    input.value = "";
+                  }}
+                >
+                  <input
+                    name="blockedArtistInput"
+                    type="text"
+                    placeholder="Type artist name + Enter"
+                    className="w-full px-3 py-2 bg-bg-primary border border-border rounded-lg text-sm focus:outline-none focus:border-accent"
+                  />
+                </form>
+                {(activeRoom.blockedArtists || "").split(",").filter((a) => a.trim()).length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {(activeRoom.blockedArtists || "").split(",").map((a) => a.trim()).filter(Boolean).map((artist) => (
+                      <span
+                        key={artist}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 bg-downvote/10 text-downvote/80 border border-downvote/20 rounded-full text-xs"
+                      >
+                        {artist}
+                        <button
+                          onClick={() => {
+                            const current = (activeRoom.blockedArtists || "").split(",").map((s) => s.trim()).filter(Boolean);
+                            const updated = current.filter((a) => a.toLowerCase() !== artist.toLowerCase()).join(",");
+                            saveSettings({ blockedArtists: updated } as any);
+                          }}
+                          className="ml-0.5 hover:text-downvote transition-colors"
+                        >
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -2023,8 +2113,41 @@ function DashboardInner({ user }: { user: any }) {
                     {song.addedByName && (
                       <p className="text-accent text-xs truncate">Req&apos;d by {song.addedByName?.split(" ")[0] || song.addedByName}</p>
                     )}
+                    {/* BPM / Energy badges — desktop only */}
+                    {(song.tempo || song.energy !== null) && (
+                      <div className="hidden lg:flex items-center gap-1.5 mt-0.5">
+                        {song.tempo != null && (
+                          <span className="text-[10px] text-white/30 font-medium tabular-nums">{Math.round(song.tempo)} BPM</span>
+                        )}
+                        {song.energy != null && (
+                          <span className={`inline-block w-1.5 h-1.5 rounded-full ${song.energy >= 0.7 ? "bg-green-500" : song.energy >= 0.4 ? "bg-yellow-500" : "bg-red-500"}`} title={`Energy: ${Math.round(song.energy * 100)}%`} />
+                        )}
+                        {song.danceability != null && (
+                          <span className="text-[10px] text-white/20 tabular-nums">{Math.round(song.danceability * 100)}% dance</span>
+                        )}
+                      </div>
+                    )}
                   </div>
                   <div className="flex items-center gap-1">
+                    {/* Preview button — desktop only */}
+                    {song.previewUrl && (
+                      <button
+                        onClick={() => togglePreview(song.id, song.previewUrl)}
+                        className={`hidden lg:flex w-7 h-7 rounded-lg items-center justify-center transition-colors ${previewSongId === song.id ? "text-accent bg-accent/10" : "text-white/20 hover:text-white/40 hover:bg-white/[0.04]"}`}
+                        title={previewSongId === song.id ? "Stop preview" : "Preview 30s clip"}
+                      >
+                        {previewSongId === song.id ? (
+                          <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+                            <rect x="6" y="4" width="4" height="16" rx="1" />
+                            <rect x="14" y="4" width="4" height="16" rx="1" />
+                          </svg>
+                        ) : (
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M15.536 8.464a5 5 0 010 7.072M17.95 6.05a8 8 0 010 11.9M6.5 8.5l5-4v15l-5-4H4a1 1 0 01-1-1v-5a1 1 0 011-1h2.5z" />
+                          </svg>
+                        )}
+                      </button>
+                    )}
                     {!(song.isLocked && activeRoom.lastPreQueuedId !== song.id) && (
                       <div className="text-right mr-0.5">
                         {(() => {
@@ -2064,6 +2187,21 @@ function DashboardInner({ user }: { user: any }) {
                         <>
                           <div className="fixed inset-0 z-40" onClick={() => setSongMenuOpen(null)} />
                           <div className="absolute right-0 top-full mt-1 z-50 bg-bg-card border border-white/[0.1] rounded-xl shadow-2xl overflow-hidden min-w-[140px]">
+                            {song.previewUrl && (
+                              <button
+                                onClick={() => { togglePreview(song.id, song.previewUrl); setSongMenuOpen(null); }}
+                                className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm hover:bg-white/[0.06] transition-colors text-left"
+                              >
+                                <svg className={`w-4 h-4 ${previewSongId === song.id ? "text-accent" : "text-white/40"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
+                                  {previewSongId === song.id ? (
+                                    <><rect x="6" y="4" width="4" height="16" rx="1" fill="currentColor" stroke="none" /><rect x="14" y="4" width="4" height="16" rx="1" fill="currentColor" stroke="none" /></>
+                                  ) : (
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.536 8.464a5 5 0 010 7.072M17.95 6.05a8 8 0 010 11.9M6.5 8.5l5-4v15l-5-4H4a1 1 0 01-1-1v-5a1 1 0 011-1h2.5z" />
+                                  )}
+                                </svg>
+                                <span className={previewSongId === song.id ? "text-accent" : ""}>{previewSongId === song.id ? "Stop Preview" : "Preview"}</span>
+                              </button>
+                            )}
                             <button
                               onClick={() => { lockSong(song.id); setSongMenuOpen(null); }}
                               className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm hover:bg-white/[0.06] transition-colors text-left"
@@ -2085,6 +2223,23 @@ function DashboardInner({ user }: { user: any }) {
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                               </svg>
                               Remove
+                            </button>
+                            <button
+                              onClick={() => {
+                                const artist = song.artistName?.trim();
+                                if (!artist) { setSongMenuOpen(null); return; }
+                                const current = (activeRoom.blockedArtists || "").split(",").map((s: string) => s.trim()).filter(Boolean);
+                                if (!current.some((a: string) => a.toLowerCase() === artist.toLowerCase())) {
+                                  saveSettings({ blockedArtists: [...current, artist].join(",") } as any);
+                                }
+                                setSongMenuOpen(null);
+                              }}
+                              className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm hover:bg-downvote/10 transition-colors text-left text-downvote/80"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                              </svg>
+                              Block Artist
                             </button>
                           </div>
                         </>

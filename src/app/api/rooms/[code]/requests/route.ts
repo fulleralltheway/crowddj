@@ -2,6 +2,8 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { NextRequest, NextResponse } from "next/server";
 
+const SPOTIFY_API = "https://api.spotify.com/v1";
+
 // GET pending requests (host only)
 export async function GET(
   _req: NextRequest,
@@ -60,11 +62,37 @@ export async function PATCH(
     });
     const newOrder = (maxOrder?.sortOrder ?? -1) + 1;
 
+    // Fetch previewUrl from Spotify for the approved song
+    let previewUrl: string | null = null;
+    try {
+      const trackMatch = songRequest.spotifyUri.match(/spotify:track:(.+)/);
+      if (trackMatch) {
+        const account = await prisma.account.findFirst({
+          where: { userId: room.hostId, provider: "spotify" },
+        });
+        if (account?.access_token) {
+          const trackRes = await fetch(`${SPOTIFY_API}/tracks/${trackMatch[1]}`, {
+            headers: { Authorization: `Bearer ${account.access_token}` },
+          });
+          if (trackRes.ok) {
+            const trackData = await trackRes.json();
+            previewUrl = trackData.preview_url || null;
+          }
+        }
+      }
+    } catch {
+      // Non-critical — continue without preview URL
+    }
+
     if (existing) {
       // Bump existing song into visible queue
       await prisma.roomSong.update({
         where: { id: existing.id },
-        data: { isRequested: true, sortOrder: newOrder },
+        data: {
+          isRequested: true,
+          sortOrder: newOrder,
+          ...(previewUrl && !existing.previewUrl ? { previewUrl } : {}),
+        },
       });
     } else {
       await prisma.roomSong.create({
@@ -75,6 +103,7 @@ export async function PATCH(
           artistName: songRequest.artistName,
           albumArt: songRequest.albumArt,
           durationMs: songRequest.durationMs,
+          previewUrl,
           sortOrder: newOrder,
           isRequested: true,
           addedBy: songRequest.requestedBy,
