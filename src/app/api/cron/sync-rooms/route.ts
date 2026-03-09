@@ -35,6 +35,17 @@ export async function GET(req: NextRequest) {
 
   const results: { code: string; status: string; detail?: string }[] = [];
 
+  // Report rooms that the caller asked about but aren't active (closed/expired/not found)
+  if (roomCodes) {
+    const codes = roomCodes.split(",").filter(Boolean);
+    const foundCodes = new Set(rooms.map((r) => r.code));
+    for (const code of codes) {
+      if (!foundCodes.has(code)) {
+        results.push({ code, status: "room_closed" });
+      }
+    }
+  }
+
   for (const room of rooms) {
     const currentSong = room.songs[0];
     if (!currentSong) {

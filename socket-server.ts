@@ -16,7 +16,7 @@ const httpServer = createServer((req, res) => {
   // Health check endpoint for Fly.io
   if (req.url === "/health") {
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ status: "ok", rooms: activeRooms.size }));
+    res.end(JSON.stringify({ status: "ok", rooms: activeRooms.size, backgroundRooms: backgroundRooms.size }));
     return;
   }
   res.writeHead(404);
@@ -35,11 +35,23 @@ const io = new Server(httpServer, {
 // Track active rooms and their client counts
 const activeRooms = new Map<string, Set<string>>(); // roomCode -> set of socket IDs
 
+// Rooms that should keep syncing even when all clients disconnect.
+// Removed when room is explicitly closed, or when the cron reports it's inactive/expired.
+const backgroundRooms = new Set<string>();
+
 // Track rooms currently being faded (prevent double-triggers)
 const fadingRooms = new Set<string>();
 
 function getRoomCount(roomCode: string): number {
   return activeRooms.get(roomCode)?.size || 0;
+}
+
+// Get all rooms that need syncing — connected clients + background rooms
+function getAllSyncRooms(): string[] {
+  const rooms = new Set<string>();
+  for (const code of activeRooms.keys()) rooms.add(code);
+  for (const code of backgroundRooms) rooms.add(code);
+  return Array.from(rooms);
 }
 
 io.on("connection", (socket) => {
@@ -59,6 +71,9 @@ io.on("connection", (socket) => {
     if (!activeRooms.has(roomCode)) activeRooms.set(roomCode, new Set());
     activeRooms.get(roomCode)!.add(socket.id);
 
+    // Room is known — keep syncing it even if everyone leaves later
+    backgroundRooms.add(roomCode);
+
     // Send guest count to everyone in the room
     io.to(roomCode).emit("guest-count", getRoomCount(roomCode));
 
@@ -71,6 +86,7 @@ io.on("connection", (socket) => {
     if (activeRooms.get(roomCode)?.size === 0) activeRooms.delete(roomCode);
     if (currentRoom === roomCode) currentRoom = null;
     io.to(roomCode).emit("guest-count", getRoomCount(roomCode));
+    // Note: room stays in backgroundRooms so sync continues
   });
 
   // Client signals that something changed — debounced to coalesce rapid events
@@ -108,8 +124,9 @@ io.on("connection", (socket) => {
   socket.on("room-closed", (roomCode: string) => {
     io.to(roomCode).emit("room-closed");
     console.log(`[${roomCode}] Room closed by host`);
-    // Clean up tracking
+    // Clean up all tracking — room is done
     activeRooms.delete(roomCode);
+    backgroundRooms.delete(roomCode);
   });
 
   socket.on("disconnect", () => {
@@ -118,6 +135,7 @@ io.on("connection", (socket) => {
       if (activeRooms.get(currentRoom)?.size === 0) activeRooms.delete(currentRoom);
       io.to(currentRoom).emit("guest-count", getRoomCount(currentRoom));
       console.log(`[${currentRoom}] Client left (${getRoomCount(currentRoom)} connected)`);
+      // Note: room stays in backgroundRooms so sync continues
     }
   });
 });
@@ -185,9 +203,11 @@ async function triggerServerFade(roomCode: string) {
     const result = await res.json();
     console.log(`[${roomCode}] Fade result:`, JSON.stringify(result));
 
-    // Broadcast updated state to all clients
-    await broadcastSongs(roomCode);
-    await broadcastRoomState(roomCode);
+    // Broadcast updated state to all clients (if any are connected)
+    if (activeRooms.has(roomCode)) {
+      await broadcastSongs(roomCode);
+      await broadcastRoomState(roomCode);
+    }
   } catch (err) {
     console.error(`[${roomCode}] Server fade error:`, err);
   } finally {
@@ -195,20 +215,19 @@ async function triggerServerFade(roomCode: string) {
   }
 }
 
-// Background sync loop — only runs when clients are connected
+// Background sync loop — syncs all known rooms (connected + background)
 async function syncAllRooms() {
   if (!CRON_SECRET) {
     console.warn("CRON_SECRET not set — sync loop disabled");
     return;
   }
 
-  // Skip sync if no active rooms — prevents hammering Turso when idle
-  if (activeRooms.size === 0) return;
+  const allRooms = getAllSyncRooms();
+  if (allRooms.length === 0) return;
 
   try {
-    // Only sync rooms that have connected clients (not all active rooms in DB)
-    const connectedRooms = Array.from(activeRooms.keys()).join(",");
-    const url = `${VERCEL_URL}/api/cron/sync-rooms?secret=${encodeURIComponent(CRON_SECRET)}&rooms=${encodeURIComponent(connectedRooms)}&deferFade=true`;
+    const roomsList = allRooms.join(",");
+    const url = `${VERCEL_URL}/api/cron/sync-rooms?secret=${encodeURIComponent(CRON_SECRET)}&rooms=${encodeURIComponent(roomsList)}&deferFade=true`;
     const res = await fetch(url);
     if (res.ok) {
       const data = await res.json();
@@ -216,8 +235,16 @@ async function syncAllRooms() {
       if (nonPlaying.length > 0) {
         console.log("Sync results:", JSON.stringify(nonPlaying));
       }
-      // If any rooms advanced or changed, broadcast updates to connected clients
+      // Process results for all rooms
       for (const result of data.results || []) {
+        // Room closed/expired — stop tracking it
+        if (result.status === "room_closed" || result.status === "room_expired") {
+          backgroundRooms.delete(result.code);
+          activeRooms.delete(result.code);
+          console.log(`[${result.code}] Room ended — removed from sync`);
+          continue;
+        }
+
         if (result.status !== "playing" && result.status !== "no_current_song" && result.status !== "debounced") {
           // needs_fade means the cron detected a song past its max duration
           // and no client is handling the fade — trigger server-side fade
@@ -225,10 +252,12 @@ async function syncAllRooms() {
             triggerServerFade(result.code);
           }
 
-          await broadcastSongs(result.code);
-          // Broadcast room state when lastPreQueuedId changes (queued_next sets it, advanced/advanced_prequeued clears it)
-          if (result.status === "queued_next" || result.status === "advanced" || result.status === "advanced_prequeued" || result.status === "prequeued_maxdur") {
-            await broadcastRoomState(result.code);
+          // Only broadcast to rooms with connected clients
+          if (activeRooms.has(result.code)) {
+            await broadcastSongs(result.code);
+            if (result.status === "queued_next" || result.status === "advanced" || result.status === "advanced_prequeued" || result.status === "prequeued_maxdur") {
+              await broadcastRoomState(result.code);
+            }
           }
         }
       }
