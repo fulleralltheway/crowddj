@@ -565,6 +565,17 @@ function DashboardInner({ user }: { user: any }) {
   const autoTransitionFired = useRef(false);
   const autoTransitionSongUri = useRef<string | null>(null); // the URI we last confirmed progress for
   const autoPreQueueFired = useRef(false); // tracks if we pre-queued 15s before fade
+
+  // Reset auto-transition when Spotify track actually changes — this is the
+  // definitive signal that a new song started, regardless of how it happened
+  useEffect(() => {
+    if (!spotifyTrack?.uri) return;
+    if (autoTransitionSongUri.current && spotifyTrack.uri !== autoTransitionSongUri.current) {
+      autoTransitionFired.current = false;
+      autoPreQueueFired.current = false;
+    }
+    autoTransitionSongUri.current = spotifyTrack.uri;
+  }, [spotifyTrack?.uri]);
   const fadeSkipRef = useRef<() => void>(() => {});
 
   const fetchPlaylists = async () => {
@@ -962,20 +973,9 @@ function DashboardInner({ user }: { user: any }) {
       // Skip if progress data is stale (>15s old) — wait for fresh sync
       if (elapsed > 15000) return;
 
-      // Only allow auto-transition when we have confirmed progress for THIS song.
-      // After a skip, autoTransitionFired is set true and progressMs may still be
-      // from the old song. We reset it only when progressMs is fresh (low elapsed)
-      // AND clearly belongs to the current song (well below the trigger point initially).
-      if (autoTransitionFired.current) {
-        // Reset only when we're sure this is fresh data for the new song:
-        // progress is well below trigger AND the URI has changed since the transition
-        if (currentUri !== autoTransitionSongUri.current && currentProgress < triggerMs * 0.8) {
-          autoTransitionFired.current = false;
-          autoPreQueueFired.current = false;
-          autoTransitionSongUri.current = currentUri;
-        }
-        return;
-      }
+      // After a manual action or auto-transition, autoTransitionFired is set true.
+      // It gets reset by the useEffect above when spotifyTrack.uri actually changes.
+      if (autoTransitionFired.current) return;
 
       // Pre-queue: 15s before fade threshold, lock the next song so UI shows "up next"
       const preQueueMs = triggerMs - 15000;
