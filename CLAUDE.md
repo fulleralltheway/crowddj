@@ -25,13 +25,13 @@ npx prisma generate      # Regenerate Prisma client (output: src/generated/prism
 npx prisma studio        # Open Prisma Studio GUI
 ```
 
-Schema changes cannot be pushed to Turso directly with `prisma db push`. Tables are created on Turso via direct SQL using `@libsql/client`.
+Schema changes: `DATABASE_URL=<neon-connection-string> npx prisma db push`
 
 ## Architecture
 
 ### Tech Stack
 - **Next.js 16** (App Router) + TypeScript + **Tailwind CSS v4** (`@theme inline` for custom vars)
-- **Prisma 7** with SQLite via `@prisma/adapter-libsql` (Turso in production, `file:prisma/dev.db` locally)
+- **Prisma 7** with PostgreSQL via `@prisma/adapter-neon` (Neon Postgres, free tier)
 - **NextAuth v5 beta** with custom Prisma adapter (`src/lib/prisma-adapter.ts`)
 - **Socket.io** for real-time updates (separate server, not Vercel-compatible)
 - **FingerprintJS** for device-based guest identity (anti-abuse)
@@ -39,8 +39,7 @@ Schema changes cannot be pushed to Turso directly with `prisma db push`. Tables 
 ### Prisma 7 Specifics
 - Adapter pattern required: `new PrismaClient({ adapter })` — no zero-arg constructor
 - Import from `@/generated/prisma/client` (not `@/generated/prisma`)
-- Adapter class is `PrismaLibSql` (not `PrismaLibSQL`) from `@prisma/adapter-libsql`
-- `PrismaLibSql` takes `{ url, authToken }` config object, NOT a `@libsql/client` Client instance
+- Adapter class is `PrismaNeon` from `@prisma/adapter-neon`, takes `{ connectionString }`
 - `prisma.config.ts` lives at project root (not in `prisma/` dir)
 - Schema datasource has no `url` field (moved to prisma.config.ts)
 
@@ -48,7 +47,7 @@ Schema changes cannot be pushed to Turso directly with `prisma db push`. Tables 
 
 1. **Next.js on Vercel** — UI + API routes. All API endpoints under `src/app/api/rooms/[code]/`. The `auth()` call in API routes provides session with `(session as any).accessToken` for Spotify API calls.
 
-2. **Socket.io on Fly.io** (`socket-server.ts`, `Dockerfile.socket`) — Real-time event relay + background sync loop. Runs a 5-second interval calling the Vercel cron endpoint, then broadcasts song/room updates to connected clients. Key events: `songs-update`, `room-update`, `vote-update`, `songs-reordered`, `song-requested`, `room-settings-changed`.
+2. **Socket.io on Fly.io** (`socket-server.ts`, `Dockerfile.socket`) — Real-time event relay + background sync loop. Runs a 10-second interval calling the Vercel cron endpoint (skips when no rooms active), then broadcasts song/room updates to connected clients. Key events: `songs-update`, `room-update`, `vote-update`, `songs-reordered`, `song-requested`, `room-settings-changed`.
 
 3. **Spotify Web API** (`src/lib/spotify.ts`) — Playback control, search, playlist import. Token refresh happens in both `auth.ts` (session callback) and `cron/sync-rooms` (direct refresh from Account table).
 
@@ -75,7 +74,7 @@ Schema changes cannot be pushed to Turso directly with `prisma db push`. Tables 
 - Splash screens and maskable icons configured in `src/app/layout.tsx` and `public/manifest.json`
 
 ### Key Files
-- `src/lib/db.ts` — Prisma singleton with Turso/local SQLite adapter detection
+- `src/lib/db.ts` — Prisma singleton with Neon Postgres adapter
 - `src/lib/auth.ts` — NextAuth config, Spotify OAuth scopes, token refresh in session callback
 - `src/lib/spotify.ts` — All Spotify API wrappers (playback, search, queue, devices)
 - `src/lib/socket.ts` — Client-side Socket.io singleton with no-op stub fallback
@@ -91,8 +90,7 @@ Schema changes cannot be pushed to Turso directly with `prisma db push`. Tables 
 ### Environment Variables
 - `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` — Spotify app credentials
 - `NEXTAUTH_SECRET`, `NEXTAUTH_URL` — NextAuth config
-- `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` — Production database
-- `DATABASE_URL` — Set to `file:///tmp/dev.db` on Vercel (unused with adapter, but required by Prisma)
+- `DATABASE_URL` — Neon Postgres connection string (pooler endpoint with sslmode=require)
 - `NEXT_PUBLIC_SOCKET_URL` — Socket.io server URL (e.g., `https://crowddj-socket.fly.dev`)
 - `CRON_SECRET` — Shared secret between socket server and cron endpoint
 
@@ -100,10 +98,11 @@ Schema changes cannot be pushed to Turso directly with `prisma db push`. Tables 
 - **Vercel env vars via CLI**: Use `printf 'value' | vercel env add` NOT `echo` (echo adds trailing newline which corrupts URLs/tokens)
 - **NextAuth v5 signin**: Must use `signIn("spotify")` from `next-auth/react` (POST+CSRF). Direct GET to signin URL throws `UnknownAction`
 - Auth config needs `trustHost: true` and `basePath: "/api/auth"` for Vercel
-- Spotify app is in "Development mode" — redirect URI: `https://crowddj.vercel.app/api/auth/callback/spotify`
+- Spotify app is in "Development mode" — redirect URIs: `https://crowddj.vercel.app/api/auth/callback/spotify` and `https://www.partyqueue.com/api/auth/callback/spotify`
 
 ## Production URLs
 - App: https://crowddj.vercel.app
 - Socket: https://crowddj-socket.fly.dev
 - GitHub: https://github.com/fulleralltheway/crowddj
-- Turso DB: libsql://crowddj-fulleralltheway.aws-us-east-1.turso.io
+- Neon DB: ep-tiny-frog-a4yf3eo4-pooler.us-east-1.aws.neon.tech/neondb
+- Domain: https://www.partyqueue.com
