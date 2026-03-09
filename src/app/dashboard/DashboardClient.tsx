@@ -999,10 +999,18 @@ function DashboardInner({ user }: { user: any }) {
     if (res.ok) {
       getSocket().emit("room-closed", code);
       const data = await res.json();
+      setActiveRoom(null);
       if (data.stats) {
         setRecapStats(data.stats);
+        // Recap modal's "Done" button navigates to rooms view
+      } else {
+        setView("rooms");
       }
+      fetchRooms();
+    } else {
+      // API failed — still navigate back so the user isn't stuck
       setActiveRoom(null);
+      setView("rooms");
       fetchRooms();
     }
   };
