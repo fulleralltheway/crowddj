@@ -253,20 +253,19 @@ function MiniPlayer({
 
               <div className="w-px h-6 bg-white/[0.06] mx-0.5" />
 
-              {/* Fade & Pause */}
+              {/* Fade & Stop */}
               <button
                 onClick={controlsLocked ? undefined : onFadePause}
                 className={`flex flex-col items-center justify-center rounded-lg px-2 py-1 transition-colors ${
                   controlsLocked ? "opacity-30 cursor-not-allowed" : "text-white/40 hover:text-white/70 hover:bg-white/[0.04]"
                 }`}
                 disabled={controlsLocked || isFading}
-                title="Fade out and pause"
+                title="Fade out, stop, and load next song"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                  <rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor" />
-                  <rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor" />
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                  <rect x="4" y="4" width="16" height="16" rx="2" />
                 </svg>
-                <span className="text-[8px] font-medium leading-tight mt-0.5">Fade</span>
+                <span className="text-[8px] font-medium leading-tight mt-0.5">Stop</span>
               </button>
 
               {/* Play/Pause — main control, larger */}
@@ -923,18 +922,22 @@ function DashboardInner({ user }: { user: any }) {
   const fadePause = async () => {
     if (!activeRoom || isFading || playbackBusy.current) return;
     playbackBusy.current = true;
-    autoTransitionFired.current = true; // Block auto-transition during fade-to-pause
+    autoTransitionFired.current = true; // Block auto-transition during fade-to-stop
     autoPreQueueFired.current = false;
     setIsFading(true);
     try {
-      // No lock-next needed for fade-to-pause (not advancing to next song)
+      // Lock the next song before fading so UI shows "up next"
+      await lockNextSong();
       const res = await fetch(`/api/rooms/${activeRoom.code}/fade-skip`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ fadeDurationMs: fadeDurationSec * 1000, mode: "pause" }),
       });
-      if (!res.ok) throw new Error("Fade pause failed");
+      if (!res.ok) throw new Error("Fade stop failed");
       setIsPlaying(false);
+      // Refresh songs since queue advanced (next song is now "playing" but paused)
+      await fetchSongs();
+      socketRef.current?.emit("song-skipped", activeRoom.code);
     } catch {
       // Fall back to hard pause
       try {

@@ -64,16 +64,14 @@ export async function POST(
     originalVolume = playback?.device?.volume_percent ?? 80;
 
     // Lock the next song in DB so UI shows it as "up next"
-    if (mode === "skip") {
-      const nextUp = await getNextSong(room.id, room.autoShuffle);
-      if (nextUp) {
-        lockedNextSong = nextUp;
-        if (!nextUp.isLocked) {
-          await prisma.roomSong.update({
-            where: { id: nextUp.id },
-            data: { isLocked: true },
-          });
-        }
+    const nextUp = await getNextSong(room.id, room.autoShuffle);
+    if (nextUp) {
+      lockedNextSong = nextUp;
+      if (!nextUp.isLocked) {
+        await prisma.roomSong.update({
+          where: { id: nextUp.id },
+          data: { isLocked: true },
+        });
       }
     }
 
@@ -82,7 +80,8 @@ export async function POST(
       if (mode === "pause") {
         await pausePlayback(accessToken);
         try { await setVolume(accessToken, 80); } catch {}
-        return NextResponse.json({ success: true, action: "paused", originalVolume: 80 });
+        // Still advance queue for pause-stop mode
+        originalVolume = 80;
       }
     } else {
       // Fade out — each step wrapped in try/catch so one error doesn't abort
@@ -97,9 +96,46 @@ export async function POST(
     try { await pausePlayback(accessToken); } catch {}
 
     if (mode === "pause") {
-      await sleep(300);
-      try { await setVolume(accessToken, originalVolume); } catch {}
-      return NextResponse.json({ success: true, action: "paused", originalVolume });
+      // Mark current song as played and load the next song (but leave paused)
+      const playing = await prisma.roomSong.findFirst({
+        where: { roomId: room.id, isPlaying: true },
+      });
+      if (playing) {
+        await prisma.roomSong.update({
+          where: { id: playing.id },
+          data: { isPlaying: false, isPlayed: true },
+        });
+      }
+
+      const nextSong = lockedNextSong ?? await getNextSong(room.id, room.autoShuffle);
+      if (nextSong) {
+        await prisma.roomSong.update({
+          where: { id: nextSong.id },
+          data: { isPlaying: true, isLocked: false },
+        });
+
+        // Restore volume while paused, then start+pause to load the next song
+        try { await setVolume(accessToken, originalVolume); } catch {}
+        await sleep(400);
+        try { await startPlayback(accessToken, [nextSong.spotifyUri]); } catch {}
+        await sleep(600);
+        try { await pausePlayback(accessToken); } catch {}
+
+        await prisma.room.update({
+          where: { id: room.id },
+          data: {
+            lastPreQueuedId: null,
+            lastSyncAdvance: new Date(),
+            totalSongsPlayed: { increment: 1 },
+          },
+        });
+
+        return NextResponse.json({ success: true, action: "stopped", song: nextSong.trackName, originalVolume });
+      } else {
+        // No next song — just restore volume and stay paused
+        try { await setVolume(accessToken, originalVolume); } catch {}
+        return NextResponse.json({ success: true, action: "stopped", song: null, originalVolume });
+      }
     }
 
     // Mode: skip — advance to next song

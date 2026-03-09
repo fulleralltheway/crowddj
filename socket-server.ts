@@ -35,6 +35,9 @@ const io = new Server(httpServer, {
 // Track active rooms and their client counts
 const activeRooms = new Map<string, Set<string>>(); // roomCode -> set of socket IDs
 
+// Track rooms currently being faded (prevent double-triggers)
+const fadingRooms = new Set<string>();
+
 function getRoomCount(roomCode: string): number {
   return activeRooms.get(roomCode)?.size || 0;
 }
@@ -165,6 +168,33 @@ async function broadcastRoomState(roomCode: string) {
   }
 }
 
+// Trigger a server-side fade transition via the Vercel endpoint
+// Runs in the background — doesn't block the sync loop
+async function triggerServerFade(roomCode: string, fadeDurationMs = 3000) {
+  if (fadingRooms.has(roomCode)) return;
+  fadingRooms.add(roomCode);
+  console.log(`[${roomCode}] Triggering server-side fade transition`);
+
+  try {
+    const url = `${VERCEL_URL}/api/cron/fade-transition?secret=${encodeURIComponent(CRON_SECRET)}`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ roomCode, fadeDurationMs }),
+    });
+    const result = await res.json();
+    console.log(`[${roomCode}] Fade result:`, JSON.stringify(result));
+
+    // Broadcast updated state to all clients
+    await broadcastSongs(roomCode);
+    await broadcastRoomState(roomCode);
+  } catch (err) {
+    console.error(`[${roomCode}] Server fade error:`, err);
+  } finally {
+    fadingRooms.delete(roomCode);
+  }
+}
+
 // Background sync loop — only runs when clients are connected
 async function syncAllRooms() {
   if (!CRON_SECRET) {
@@ -178,7 +208,7 @@ async function syncAllRooms() {
   try {
     // Only sync rooms that have connected clients (not all active rooms in DB)
     const connectedRooms = Array.from(activeRooms.keys()).join(",");
-    const url = `${VERCEL_URL}/api/cron/sync-rooms?secret=${encodeURIComponent(CRON_SECRET)}&rooms=${encodeURIComponent(connectedRooms)}`;
+    const url = `${VERCEL_URL}/api/cron/sync-rooms?secret=${encodeURIComponent(CRON_SECRET)}&rooms=${encodeURIComponent(connectedRooms)}&deferFade=true`;
     const res = await fetch(url);
     if (res.ok) {
       const data = await res.json();
@@ -189,9 +219,15 @@ async function syncAllRooms() {
       // If any rooms advanced or changed, broadcast updates to connected clients
       for (const result of data.results || []) {
         if (result.status !== "playing" && result.status !== "no_current_song" && result.status !== "debounced") {
+          // needs_fade means the cron detected a song past its max duration
+          // and no client is handling the fade — trigger server-side fade
+          if (result.status === "needs_fade" && !fadingRooms.has(result.code)) {
+            triggerServerFade(result.code);
+          }
+
           await broadcastSongs(result.code);
           // Broadcast room state when lastPreQueuedId changes (queued_next sets it, advanced/advanced_prequeued clears it)
-          if (result.status === "queued_next" || result.status === "advanced" || result.status === "advanced_prequeued") {
+          if (result.status === "queued_next" || result.status === "advanced" || result.status === "advanced_prequeued" || result.status === "prequeued_maxdur") {
             await broadcastRoomState(result.code);
           }
         }

@@ -11,6 +11,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // When deferFade=true, the cron reports "needs_fade" instead of doing a hard skip,
+  // letting the socket server handle the actual fade via /api/cron/fade-transition
+  const deferFade = req.nextUrl.searchParams.get("deferFade") === "true";
+
   // Only sync specific rooms if provided (from socket server), otherwise all active
   const roomCodes = req.nextUrl.searchParams.get("rooms");
   const whereClause: any = { isActive: true };
@@ -96,27 +100,37 @@ export async function GET(req: NextRequest) {
               where: { roomId: room.id, isPlayed: false, isPlaying: false, isLocked: true },
             });
             if (!hasLockedNext) {
-              // No client handling it — cron takes over
-              await prisma.roomSong.update({
-                where: { id: currentSong.id },
-                data: { isPlaying: false, isPlayed: true },
-              });
-              const nextSong = await getNextSong(room.id, room.autoShuffle);
-              if (nextSong) {
-                await prisma.roomSong.update({
-                  where: { id: nextSong.id },
-                  data: { isPlaying: true, isLocked: false },
-                });
-                try { await startPlayback(accessToken, [nextSong.spotifyUri]); } catch {
-                  try { await startPlayback(accessToken, [nextSong.spotifyUri]); } catch {}
-                }
+              if (deferFade) {
+                // Socket server will handle the fade — just report the need
+                // Set lastSyncAdvance so this doesn't re-trigger on the next sync cycle
                 await prisma.room.update({
                   where: { id: room.id },
-                  data: { lastPreQueuedId: null, lastSyncAdvance: new Date(), totalSongsPlayed: { increment: 1 } },
+                  data: { lastSyncAdvance: new Date() },
                 });
-                results.push({ code: room.code, status: "auto_transition", detail: nextSong.trackName });
+                results.push({ code: room.code, status: "needs_fade" });
               } else {
-                results.push({ code: room.code, status: "auto_transition_end" });
+                // No client or socket server handling it — cron does a hard skip
+                await prisma.roomSong.update({
+                  where: { id: currentSong.id },
+                  data: { isPlaying: false, isPlayed: true },
+                });
+                const nextSong = await getNextSong(room.id, room.autoShuffle);
+                if (nextSong) {
+                  await prisma.roomSong.update({
+                    where: { id: nextSong.id },
+                    data: { isPlaying: true, isLocked: false },
+                  });
+                  try { await startPlayback(accessToken, [nextSong.spotifyUri]); } catch {
+                    try { await startPlayback(accessToken, [nextSong.spotifyUri]); } catch {}
+                  }
+                  await prisma.room.update({
+                    where: { id: room.id },
+                    data: { lastPreQueuedId: null, lastSyncAdvance: new Date(), totalSongsPlayed: { increment: 1 } },
+                  });
+                  results.push({ code: room.code, status: "auto_transition", detail: nextSong.trackName });
+                } else {
+                  results.push({ code: room.code, status: "auto_transition_end" });
+                }
               }
               continue;
             }
