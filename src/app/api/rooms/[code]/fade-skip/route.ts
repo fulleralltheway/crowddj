@@ -61,11 +61,12 @@ export async function POST(
 
   // Track whether we successfully pre-queued the next song
   let preQueuedSongId: string | null = null;
+  let originalVolume = 80;
 
   try {
     // Get current playback to know the starting volume
     const playback = await getCurrentPlayback(accessToken);
-    const originalVolume = playback?.device?.volume_percent ?? 80;
+    originalVolume = playback?.device?.volume_percent ?? 80;
 
     // If skip mode: lock the next song AND pre-queue it into Spotify BEFORE fading
     // This way the UI shows it as "up next" and Spotify has it ready to play
@@ -111,9 +112,10 @@ export async function POST(
       }
       // Fall through to skip logic without fading
     } else {
-      // Fade out from current volume
+      // Fade out from current volume — each step is wrapped in try/catch
+      // so a single Spotify API error doesn't abort the entire fade
       for (const mult of multipliers) {
-        await setVolume(accessToken, Math.round(originalVolume * mult));
+        try { await setVolume(accessToken, Math.round(originalVolume * mult)); } catch {}
         await sleep(stepMs);
       }
       // Ensure we hit zero
@@ -121,7 +123,7 @@ export async function POST(
     }
 
     // Immediately pause after fade — never leave a song playing at volume 0
-    await pausePlayback(accessToken);
+    try { await pausePlayback(accessToken); } catch {}
 
     if (mode === "pause") {
       // Fade & Pause: already paused above, just restore volume
@@ -210,8 +212,35 @@ export async function POST(
 
     return NextResponse.json({ success: true, action: "skipped", song: nextSong, originalVolume });
   } catch (e: any) {
-    // Emergency volume restoration — don't leave the user stuck at volume 0
-    try { await setVolume(accessToken, 80); } catch {}
+    // Emergency recovery — pause playback and restore volume
+    // Never leave a song playing at reduced/zero volume
+    try { await pausePlayback(accessToken); } catch {}
+    try { await setVolume(accessToken, originalVolume); } catch {}
+    // Still try to advance to next song so the queue doesn't get stuck
+    try {
+      const playing = await prisma.roomSong.findFirst({
+        where: { roomId: room.id, isPlaying: true },
+      });
+      if (playing) {
+        await prisma.roomSong.update({
+          where: { id: playing.id },
+          data: { isPlaying: false, isPlayed: true },
+        });
+      }
+      const nextSong = await prisma.roomSong.findFirst({
+        where: { roomId: room.id, isPlayed: false, isPlaying: false },
+        orderBy: { sortOrder: "asc" },
+      });
+      if (nextSong) {
+        await prisma.roomSong.update({
+          where: { id: nextSong.id },
+          data: { isPlaying: true, isLocked: false },
+        });
+        try { await startPlayback(accessToken, [nextSong.spotifyUri]); } catch {}
+        await sleep(300);
+        try { await setVolume(accessToken, originalVolume); } catch {}
+      }
+    } catch {}
     return NextResponse.json(
       { error: e.message || "Fade skip failed" },
       { status: 500 }
