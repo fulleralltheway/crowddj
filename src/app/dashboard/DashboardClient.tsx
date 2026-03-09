@@ -563,16 +563,8 @@ function DashboardInner({ user }: { user: any }) {
 
   // Auto-transition: refs declared here, effect below after fadeSkipSong
   const autoTransitionFired = useRef(false);
-  const autoTransitionUri = useRef<string | null>(null); // track which song triggered the transition
+  const autoTransitionSongUri = useRef<string | null>(null); // the URI we last confirmed progress for
   const fadeSkipRef = useRef<() => void>(() => {});
-
-  useEffect(() => {
-    // Only reset when the track actually changes to a DIFFERENT song
-    // AND only if the previous transition was for a different URI
-    if (spotifyTrack?.uri && spotifyTrack.uri !== autoTransitionUri.current) {
-      autoTransitionFired.current = false;
-    }
-  }, [spotifyTrack?.uri]);
 
   const fetchPlaylists = async () => {
     const res = await fetch("/api/spotify/playlists");
@@ -834,6 +826,7 @@ function DashboardInner({ user }: { user: any }) {
   const skipSong = async () => {
     if (!activeRoom || playbackBusy.current) return;
     playbackBusy.current = true;
+    autoTransitionFired.current = true; // Block auto-transition until new song's progress is confirmed
     setIsFading(false);
     setProgressMs(0);
     setDurationMs(0);
@@ -849,6 +842,7 @@ function DashboardInner({ user }: { user: any }) {
   // Hard skip that bypasses the mutex — used ONLY when interrupting an in-progress fade
   const hardSkipDuringFade = async () => {
     if (!activeRoom) return;
+    autoTransitionFired.current = true; // Block auto-transition until new song's progress is confirmed
     // The server-side fade is still running, but we do a hard skip to override it.
     // The fade's DB updates (mark played, set next playing) will either have already
     // happened or will fail harmlessly since we advance the queue here.
@@ -935,19 +929,32 @@ function DashboardInner({ user }: { user: any }) {
     const maxMs = maxDur * 1000;
     // Account for fade duration so we start fading before the limit
     const triggerMs = Math.max(0, maxMs - fadeDurationSec * 1000);
+    const currentUri = spotifyTrack?.uri ?? null;
     const id = setInterval(() => {
-      if (autoTransitionFired.current) return;
       // Skip if setting was changed mid-song for this track (takes effect next song)
-      if (maxDurSkipUri.current && maxDurSkipUri.current === spotifyTrack?.uri) return;
+      if (maxDurSkipUri.current && maxDurSkipUri.current === currentUri) return;
       const elapsed = Date.now() - progressSyncedAt.current;
       const currentProgress = progressMs + elapsed;
       // Skip if progress data is stale (>15s old) — wait for fresh sync
       if (elapsed > 15000) return;
-      // Skip if progress seems unreasonable (e.g. stale data from previous song)
-      if (progressMs > maxMs + 30000) return;
+
+      // Only allow auto-transition when we have confirmed progress for THIS song.
+      // After a skip, autoTransitionFired is set true and progressMs may still be
+      // from the old song. We reset it only when progressMs is fresh (low elapsed)
+      // AND clearly belongs to the current song (well below the trigger point initially).
+      if (autoTransitionFired.current) {
+        // Reset only when we're sure this is fresh data for the new song:
+        // progress is well below trigger AND the URI has changed since the transition
+        if (currentUri !== autoTransitionSongUri.current && currentProgress < triggerMs * 0.8) {
+          autoTransitionFired.current = false;
+          autoTransitionSongUri.current = currentUri;
+        }
+        return;
+      }
+
       if (currentProgress >= triggerMs) {
         autoTransitionFired.current = true;
-        autoTransitionUri.current = spotifyTrack?.uri ?? null;
+        autoTransitionSongUri.current = currentUri;
         fadeSkipRef.current();
       }
     }, 1000);
