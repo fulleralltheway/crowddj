@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { startPlayback, skipToNext, getCurrentPlayback, setVolume } from "@/lib/spotify";
+import { startPlayback, skipToNext, getCurrentPlayback, setVolume, pausePlayback } from "@/lib/spotify";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(
@@ -82,6 +82,13 @@ export async function POST(
         lastSyncAdvance: new Date(),
         totalSongsPlayed: { increment: 1 },
       },
+    });
+  } else {
+    // No more songs — pause Spotify so it doesn't auto-play random music
+    try { await pausePlayback(accessToken); } catch {}
+    await prisma.room.update({
+      where: { id: room.id },
+      data: { lastPreQueuedId: null, lastSyncAdvance: new Date() },
     });
   }
 

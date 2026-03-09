@@ -132,10 +132,24 @@ export async function POST(
       } catch {}
 
       // 5. Now start the next song at full volume
+      // If the song was pre-queued into Spotify's queue, use skipToNext to consume it
+      // and avoid an orphaned duplicate in the queue
+      const wasPreQueued = room.lastPreQueuedId === nextSong.id;
       try {
-        await startPlayback(accessToken, [nextSong.spotifyUri]);
+        if (wasPreQueued) {
+          await skipToNext(accessToken);
+        } else {
+          await startPlayback(accessToken, [nextSong.spotifyUri]);
+        }
       } catch {
-        try { await skipToNext(accessToken); } catch {}
+        // Fallback: try the opposite method
+        try {
+          if (wasPreQueued) {
+            await startPlayback(accessToken, [nextSong.spotifyUri]);
+          } else {
+            await skipToNext(accessToken);
+          }
+        } catch {}
       }
 
       // Update room: clear pre-queue, debounce cron, track stats

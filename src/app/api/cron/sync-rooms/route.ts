@@ -64,9 +64,12 @@ export async function GET(req: NextRequest) {
         const remaining = playback.item.duration_ms - playback.progress_ms;
 
         // Auto-transition: if maxSongDurationSec is set and exceeded, skip to next
+        // This is a server-side backup — the client fade-skip should handle it first.
+        // Debounce to avoid racing with the client-side fade transition.
         if (room.maxSongDurationSec > 0 && playback.is_playing) {
           const maxMs = room.maxSongDurationSec * 1000;
-          if (playback.progress_ms >= maxMs) {
+          const timeSinceSync = Date.now() - room.lastSyncAdvance.getTime();
+          if (playback.progress_ms >= maxMs && timeSinceSync >= 10000) {
             // Mark current as played
             await prisma.roomSong.update({
               where: { id: currentSong.id },
