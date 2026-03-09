@@ -107,6 +107,9 @@ export async function PATCH(
     const v = Math.max(0, Math.min(600, Number(body.maxSongDurationSec)));
     updates.maxSongDurationSec = v > 0 && v < 30 ? 30 : v; // min 30s when non-zero
   }
+  if (body.fadeDurationSec !== undefined) {
+    updates.fadeDurationSec = Math.max(1, Math.min(10, Number(body.fadeDurationSec)));
+  }
   if (body.blockedArtists !== undefined) updates.blockedArtists = String(body.blockedArtists);
   if (body.blockedSongs !== undefined) updates.blockedSongs = String(body.blockedSongs);
   if (body.scheduledStart !== undefined) updates.scheduledStart = body.scheduledStart ? new Date(body.scheduledStart) : null;

@@ -170,7 +170,7 @@ async function broadcastRoomState(roomCode: string) {
 
 // Trigger a server-side fade transition via the Vercel endpoint
 // Runs in the background — doesn't block the sync loop
-async function triggerServerFade(roomCode: string, fadeDurationMs = 3000) {
+async function triggerServerFade(roomCode: string) {
   if (fadingRooms.has(roomCode)) return;
   fadingRooms.add(roomCode);
   console.log(`[${roomCode}] Triggering server-side fade transition`);
@@ -180,7 +180,7 @@ async function triggerServerFade(roomCode: string, fadeDurationMs = 3000) {
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ roomCode, fadeDurationMs }),
+      body: JSON.stringify({ roomCode }),
     });
     const result = await res.json();
     console.log(`[${roomCode}] Fade result:`, JSON.stringify(result));

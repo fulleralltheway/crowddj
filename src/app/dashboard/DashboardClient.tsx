@@ -54,6 +54,7 @@ type Room = {
   allowDuplicates: boolean;
   lastPreQueuedId: string | null;
   maxSongDurationSec: number;
+  fadeDurationSec: number;
   blockedArtists: string;
   blockedSongs: string;
   scheduledStart: string | null;
@@ -386,6 +387,13 @@ function DashboardInner({ user }: { user: any }) {
     const saved = localStorage.getItem("pq_fade_duration");
     return saved ? Number(saved) : 3;
   });
+  // Sync fade duration from room DB when room loads (server-side source of truth)
+  useEffect(() => {
+    if (activeRoom?.fadeDurationSec && activeRoom.fadeDurationSec !== fadeDurationSec) {
+      setFadeDurationSec(activeRoom.fadeDurationSec);
+      localStorage.setItem("pq_fade_duration", String(activeRoom.fadeDurationSec));
+    }
+  }, [activeRoom?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const [previewTrackId, setPreviewTrackId] = useState<string | null>(null);
   const [previewTrackInfo, setPreviewTrackInfo] = useState<{ name: string; artist: string } | null>(null);
   const [songListRef] = useAutoAnimate({ duration: 300 });
@@ -1015,6 +1023,7 @@ function DashboardInner({ user }: { user: any }) {
     const next = presets[(currentIdx + 1) % presets.length];
     setFadeDurationSec(next);
     localStorage.setItem("pq_fade_duration", String(next));
+    saveSettings({ fadeDurationSec: next } as any);
   };
 
   const toggleControlsLock = () => {

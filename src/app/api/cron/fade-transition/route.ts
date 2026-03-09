@@ -34,19 +34,18 @@ export async function POST(req: NextRequest) {
   }
 
   let roomCode: string;
-  let fadeDurationMs = 3000; // default 3s for server-side fades
   try {
     const body = await req.json();
     roomCode = body.roomCode;
-    if (typeof body.fadeDurationMs === "number") {
-      fadeDurationMs = Math.max(500, Math.min(12000, body.fadeDurationMs));
-    }
   } catch {
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   }
 
   const room = await prisma.room.findUnique({ where: { code: roomCode } });
   if (!room) return NextResponse.json({ error: "Room not found" }, { status: 404 });
+
+  // Read fade duration from the room's saved settings
+  const fadeDurationMs = (room.fadeDurationSec ?? 3) * 1000;
 
   // Get the host's Spotify access token
   const account = await prisma.account.findFirst({

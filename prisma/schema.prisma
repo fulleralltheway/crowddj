@@ -64,6 +64,7 @@ model Room {
   queueDisplaySize Int      @default(50)
   allowDuplicates  Boolean  @default(false) // allow songs to be replayed after being played
   maxSongDurationSec Int    @default(0) // 0 = full length, otherwise max seconds per song before auto-transition
+  fadeDurationSec    Int    @default(3) // fade-out duration in seconds for transitions
   blockedArtists   String   @default("") // comma-separated blocked artist names
   blockedSongs     String   @default("") // comma-separated blocked spotify URIs
   scheduledStart   DateTime? // optional scheduled start time
