@@ -146,6 +146,8 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const [pullRefreshing, setPullRefreshing] = useState(false);
   const [pullDistance, setPullDistance] = useState(0);
   const [scheduledCountdown, setScheduledCountdown] = useState("");
+  const [previewTrackId, setPreviewTrackId] = useState<string | null>(null);
+  const [previewTrackInfo, setPreviewTrackInfo] = useState<{ name: string; artist: string } | null>(null);
   const pullStartY = useRef(0);
   const pullDistRef = useRef(0);
   const pullRefreshRef = useRef(false);
@@ -692,6 +694,17 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     searchTimer.current = setTimeout(() => searchSongs(value), 300);
   };
 
+  const openPreview = (spotifyUri: string, name: string, artist: string) => {
+    const id = spotifyUri.replace("spotify:track:", "");
+    if (previewTrackId === id) {
+      setPreviewTrackId(null);
+      setPreviewTrackInfo(null);
+    } else {
+      setPreviewTrackId(id);
+      setPreviewTrackInfo({ name, artist });
+    }
+  };
+
   const requestSong = async (track: any) => {
     const res = await fetch(`/api/rooms/${code}/request`, {
       method: "POST",
@@ -1099,18 +1112,26 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                     const recentStatus = recentlyRequested.get(track.spotifyUri);
                     const unavailable = track.inQueue || track.alreadyPlayed || !!recentStatus;
                     return (
-                    <button
+                    <div
                       key={track.spotifyUri}
-                      onClick={() => !unavailable && requestSong(track)}
-                      disabled={unavailable}
                       className={`w-full flex items-center gap-3 p-2 rounded-lg text-left transition-colors ${
-                        unavailable ? "opacity-50 cursor-default" : "hover:bg-bg-card-hover"
+                        unavailable ? "opacity-50" : "hover:bg-bg-card-hover"
                       }`}
                     >
-                      {track.albumArt && (
-                        <img src={track.albumArt} alt="" className="w-9 h-9 rounded-md" />
-                      )}
-                      <div className="flex-1 min-w-0">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); openPreview(track.spotifyUri, track.trackName, track.artistName); }}
+                        className={`relative flex-shrink-0 w-9 h-9 rounded-md overflow-hidden group ${previewTrackId === track.spotifyUri.replace("spotify:track:", "") ? "ring-2 ring-accent" : ""}`}
+                      >
+                        {track.albumArt && <img src={track.albumArt} alt="" className="w-full h-full object-cover" />}
+                        <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                          <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                        </div>
+                      </button>
+                      <button
+                        onClick={() => !unavailable && requestSong(track)}
+                        disabled={unavailable}
+                        className="flex-1 min-w-0 text-left"
+                      >
                         <p className="text-sm font-medium truncate">
                           {track.trackName}
                           {track.isExplicit && (
@@ -1118,13 +1139,13 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                           )}
                         </p>
                         <p className="text-text-secondary text-xs truncate">{track.artistName}</p>
-                      </div>
-                      <span className={`text-xs font-medium ${
+                      </button>
+                      <span className={`text-xs font-medium flex-shrink-0 ${
                         recentStatus === "pending" ? "text-yellow-500" : recentStatus === "added" ? "text-upvote" : track.alreadyPlayed ? "text-text-secondary" : track.inQueue ? "text-text-secondary" : "text-accent"
                       }`}>
                         {recentStatus === "pending" ? "Pending" : recentStatus === "added" ? "Added!" : track.alreadyPlayed ? "Played" : track.inQueue ? "In queue" : "+ Add"}
                       </span>
-                    </button>
+                    </div>
                     );
                   })}
                 </div>
@@ -1252,9 +1273,15 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                 )}
               </div>
 
-              {song.albumArt && (
-                <img src={song.albumArt} alt="" className={`w-12 h-12 rounded-lg flex-shrink-0 ${isQueuedNext ? "ring-2 ring-accent/40" : ""}`} />
-              )}
+              <button
+                onClick={() => openPreview(song.spotifyUri, song.trackName, song.artistName)}
+                className={`relative w-12 h-12 rounded-lg flex-shrink-0 overflow-hidden group ${isQueuedNext ? "ring-2 ring-accent/40" : ""} ${previewTrackId === song.spotifyUri.replace("spotify:track:", "") ? "ring-2 ring-accent" : ""}`}
+              >
+                {song.albumArt && <img src={song.albumArt} alt="" className="w-full h-full object-cover" />}
+                <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                  <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                </div>
+              </button>
 
               <div className="flex-1 min-w-0">
                 {isQueuedNext && (
@@ -1332,6 +1359,43 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       </div>
 
     </div>
+
+      {/* Spotify Embed Preview */}
+      {previewTrackId && (
+        <div className="fixed inset-0 z-[100] flex items-end justify-center" onClick={() => { setPreviewTrackId(null); setPreviewTrackInfo(null); }}>
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+          <div
+            className="relative w-full max-w-sm mx-4 mb-4 rounded-2xl overflow-hidden shadow-2xl bg-[#181818] border border-white/[0.08]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {previewTrackInfo && (
+              <div className="flex items-center justify-between px-4 pt-3 pb-2">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-white truncate">{previewTrackInfo.name}</p>
+                  <p className="text-xs text-white/50 truncate">{previewTrackInfo.artist}</p>
+                </div>
+                <button
+                  onClick={() => { setPreviewTrackId(null); setPreviewTrackInfo(null); }}
+                  className="ml-3 w-7 h-7 flex items-center justify-center rounded-full bg-white/[0.08] hover:bg-white/[0.15] text-white/60 hover:text-white transition-colors flex-shrink-0"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            )}
+            <iframe
+              src={`https://open.spotify.com/embed/track/${previewTrackId}?utm_source=generator&theme=0`}
+              width="100%"
+              height="152"
+              frameBorder="0"
+              allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+              loading="lazy"
+              className="rounded-b-2xl"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

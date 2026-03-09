@@ -68,6 +68,7 @@ type Room = {
 
 type SongRequest = {
   id: string;
+  spotifyUri: string;
   trackName: string;
   artistName: string;
   albumArt: string | null;
@@ -384,7 +385,8 @@ function DashboardInner({ user }: { user: any }) {
     const saved = localStorage.getItem("pq_fade_duration");
     return saved ? Number(saved) : 3;
   });
-  const [previewSongId, setPreviewSongId] = useState<string | null>(null);
+  const [previewTrackId, setPreviewTrackId] = useState<string | null>(null);
+  const [previewTrackInfo, setPreviewTrackInfo] = useState<{ name: string; artist: string } | null>(null);
   const [songListRef] = useAutoAnimate({ duration: 300 });
   const [pullRefreshing, setPullRefreshing] = useState(false);
   const [pullDistance, setPullDistance] = useState(0);
@@ -910,8 +912,15 @@ function DashboardInner({ user }: { user: any }) {
     }
   };
 
-  const togglePreview = (songId: string) => {
-    setPreviewSongId(previewSongId === songId ? null : songId);
+  const openPreview = (spotifyUri: string, name: string, artist: string) => {
+    const id = spotifyUri.replace("spotify:track:", "");
+    if (previewTrackId === id) {
+      setPreviewTrackId(null);
+      setPreviewTrackInfo(null);
+    } else {
+      setPreviewTrackId(id);
+      setPreviewTrackInfo({ name, artist });
+    }
   };
 
   const lockSong = async (songId: string, position?: number) => {
@@ -2095,9 +2104,15 @@ function DashboardInner({ user }: { user: any }) {
                     key={req.id}
                     className="flex items-center gap-3 p-3 bg-bg-card border border-border rounded-xl"
                   >
-                    {req.albumArt && (
-                      <img src={req.albumArt} alt="" className="w-10 h-10 rounded-lg" />
-                    )}
+                    <button
+                      onClick={() => openPreview(req.spotifyUri, req.trackName, req.artistName)}
+                      className={`relative w-10 h-10 rounded-lg flex-shrink-0 overflow-hidden group ${previewTrackId === req.spotifyUri.replace("spotify:track:", "") ? "ring-2 ring-accent" : ""}`}
+                    >
+                      {req.albumArt && <img src={req.albumArt} alt="" className="w-full h-full object-cover" />}
+                      <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                        <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                      </div>
+                    </button>
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-sm truncate">{req.trackName}</p>
                       <p className="text-text-secondary text-xs truncate">{req.artistName}</p>
@@ -2321,12 +2336,13 @@ function DashboardInner({ user }: { user: any }) {
                   </div>
                   <div className="flex items-center gap-1">
                     {/* Preview button — desktop only */}
+                    {/* Preview button — desktop only */}
                     <button
-                      onClick={() => togglePreview(song.id)}
-                      className={`hidden lg:flex w-7 h-7 rounded-lg items-center justify-center transition-colors ${previewSongId === song.id ? "text-accent bg-accent/10" : "text-white/20 hover:text-white/40 hover:bg-white/[0.04]"}`}
-                      title={previewSongId === song.id ? "Stop preview" : "Preview"}
+                      onClick={() => openPreview(song.spotifyUri, song.trackName, song.artistName)}
+                      className={`hidden lg:flex w-7 h-7 rounded-lg items-center justify-center transition-colors ${previewTrackId === song.spotifyUri.replace("spotify:track:", "") ? "text-accent bg-accent/10" : "text-white/20 hover:text-white/40 hover:bg-white/[0.04]"}`}
+                      title="Preview"
                     >
-                      {previewSongId === song.id ? (
+                      {previewTrackId === song.spotifyUri.replace("spotify:track:", "") ? (
                         <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
                           <rect x="6" y="4" width="4" height="16" rx="1" />
                           <rect x="14" y="4" width="4" height="16" rx="1" />
@@ -2377,17 +2393,17 @@ function DashboardInner({ user }: { user: any }) {
                           <div className="fixed inset-0 z-40" onClick={() => setSongMenuOpen(null)} />
                           <div className="absolute right-0 top-full mt-1 z-50 bg-bg-card border border-white/[0.1] rounded-xl shadow-2xl overflow-hidden min-w-[140px]">
                             <button
-                              onClick={() => { togglePreview(song.id); setSongMenuOpen(null); }}
+                              onClick={() => { openPreview(song.spotifyUri, song.trackName, song.artistName); setSongMenuOpen(null); }}
                               className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm hover:bg-white/[0.06] transition-colors text-left"
                             >
-                              <svg className={`w-4 h-4 ${previewSongId === song.id ? "text-accent" : "text-white/40"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
-                                {previewSongId === song.id ? (
+                              <svg className={`w-4 h-4 ${previewTrackId === song.spotifyUri.replace("spotify:track:", "") ? "text-accent" : "text-white/40"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
+                                {previewTrackId === song.spotifyUri.replace("spotify:track:", "") ? (
                                   <><rect x="6" y="4" width="4" height="16" rx="1" fill="currentColor" stroke="none" /><rect x="14" y="4" width="4" height="16" rx="1" fill="currentColor" stroke="none" /></>
                                 ) : (
                                   <path strokeLinecap="round" strokeLinejoin="round" d="M15.536 8.464a5 5 0 010 7.072M17.95 6.05a8 8 0 010 11.9M6.5 8.5l5-4v15l-5-4H4a1 1 0 01-1-1v-5a1 1 0 011-1h2.5z" />
                                 )}
                               </svg>
-                              <span className={previewSongId === song.id ? "text-accent" : ""}>{previewSongId === song.id ? "Stop Preview" : "Preview"}</span>
+                              <span className={previewTrackId === song.spotifyUri.replace("spotify:track:", "") ? "text-accent" : ""}>{previewTrackId === song.spotifyUri.replace("spotify:track:", "") ? "Stop Preview" : "Preview"}</span>
                             </button>
                             <button
                               onClick={() => { lockSong(song.id); setSongMenuOpen(null); }}
@@ -2732,24 +2748,21 @@ function DashboardInner({ user }: { user: any }) {
       })()}
 
       {/* Spotify Embed Preview Modal */}
-      {previewSongId && (() => {
-        const previewSong = activeRoom?.songs?.find((s: any) => s.id === previewSongId);
-        if (!previewSong) return null;
-        const trackId = previewSong.spotifyUri.replace("spotify:track:", "");
-        return (
-          <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center" onClick={() => setPreviewSongId(null)}>
-            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-            <div
-              className="relative w-full max-w-sm mx-4 mb-4 sm:mb-0 rounded-2xl overflow-hidden shadow-2xl bg-[#181818] border border-white/[0.08]"
-              onClick={(e) => e.stopPropagation()}
-            >
+      {previewTrackId && (
+        <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center" onClick={() => { setPreviewTrackId(null); setPreviewTrackInfo(null); }}>
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+          <div
+            className="relative w-full max-w-sm mx-4 mb-4 sm:mb-0 rounded-2xl overflow-hidden shadow-2xl bg-[#181818] border border-white/[0.08]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {previewTrackInfo && (
               <div className="flex items-center justify-between px-4 pt-3 pb-2">
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-white truncate">{previewSong.trackName}</p>
-                  <p className="text-xs text-white/50 truncate">{previewSong.artistName}</p>
+                  <p className="text-sm font-medium text-white truncate">{previewTrackInfo.name}</p>
+                  <p className="text-xs text-white/50 truncate">{previewTrackInfo.artist}</p>
                 </div>
                 <button
-                  onClick={() => setPreviewSongId(null)}
+                  onClick={() => { setPreviewTrackId(null); setPreviewTrackInfo(null); }}
                   className="ml-3 w-7 h-7 flex items-center justify-center rounded-full bg-white/[0.08] hover:bg-white/[0.15] text-white/60 hover:text-white transition-colors flex-shrink-0"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
@@ -2757,19 +2770,19 @@ function DashboardInner({ user }: { user: any }) {
                   </svg>
                 </button>
               </div>
-              <iframe
-                src={`https://open.spotify.com/embed/track/${trackId}?utm_source=generator&theme=0`}
-                width="100%"
-                height="152"
-                frameBorder="0"
-                allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
-                loading="lazy"
-                className="rounded-b-2xl"
-              />
-            </div>
+            )}
+            <iframe
+              src={`https://open.spotify.com/embed/track/${previewTrackId}?utm_source=generator&theme=0`}
+              width="100%"
+              height="152"
+              frameBorder="0"
+              allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+              loading="lazy"
+              className="rounded-b-2xl"
+            />
           </div>
-        );
-      })()}
+        </div>
+      )}
     </div>
   );
 }
