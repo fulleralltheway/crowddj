@@ -1,5 +1,6 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getNextSong } from "@/lib/queue";
 import { startPlayback, getCurrentPlayback, setVolume, pausePlayback, skipToNext, addToQueue } from "@/lib/spotify";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -61,6 +62,7 @@ export async function POST(
 
   // Track whether we successfully pre-queued the next song
   let preQueuedSongId: string | null = null;
+  let lockedNextSong: any = null; // The song we locked/queued before fading — use THIS after fade
   let originalVolume = 80;
 
   try {
@@ -71,11 +73,9 @@ export async function POST(
     // If skip mode: lock the next song AND pre-queue it into Spotify BEFORE fading
     // This way the UI shows it as "up next" and Spotify has it ready to play
     if (mode === "skip") {
-      const nextUp = await prisma.roomSong.findFirst({
-        where: { roomId: room.id, isPlayed: false, isPlaying: false },
-        orderBy: { sortOrder: "asc" },
-      });
+      const nextUp = await getNextSong(room.id, room.autoShuffle);
       if (nextUp) {
+        lockedNextSong = nextUp;
         // Lock in DB if not already locked
         if (!nextUp.isLocked) {
           await prisma.roomSong.update({
@@ -146,10 +146,10 @@ export async function POST(
       });
     }
 
-    const nextSong = await prisma.roomSong.findFirst({
-      where: { roomId: room.id, isPlayed: false, isPlaying: false },
-      orderBy: { sortOrder: "asc" },
-    });
+    // Use the song we locked before the fade — don't re-query, as the queue
+    // order may have changed during the fade (votes, reorder). If we pre-queued
+    // it into Spotify, we MUST play that same song or it'll be orphaned in the queue.
+    const nextSong = lockedNextSong ?? await getNextSong(room.id, room.autoShuffle);
 
     if (nextSong) {
       await prisma.roomSong.update({
@@ -229,10 +229,7 @@ export async function POST(
           data: { isPlaying: false, isPlayed: true },
         });
       }
-      const nextSong = await prisma.roomSong.findFirst({
-        where: { roomId: room.id, isPlayed: false, isPlaying: false },
-        orderBy: { sortOrder: "asc" },
-      });
+      const nextSong = lockedNextSong ?? await getNextSong(room.id, room.autoShuffle);
       if (nextSong) {
         await prisma.roomSong.update({
           where: { id: nextSong.id },

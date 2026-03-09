@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { getNextSong } from "@/lib/queue";
 import { getCurrentPlayback, addToQueue, skipToNext, startPlayback } from "@/lib/spotify";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -75,10 +76,7 @@ export async function GET(req: NextRequest) {
               where: { id: currentSong.id },
               data: { isPlaying: false, isPlayed: true },
             });
-            const nextSong = await prisma.roomSong.findFirst({
-              where: { roomId: room.id, isPlayed: false, isPlaying: false },
-              orderBy: { sortOrder: "asc" },
-            });
+            const nextSong = await getNextSong(room.id, room.autoShuffle);
             if (nextSong) {
               await prisma.roomSong.update({
                 where: { id: nextSong.id },
@@ -104,10 +102,7 @@ export async function GET(req: NextRequest) {
         // At 15 seconds remaining, queue the next song and lock it in
         // Skip pre-queue when maxSongDurationSec is active (auto-transition handles it)
         if (remaining <= 15000 && playback.is_playing && !room.lastPreQueuedId && !(room.maxSongDurationSec > 0)) {
-          const nextSong = await prisma.roomSong.findFirst({
-            where: { roomId: room.id, isPlayed: false, isPlaying: false },
-            orderBy: { sortOrder: "asc" },
-          });
+          const nextSong = await getNextSong(room.id, room.autoShuffle);
 
           if (nextSong) {
             try {
@@ -134,10 +129,7 @@ export async function GET(req: NextRequest) {
       }
 
       // CASE 2: Spotify moved to a different song
-      const nextSong = await prisma.roomSong.findFirst({
-        where: { roomId: room.id, isPlayed: false, isPlaying: false },
-        orderBy: { sortOrder: "asc" },
-      });
+      const nextSong = await getNextSong(room.id, room.autoShuffle);
 
       // Check if Spotify advanced to our next queue song
       if (nextSong && playback.item.uri === nextSong.spotifyUri) {

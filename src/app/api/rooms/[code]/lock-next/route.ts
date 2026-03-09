@@ -1,5 +1,6 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getNextSong } from "@/lib/queue";
 import { NextRequest, NextResponse } from "next/server";
 
 /**
@@ -19,10 +20,7 @@ export async function POST(
     return NextResponse.json({ error: "Not authorized" }, { status: 403 });
   }
 
-  const nextSong = await prisma.roomSong.findFirst({
-    where: { roomId: room.id, isPlayed: false, isPlaying: false },
-    orderBy: { sortOrder: "asc" },
-  });
+  const nextSong = await getNextSong(room.id, room.autoShuffle);
 
   if (!nextSong) {
     return NextResponse.json({ success: true, song: null });

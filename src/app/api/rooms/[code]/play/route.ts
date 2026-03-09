@@ -1,5 +1,6 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getNextSong } from "@/lib/queue";
 import { startPlayback, pausePlayback, resumePlayback, getCurrentPlayback, getDevices, setVolume } from "@/lib/spotify";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -55,10 +56,7 @@ export async function POST(
     // Otherwise, start the current queue song
     let song = currentSong;
     if (!song) {
-      song = await prisma.roomSong.findFirst({
-        where: { roomId: room.id, isPlayed: false },
-        orderBy: { sortOrder: "asc" },
-      });
+      song = await getNextSong(room.id, room.autoShuffle);
       if (song) {
         await prisma.roomSong.update({
           where: { id: song.id },

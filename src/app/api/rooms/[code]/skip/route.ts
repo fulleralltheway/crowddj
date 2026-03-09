@@ -1,5 +1,6 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getNextSong } from "@/lib/queue";
 import { startPlayback, skipToNext, getCurrentPlayback, setVolume, pausePlayback } from "@/lib/spotify";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -31,11 +32,8 @@ export async function POST(
     });
   }
 
-  // Set next song as playing
-  const nextSong = await prisma.roomSong.findFirst({
-    where: { roomId: room.id, isPlayed: false, isPlaying: false },
-    orderBy: { sortOrder: "asc" },
-  });
+  // Set next song as playing (respects autoShuffle vote-based ordering)
+  const nextSong = await getNextSong(room.id, room.autoShuffle);
 
   if (nextSong) {
     // Unlock it (may have been locked as "queued next") and set as playing
