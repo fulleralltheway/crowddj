@@ -823,6 +823,14 @@ function DashboardInner({ user }: { user: any }) {
     }
   };
 
+  // Lock the next song in the queue so the UI shows it as "up next" before a fade/skip starts
+  const lockNextSong = async (roomCode: string) => {
+    try {
+      await fetch(`/api/rooms/${roomCode}/lock-next`, { method: "POST" });
+      await refreshSongs(roomCode);
+    } catch {}
+  };
+
   const skipSong = async () => {
     if (!activeRoom || playbackBusy.current) return;
     playbackBusy.current = true;
@@ -831,6 +839,8 @@ function DashboardInner({ user }: { user: any }) {
     setProgressMs(0);
     setDurationMs(0);
     try {
+      // Lock next song so UI shows it as "up next" before the skip executes
+      await lockNextSong(activeRoom.code);
       await fetch(`/api/rooms/${activeRoom.code}/skip`, { method: "POST" });
       getSocket().emit("song-skipped", activeRoom.code);
       refreshSongs(activeRoom.code);
@@ -863,6 +873,8 @@ function DashboardInner({ user }: { user: any }) {
     playbackBusy.current = true;
     setIsFading(true);
     try {
+      // Lock next song so UI shows it as "up next" before the fade begins
+      await lockNextSong(activeRoom.code);
       const res = await fetch(`/api/rooms/${activeRoom.code}/fade-skip`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -886,6 +898,7 @@ function DashboardInner({ user }: { user: any }) {
     playbackBusy.current = true;
     setIsFading(true);
     try {
+      // No lock-next needed for fade-to-pause (not advancing to next song)
       const res = await fetch(`/api/rooms/${activeRoom.code}/fade-skip`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
