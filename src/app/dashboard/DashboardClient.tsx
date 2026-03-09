@@ -2444,9 +2444,20 @@ function DashboardInner({ user }: { user: any }) {
                     )}
                   </span>
                   {song.albumArt && (
-                    <img src={song.albumArt} alt="" className="w-11 h-11 rounded-lg flex-shrink-0" />
+                    <button
+                      onClick={() => openPreview(song.spotifyUri, song.trackName, song.artistName)}
+                      className={`relative w-11 h-11 rounded-lg flex-shrink-0 overflow-hidden group ${previewTrackId === song.spotifyUri.replace("spotify:track:", "") ? "ring-2 ring-accent" : ""}`}
+                    >
+                      <img src={song.albumArt} alt="" className="w-11 h-11 rounded-lg" />
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                        <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                      </div>
+                    </button>
                   )}
-                  <div className="flex-1 min-w-0">
+                  <button
+                    onClick={() => openPreview(song.spotifyUri, song.trackName, song.artistName)}
+                    className="flex-1 min-w-0 text-left"
+                  >
                     {song.isPinned && (
                       <p className="text-[10px] font-semibold text-blue-400 uppercase tracking-wider">Pinned #{song.pinnedPosition != null ? song.pinnedPosition + 1 : i + 1}</p>
                     )}
@@ -2472,7 +2483,7 @@ function DashboardInner({ user }: { user: any }) {
                         )}
                       </div>
                     )}
-                  </div>
+                  </button>
                   <div className="flex items-center gap-1">
                     {/* Preview button — desktop only */}
                     {/* Preview button — desktop only */}
