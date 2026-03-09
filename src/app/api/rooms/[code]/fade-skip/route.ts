@@ -61,6 +61,20 @@ export async function POST(
     const playback = await getCurrentPlayback(accessToken);
     const originalVolume = playback?.device?.volume_percent ?? 80;
 
+    // If skip mode, lock the next song BEFORE fading so the queue shows what's coming
+    if (mode === "skip") {
+      const nextUp = await prisma.roomSong.findFirst({
+        where: { roomId: room.id, isPlayed: false, isPlaying: false },
+        orderBy: { sortOrder: "asc" },
+      });
+      if (nextUp && !nextUp.isLocked) {
+        await prisma.roomSong.update({
+          where: { id: nextUp.id },
+          data: { isLocked: true },
+        });
+      }
+    }
+
     // Safety: if volume is already very low, don't fade — just skip/pause
     // This prevents double-fading if the endpoint is called twice
     if (originalVolume < 10) {
@@ -115,25 +129,11 @@ export async function POST(
       // 1. Pause the faded-out song so nothing is playing at volume 0
       try { await pausePlayback(accessToken); } catch {}
 
-      // 2. Restore volume while paused — this ensures the next song starts loud
-      await setVolume(accessToken, originalVolume);
+      // 2. Restore volume while paused (works on most devices)
+      try { await setVolume(accessToken, originalVolume); } catch {}
+      await sleep(400);
 
-      // 3. Wait for Spotify to apply the volume change
-      await sleep(500);
-
-      // 4. Verify volume was actually restored before starting next song
-      try {
-        const check = await getCurrentPlayback(accessToken);
-        const currentVol = check?.device?.volume_percent ?? 0;
-        if (currentVol < originalVolume - 10) {
-          await setVolume(accessToken, originalVolume);
-          await sleep(300);
-        }
-      } catch {}
-
-      // 5. Now start the next song at full volume
-      // If the song was pre-queued into Spotify's queue, use skipToNext to consume it
-      // and avoid an orphaned duplicate in the queue
+      // 3. Start the next song
       const wasPreQueued = room.lastPreQueuedId === nextSong.id;
       try {
         if (wasPreQueued) {
@@ -142,7 +142,6 @@ export async function POST(
           await startPlayback(accessToken, [nextSong.spotifyUri]);
         }
       } catch {
-        // Fallback: try the opposite method
         try {
           if (wasPreQueued) {
             await startPlayback(accessToken, [nextSong.spotifyUri]);
@@ -151,6 +150,23 @@ export async function POST(
           }
         } catch {}
       }
+
+      // 4. CRITICAL: Set volume AGAIN after playback starts
+      // Some Spotify devices ignore setVolume while paused, so the pre-start
+      // volume set may not have taken effect. This second set while playing
+      // is the reliable one.
+      await sleep(300);
+      try { await setVolume(accessToken, originalVolume); } catch {}
+
+      // 5. Final verification — if still wrong, force it one more time
+      await sleep(500);
+      try {
+        const check = await getCurrentPlayback(accessToken);
+        const currentVol = check?.device?.volume_percent ?? 0;
+        if (currentVol < originalVolume - 15) {
+          await setVolume(accessToken, originalVolume);
+        }
+      } catch {}
 
       // Update room: clear pre-queue, debounce cron, track stats
       await prisma.room.update({

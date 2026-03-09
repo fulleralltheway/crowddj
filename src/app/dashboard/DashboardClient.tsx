@@ -561,10 +561,15 @@ function DashboardInner({ user }: { user: any }) {
 
   // Auto-transition: refs declared here, effect below after fadeSkipSong
   const autoTransitionFired = useRef(false);
+  const autoTransitionUri = useRef<string | null>(null); // track which song triggered the transition
   const fadeSkipRef = useRef<() => void>(() => {});
 
   useEffect(() => {
-    autoTransitionFired.current = false;
+    // Only reset when the track actually changes to a DIFFERENT song
+    // AND only if the previous transition was for a different URI
+    if (spotifyTrack?.uri && spotifyTrack.uri !== autoTransitionUri.current) {
+      autoTransitionFired.current = false;
+    }
   }, [spotifyTrack?.uri]);
 
   const fetchPlaylists = async () => {
@@ -891,14 +896,19 @@ function DashboardInner({ user }: { user: any }) {
       const currentProgress = progressMs + elapsed;
       // Skip if the setting was changed less than 3s ago (avoids instant trigger on mid-song change)
       if (Date.now() - maxDurChangedAt.current < 3000) return;
+      // Skip if progress data is stale (>15s old) — wait for fresh sync
+      if (elapsed > 15000) return;
+      // Skip if progress seems unreasonable (e.g. stale data from previous song)
+      if (progressMs > maxMs + 30000) return;
       if (currentProgress >= triggerMs) {
         autoTransitionFired.current = true;
+        autoTransitionUri.current = spotifyTrack?.uri ?? null;
         fadeSkipRef.current();
       }
     }, 1000);
 
     return () => clearInterval(id);
-  }, [activeRoom?.maxSongDurationSec, isPlaying, isFading, progressMs, fadeDurationSec]);
+  }, [activeRoom?.maxSongDurationSec, isPlaying, isFading, progressMs, fadeDurationSec, spotifyTrack?.uri]);
 
   const cycleFadeDuration = () => {
     // Cycle through presets: 1 → 3 → 5 → 8 → 12 → 1
