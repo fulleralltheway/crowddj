@@ -3,6 +3,8 @@ import { prisma } from "@/lib/db";
 import { startPlayback, skipToNext, getCurrentPlayback, setVolume, pausePlayback } from "@/lib/spotify";
 import { NextRequest, NextResponse } from "next/server";
 
+export const maxDuration = 30;
+
 export async function POST(
   _req: NextRequest,
   { params }: { params: Promise<{ code: string }> }

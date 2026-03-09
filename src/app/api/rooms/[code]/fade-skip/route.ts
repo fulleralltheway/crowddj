@@ -3,6 +3,9 @@ import { prisma } from "@/lib/db";
 import { startPlayback, getCurrentPlayback, setVolume, pausePlayback, skipToNext, addToQueue } from "@/lib/spotify";
 import { NextRequest, NextResponse } from "next/server";
 
+// Vercel hobby default is 10s — fades with volume restore need more time
+export const maxDuration = 60;
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
