@@ -65,15 +65,20 @@ export async function GET(req: NextRequest) {
         const remaining = playback.item.duration_ms - playback.progress_ms;
 
         // Auto-transition: if maxSongDurationSec is set and exceeded, skip to next
-        // This is a server-side backup — the client fade-skip should handle it first.
-        // Debounce to avoid racing with the client-side fade transition.
+        // Server-side backup: if the client-side fade didn't fire (tab backgrounded,
+        // app closed, etc.), catch it here. Check if a fade is already in progress
+        // by looking for a locked next song — if one exists, the client is handling it.
         if (room.maxSongDurationSec >= 30 && playback.is_playing) {
           const maxMs = room.maxSongDurationSec * 1000;
           const timeSinceSync = Date.now() - room.lastSyncAdvance.getTime();
-          // 30s debounce — client fade can take up to 12s fade + volume restore.
-          // lock-next sets lastSyncAdvance when transition starts, so this ensures
-          // the cron doesn't race with an in-progress fade.
-          if (playback.progress_ms >= maxMs && timeSinceSync >= 30000) {
+          // Only act if song is past threshold AND no recent transition activity
+          // Use 15s debounce — short enough to catch missed transitions, long enough
+          // to not race with an in-progress fade (lock-next sets lastSyncAdvance)
+          const hasLockedNext = await prisma.roomSong.findFirst({
+            where: { roomId: room.id, isPlayed: false, isPlaying: false, isLocked: true },
+          });
+          // If a song is locked, the client is mid-transition — don't interfere
+          if (playback.progress_ms >= maxMs && timeSinceSync >= 15000 && !hasLockedNext) {
             // Mark current as played
             await prisma.roomSong.update({
               where: { id: currentSong.id },
@@ -88,7 +93,8 @@ export async function GET(req: NextRequest) {
               // Use startPlayback for maxSongDuration auto-transitions since
               // pre-queuing is disabled in this mode (nothing in Spotify's queue)
               try { await startPlayback(accessToken, [nextSong.spotifyUri]); } catch {
-                try { await skipToNext(accessToken); } catch {}
+                // Retry once
+                try { await startPlayback(accessToken, [nextSong.spotifyUri]); } catch {}
               }
               await prisma.room.update({
                 where: { id: room.id },
