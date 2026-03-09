@@ -936,7 +936,7 @@ function DashboardInner({ user }: { user: any }) {
       if (!res.ok) throw new Error("Fade stop failed");
       setIsPlaying(false);
       // Refresh songs since queue advanced (next song is now "playing" but paused)
-      await fetchSongs();
+      await refreshSongs(activeRoom.code);
       socketRef.current?.emit("song-skipped", activeRoom.code);
     } catch {
       // Fall back to hard pause
