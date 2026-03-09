@@ -867,23 +867,38 @@ function DashboardInner({ user }: { user: any }) {
 
   // Auto-transition effect: fade-skip when max song duration is reached
   fadeSkipRef.current = fadeSkipSong;
+  // Track when maxSongDurationSec changes to avoid triggering on mid-song setting changes
+  const prevMaxDurRef = useRef(activeRoom?.maxSongDurationSec ?? 0);
+  const maxDurChangedAt = useRef(0);
+  useEffect(() => {
+    const newMax = activeRoom?.maxSongDurationSec ?? 0;
+    if (newMax !== prevMaxDurRef.current) {
+      prevMaxDurRef.current = newMax;
+      maxDurChangedAt.current = Date.now();
+      // Don't reset autoTransitionFired — let it take effect on next song
+    }
+  }, [activeRoom?.maxSongDurationSec]);
   useEffect(() => {
     const maxDur = activeRoom?.maxSongDurationSec;
     if (!maxDur || maxDur <= 0 || !isPlaying || isFading) return;
 
     const maxMs = maxDur * 1000;
+    // Account for fade duration so we start fading before the limit
+    const triggerMs = Math.max(0, maxMs - fadeDurationSec * 1000);
     const id = setInterval(() => {
       if (autoTransitionFired.current) return;
       const elapsed = Date.now() - progressSyncedAt.current;
       const currentProgress = progressMs + elapsed;
-      if (currentProgress >= maxMs) {
+      // Skip if the setting was changed less than 3s ago (avoids instant trigger on mid-song change)
+      if (Date.now() - maxDurChangedAt.current < 3000) return;
+      if (currentProgress >= triggerMs) {
         autoTransitionFired.current = true;
         fadeSkipRef.current();
       }
     }, 1000);
 
     return () => clearInterval(id);
-  }, [activeRoom?.maxSongDurationSec, isPlaying, isFading, progressMs]);
+  }, [activeRoom?.maxSongDurationSec, isPlaying, isFading, progressMs, fadeDurationSec]);
 
   const cycleFadeDuration = () => {
     // Cycle through presets: 1 → 3 → 5 → 8 → 12 → 1
@@ -1230,22 +1245,25 @@ function DashboardInner({ user }: { user: any }) {
       : playlists;
 
     return (
-      <div className="min-h-dvh max-w-2xl lg:max-w-3xl mx-auto select-none safe-top lg:min-h-0 lg:my-6 lg:bg-white/[0.03] lg:backdrop-blur-xl lg:border lg:border-white/[0.06] lg:rounded-3xl lg:shadow-[0_8px_32px_rgba(0,0,0,0.3)]">
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 pt-4 pb-2">
-          <button
-            onClick={() => activeRoom ? setView("manage") : setView("rooms")}
-            className="text-white/40 hover:text-white/70 flex items-center gap-1.5 transition-colors text-[13px]"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-            Back
-          </button>
+      <div className="flex flex-col min-h-dvh max-w-2xl lg:max-w-3xl mx-auto select-none safe-top lg:min-h-0 lg:my-6 lg:bg-white/[0.03] lg:backdrop-blur-xl lg:border lg:border-white/[0.06] lg:rounded-3xl lg:shadow-[0_8px_32px_rgba(0,0,0,0.3)] lg:max-h-[calc(100dvh-3rem)]" style={{ height: 'var(--app-height, 100dvh)' }}>
+        {/* Sticky Header */}
+        <div className="flex-shrink-0 bg-gradient-to-b from-bg-card/90 to-bg-primary/80 backdrop-blur-xl border-b border-white/[0.06] z-[60]">
+          <div className="flex items-center justify-between px-4 pt-4 pb-3">
+            <button
+              onClick={() => activeRoom ? setView("manage") : setView("rooms")}
+              className="text-white/40 hover:text-white/70 flex items-center gap-1.5 transition-colors text-[13px]"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+              Back
+            </button>
+            <h2 className="text-lg font-bold">New Room</h2>
+            <div className="w-12" />
+          </div>
         </div>
 
-        <div className="px-4 pb-8">
-          <h2 className="text-2xl font-bold mb-6">New Room</h2>
+        <div className="flex-1 overflow-y-auto overscroll-none px-4 pt-4 pb-8">
 
           <div className="space-y-5">
             {/* Room Name */}

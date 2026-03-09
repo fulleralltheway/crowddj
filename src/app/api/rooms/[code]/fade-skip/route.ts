@@ -61,19 +61,30 @@ export async function POST(
     const playback = await getCurrentPlayback(accessToken);
     const originalVolume = playback?.device?.volume_percent ?? 80;
 
-    // Fade out
-    for (const mult of multipliers) {
-      await setVolume(accessToken, Math.round(originalVolume * mult));
-      await sleep(stepMs);
+    // Safety: if volume is already very low, don't fade — just skip/pause
+    // This prevents double-fading if the endpoint is called twice
+    if (originalVolume < 10) {
+      if (mode === "pause") {
+        await pausePlayback(accessToken);
+        try { await setVolume(accessToken, 80); } catch {}
+        return NextResponse.json({ success: true, action: "paused", originalVolume: 80 });
+      }
+      // Fall through to skip logic without fading
+    } else {
+      // Fade out from current volume
+      for (const mult of multipliers) {
+        await setVolume(accessToken, Math.round(originalVolume * mult));
+        await sleep(stepMs);
+      }
+      // Ensure we hit zero
+      try { await setVolume(accessToken, 0); } catch {}
     }
 
     if (mode === "pause") {
-      // Fade & Pause: pause playback first, then restore volume.
-      // Some Spotify devices ignore volume changes while paused, so we
-      // also return originalVolume for the play/skip routes to restore.
+      // Fade & Pause: pause playback first, then restore volume
       await pausePlayback(accessToken);
-      // Small delay to let pause settle before restoring volume
       await sleep(300);
+      // Restore volume so next play resumes at correct level
       try { await setVolume(accessToken, originalVolume); } catch {}
       return NextResponse.json({ success: true, action: "paused", originalVolume });
     }
@@ -104,20 +115,26 @@ export async function POST(
       // 1. Pause the faded-out song so nothing is playing at volume 0
       try { await pausePlayback(accessToken); } catch {}
 
-      // 2. Restore volume while nothing is playing — this is reliable
+      // 2. Restore volume while paused — this ensures the next song starts loud
       await setVolume(accessToken, originalVolume);
 
       // 3. Wait for Spotify to apply the volume change
-      await sleep(400);
+      await sleep(500);
 
-      // 4. Now start the next song at full volume
-      const wasPreQueued = room.lastPreQueuedId === nextSong.id;
+      // 4. Verify volume was actually restored before starting next song
       try {
-        // Always use startPlayback after a pause — skipToNext doesn't work
-        // reliably from a paused state and can play the wrong song
+        const check = await getCurrentPlayback(accessToken);
+        const currentVol = check?.device?.volume_percent ?? 0;
+        if (currentVol < originalVolume - 10) {
+          await setVolume(accessToken, originalVolume);
+          await sleep(300);
+        }
+      } catch {}
+
+      // 5. Now start the next song at full volume
+      try {
         await startPlayback(accessToken, [nextSong.spotifyUri]);
       } catch {
-        // Fallback: try skipToNext if startPlayback fails
         try { await skipToNext(accessToken); } catch {}
       }
 
@@ -138,6 +155,8 @@ export async function POST(
 
     return NextResponse.json({ success: true, action: "skipped", song: nextSong, originalVolume });
   } catch (e: any) {
+    // Emergency volume restoration — don't leave the user stuck at volume 0
+    try { await setVolume(accessToken, 80); } catch {}
     return NextResponse.json(
       { error: e.message || "Fade skip failed" },
       { status: 500 }
