@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { getCurrentPlayback, addToQueue, skipToNext } from "@/lib/spotify";
+import { getCurrentPlayback, addToQueue, skipToNext, startPlayback } from "@/lib/spotify";
 import { NextRequest, NextResponse } from "next/server";
 
 export const maxDuration = 30;
@@ -73,7 +73,11 @@ export async function GET(req: NextRequest) {
                 where: { id: nextSong.id },
                 data: { isPlaying: true, isLocked: false },
               });
-              try { await skipToNext(accessToken); } catch {}
+              // Use startPlayback for maxSongDuration auto-transitions since
+              // pre-queuing is disabled in this mode (nothing in Spotify's queue)
+              try { await startPlayback(accessToken, [nextSong.spotifyUri]); } catch {
+                try { await skipToNext(accessToken); } catch {}
+              }
               await prisma.room.update({
                 where: { id: room.id },
                 data: { lastPreQueuedId: null, lastSyncAdvance: new Date(), totalSongsPlayed: { increment: 1 } },

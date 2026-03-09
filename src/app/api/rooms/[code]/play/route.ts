@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { startPlayback, pausePlayback, resumePlayback, getCurrentPlayback, getDevices } from "@/lib/spotify";
+import { startPlayback, pausePlayback, resumePlayback, getCurrentPlayback, getDevices, setVolume } from "@/lib/spotify";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(
@@ -32,6 +32,14 @@ export async function POST(
 
     // If our song is loaded but paused — resume
     if (!playback?.is_playing && currentSong && playback?.item?.uri === currentSong.spotifyUri) {
+      // Ensure volume is audible before resuming (may have been faded to 0).
+      // Use a generous threshold — anything under 30% after a fade is suspicious.
+      const currentVol = playback?.device?.volume_percent ?? 100;
+      if (currentVol < 30) {
+        await setVolume(accessToken, 80);
+        // Give Spotify a moment to apply the volume before resuming
+        await new Promise((r) => setTimeout(r, 200));
+      }
       await resumePlayback(accessToken);
       return NextResponse.json({ success: true, action: "resumed" });
     }
@@ -53,6 +61,12 @@ export async function POST(
 
     if (!song) {
       return NextResponse.json({ error: "No songs in queue" }, { status: 404 });
+    }
+
+    // Ensure volume is audible before starting (may have been faded)
+    const startVol = playback?.device?.volume_percent ?? 100;
+    if (startVol < 30) {
+      try { await setVolume(accessToken, 80); } catch {}
     }
 
     // Play this song

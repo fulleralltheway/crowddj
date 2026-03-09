@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { startPlayback } from "@/lib/spotify";
+import { startPlayback, skipToNext, getCurrentPlayback, setVolume } from "@/lib/spotify";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(
@@ -42,15 +42,45 @@ export async function POST(
       data: { isPlaying: true, isLocked: false },
     });
 
-    // Play this song
+    // Ensure volume is audible before skipping (may have been faded to 0)
     try {
-      await startPlayback(accessToken, [nextSong.spotifyUri]);
+      const playback = await getCurrentPlayback(accessToken);
+      const currentVol = playback?.device?.volume_percent ?? 100;
+      if (currentVol < 30) {
+        await setVolume(accessToken, 80);
+      }
+    } catch {}
+
+    // If this song was already pre-queued into Spotify's queue, use skipToNext
+    // to consume it. Otherwise startPlayback would leave an orphaned copy in the
+    // queue that would replay the song when it finishes.
+    const wasPreQueued = room.lastPreQueuedId === nextSong.id;
+    try {
+      if (wasPreQueued) {
+        await skipToNext(accessToken);
+      } else {
+        await startPlayback(accessToken, [nextSong.spotifyUri]);
+      }
     } catch {
-      // Spotify playback failed (e.g. no active device)
+      // Try the other method as fallback
+      try {
+        if (wasPreQueued) {
+          await startPlayback(accessToken, [nextSong.spotifyUri]);
+        } else {
+          await skipToNext(accessToken);
+        }
+      } catch {}
     }
 
-    // Clear pre-queue — cron will queue the next song when ~15s remain
-    await prisma.room.update({ where: { id: room.id }, data: { lastPreQueuedId: null } });
+    // Update room: clear pre-queue, debounce cron, track stats
+    await prisma.room.update({
+      where: { id: room.id },
+      data: {
+        lastPreQueuedId: null,
+        lastSyncAdvance: new Date(),
+        totalSongsPlayed: { increment: 1 },
+      },
+    });
   }
 
   return NextResponse.json({ success: true, song: nextSong });

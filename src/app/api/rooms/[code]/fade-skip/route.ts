@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { startPlayback, getCurrentPlayback, setVolume, pausePlayback } from "@/lib/spotify";
+import { startPlayback, getCurrentPlayback, setVolume, pausePlayback, skipToNext } from "@/lib/spotify";
 import { NextRequest, NextResponse } from "next/server";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -68,9 +68,13 @@ export async function POST(
     }
 
     if (mode === "pause") {
-      // Fade & Pause: pause playback, restore volume for next resume
+      // Fade & Pause: pause playback first, then restore volume.
+      // Some Spotify devices ignore volume changes while paused, so we
+      // also return originalVolume for the play/skip routes to restore.
       await pausePlayback(accessToken);
-      await setVolume(accessToken, originalVolume);
+      // Small delay to let pause settle before restoring volume
+      await sleep(300);
+      try { await setVolume(accessToken, originalVolume); } catch {}
       return NextResponse.json({ success: true, action: "paused", originalVolume });
     }
 
@@ -97,18 +101,38 @@ export async function POST(
         data: { isPlaying: true, isLocked: false },
       });
 
-      // Restore volume to full BEFORE starting next song so it hits at full volume
+      // 1. Pause the faded-out song so nothing is playing at volume 0
+      try { await pausePlayback(accessToken); } catch {}
+
+      // 2. Restore volume while nothing is playing — this is reliable
       await setVolume(accessToken, originalVolume);
 
+      // 3. Wait for Spotify to apply the volume change
+      await sleep(400);
+
+      // 4. Now start the next song at full volume
+      const wasPreQueued = room.lastPreQueuedId === nextSong.id;
       try {
+        // Always use startPlayback after a pause — skipToNext doesn't work
+        // reliably from a paused state and can play the wrong song
         await startPlayback(accessToken, [nextSong.spotifyUri]);
       } catch {
-        // Spotify playback failed
+        // Fallback: try skipToNext if startPlayback fails
+        try { await skipToNext(accessToken); } catch {}
       }
 
-      await prisma.room.update({ where: { id: room.id }, data: { lastPreQueuedId: null } });
+      // Update room: clear pre-queue, debounce cron, track stats
+      await prisma.room.update({
+        where: { id: room.id },
+        data: {
+          lastPreQueuedId: null,
+          lastSyncAdvance: new Date(),
+          totalSongsPlayed: { increment: 1 },
+        },
+      });
     } else {
-      // No next song — restore volume anyway
+      // No next song — pause and restore volume
+      try { await pausePlayback(accessToken); } catch {}
       await setVolume(accessToken, originalVolume);
     }
 

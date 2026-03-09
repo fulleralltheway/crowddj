@@ -215,7 +215,7 @@ export default function DisplayPage() {
               <p className="font-mono text-3xl md:text-4xl font-bold tracking-wider" style={{ color: accentColor }}>
                 {room.code}
               </p>
-              <p className="text-text-secondary text-xs mt-1">crowddj.vercel.app</p>
+              <p className="text-text-secondary text-xs mt-1">{typeof window !== "undefined" ? window.location.host : "partyqueue.com"}</p>
             </div>
 
             {/* Up Next */}

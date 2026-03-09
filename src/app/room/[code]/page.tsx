@@ -725,7 +725,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     const isClosed = error.includes("closed") || error.includes("expired");
     return (
       <div className="min-h-dvh flex items-center justify-center px-4 select-none" style={{ animation: 'fadeIn 0.4s ease-out' }}>
-        <div className="text-center space-y-4">
+        <div className="text-center space-y-4 lg:bg-white/[0.04] lg:backdrop-blur-xl lg:border lg:border-white/[0.06] lg:rounded-3xl lg:p-10 lg:shadow-[0_8px_32px_rgba(0,0,0,0.3)]">
           <div className="text-5xl mb-2">{isClosed ? "\u{1F3B5}" : "\u{1F50D}"}</div>
           <p className="text-2xl font-bold">{isClosed ? "Party's Over!" : error}</p>
           {isClosed && (
@@ -776,9 +776,9 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   if (pageStatus === "need_name") {
     return (
       <div className="min-h-dvh flex items-center justify-center px-4 name-form-enter select-none" style={room.brandColor ? { '--color-accent': room.brandColor } as any : undefined}>
-        <div className="w-full max-w-sm text-center space-y-6">
+        <div className="w-full max-w-sm text-center space-y-6 lg:bg-white/[0.04] lg:backdrop-blur-xl lg:border lg:border-white/[0.06] lg:rounded-3xl lg:p-10 lg:shadow-[0_8px_32px_rgba(0,0,0,0.3)] lg:max-w-md">
           <div>
-            <h1 className="text-2xl font-bold mb-1">{room.brandName || room.name}</h1>
+            <h1 className="text-2xl font-bold mb-1 lg:text-3xl">{room.brandName || room.name}</h1>
             <p className="text-text-secondary text-sm">Hosted by {room.host.name}</p>
           </div>
           <div className="space-y-3">
@@ -810,7 +810,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     const firstName = guestName.split(" ")[0];
     return (
       <div className="min-h-dvh flex items-center justify-center px-4 select-none" style={room.brandColor ? { '--color-accent': room.brandColor } as any : undefined}>
-        <div className="text-center space-y-3 animate-[fadeIn_0.4s_ease-out]">
+        <div className="text-center space-y-3 animate-[fadeIn_0.4s_ease-out] lg:bg-white/[0.04] lg:backdrop-blur-xl lg:border lg:border-white/[0.06] lg:rounded-3xl lg:p-10 lg:shadow-[0_8px_32px_rgba(0,0,0,0.3)]">
           <p className="text-4xl">🎵</p>
           <h1 className="text-2xl font-bold">Welcome, {firstName}!</h1>
           <p className="text-text-secondary text-sm">
@@ -829,8 +829,8 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   if (scheduledCountdown) {
     return (
       <div className="min-h-dvh flex items-center justify-center px-4 select-none">
-        <div className="text-center space-y-4 max-w-sm">
-          <h1 className="text-2xl font-bold">{room.name}</h1>
+        <div className="text-center space-y-4 max-w-sm lg:bg-white/[0.04] lg:backdrop-blur-xl lg:border lg:border-white/[0.06] lg:rounded-3xl lg:p-10 lg:shadow-[0_8px_32px_rgba(0,0,0,0.3)] lg:max-w-md">
+          <h1 className="text-2xl font-bold lg:text-3xl">{room.name}</h1>
           <p className="text-text-secondary text-sm">Hosted by {room.host.name}</p>
           <div className="py-6">
             <p className="text-white/40 text-xs uppercase tracking-wider mb-2">Starts in</p>
@@ -851,7 +851,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       : { trackName: spotifyTrack.name, artistName: spotifyTrack.artist, albumArt: spotifyTrack.albumArt, spotifyUri: spotifyTrack.uri, id: '__spotify__', isPlaying: true } as any)
     : queuePlaying;
   return (
-    <div className="flex flex-col max-w-lg lg:max-w-4xl xl:max-w-5xl mx-auto overflow-hidden select-none safe-top" style={{ height: 'var(--app-height, 100dvh)', ...(room.brandColor ? { '--color-accent': room.brandColor } as any : {}) }}>
+    <div className="flex flex-col max-w-lg lg:max-w-5xl xl:max-w-6xl mx-auto overflow-hidden select-none safe-top lg:my-6 lg:bg-white/[0.03] lg:backdrop-blur-xl lg:border lg:border-white/[0.06] lg:rounded-3xl lg:shadow-[0_8px_32px_rgba(0,0,0,0.3)] lg:max-h-[calc(100dvh-3rem)]" style={{ height: 'var(--app-height, 100dvh)', ...(room.brandColor ? { '--color-accent': room.brandColor } as any : {}) }}>
       {/* Room closing overlay */}
       {roomClosing && (
         <div className="absolute inset-0 z-[100] flex items-center justify-center bg-bg-primary/80 backdrop-blur-sm" style={{ animation: 'fadeIn 0.5s ease-out' }}>

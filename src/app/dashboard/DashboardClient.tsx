@@ -229,44 +229,51 @@ function MiniPlayer({
               )}
             </div>
             {/* Controls */}
-            <div className="flex items-center gap-0.5 flex-shrink-0">
+            <div className="flex items-center gap-1 flex-shrink-0">
               {/* Lock toggle */}
               <button
                 onClick={onToggleLock}
-                className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
-                  controlsLocked ? "text-yellow-500 bg-yellow-500/10" : "text-white/20 hover:text-white/40 hover:bg-white/[0.04]"
+                className={`flex flex-col items-center justify-center rounded-lg px-2 py-1 transition-colors ${
+                  controlsLocked ? "text-yellow-500 bg-yellow-500/10" : "text-white/25 hover:text-white/50 hover:bg-white/[0.04]"
                 }`}
                 title={controlsLocked ? "Unlock controls" : "Lock controls"}
               >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                   {controlsLocked ? (
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                   ) : (
                     <path strokeLinecap="round" strokeLinejoin="round" d="M8 11V7a4 4 0 118 0m-4 8v2m-2 4h4a2 2 0 002-2v-6a2 2 0 00-2-2H10a2 2 0 00-2 2v6a2 2 0 002 2z" />
                   )}
                 </svg>
+                <span className="text-[8px] font-medium leading-tight mt-0.5">{controlsLocked ? "Locked" : "Lock"}</span>
               </button>
+
+              <div className="w-px h-6 bg-white/[0.06] mx-0.5" />
+
               {/* Fade & Pause */}
               <button
                 onClick={controlsLocked ? undefined : onFadePause}
-                className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
-                  controlsLocked ? "opacity-30 cursor-not-allowed" : "text-white/30 hover:text-white/60 hover:bg-white/[0.04]"
+                className={`flex flex-col items-center justify-center rounded-lg px-2 py-1 transition-colors ${
+                  controlsLocked ? "opacity-30 cursor-not-allowed" : "text-white/40 hover:text-white/70 hover:bg-white/[0.04]"
                 }`}
                 disabled={controlsLocked || isFading}
-                title="Fade & pause"
+                title="Fade out and pause"
               >
-                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M6 4v16l8-8z" />
-                  <rect x="16" y="4" width="3" height="16" rx="1" />
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                  <rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor" />
+                  <rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor" />
                 </svg>
+                <span className="text-[8px] font-medium leading-tight mt-0.5">Fade</span>
               </button>
-              {/* Play/Pause */}
+
+              {/* Play/Pause — main control, larger */}
               <button
                 onClick={controlsLocked ? undefined : onTogglePlay}
-                className={`w-11 h-11 rounded-xl flex items-center justify-center transition-colors ${
-                  controlsLocked ? "opacity-30 cursor-not-allowed" : "hover:bg-bg-card-hover active:bg-border"
+                className={`w-12 h-12 rounded-xl flex items-center justify-center transition-colors ${
+                  controlsLocked ? "opacity-30 cursor-not-allowed" : "bg-white/[0.06] hover:bg-white/[0.1] active:bg-white/[0.15]"
                 }`}
                 disabled={controlsLocked}
+                title={isPlaying ? "Pause" : "Play"}
               >
                 {isPlaying ? (
                   <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
@@ -279,32 +286,20 @@ function MiniPlayer({
                   </svg>
                 )}
               </button>
+
               {/* Skip — fade skip by default, hard skip if already fading */}
               <button
                 onClick={controlsLocked ? undefined : (isFading ? onSkip : onFadeSkip)}
-                className={`w-11 h-11 rounded-xl flex items-center justify-center transition-colors ${
-                  controlsLocked ? "opacity-30 cursor-not-allowed" : isFading ? "text-accent hover:bg-accent/10" : "hover:bg-bg-card-hover active:bg-border"
+                className={`flex flex-col items-center justify-center rounded-lg px-2 py-1 transition-colors ${
+                  controlsLocked ? "opacity-30 cursor-not-allowed" : isFading ? "text-accent bg-accent/10" : "text-white/40 hover:text-white/70 hover:bg-white/[0.04]"
                 }`}
                 disabled={controlsLocked}
-                title={isFading ? "Skip now (hard skip)" : "DJ fade skip"}
+                title={isFading ? "Skip now (hard skip)" : `Fade skip (${fadeDurationSec}s fade)`}
               >
-                {isFading ? (
-                  <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M4 4v16l8-8zm8 0v16l8-8zm4 0v16h2V4z" />
-                  </svg>
-                ) : (
-                  <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M5 4v16l10-8zm12 0v16h2V4z" />
-                  </svg>
-                )}
-              </button>
-              {/* Fade duration indicator — tap to cycle presets */}
-              <button
-                onClick={onCycleFadeDuration}
-                className="w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-bold tabular-nums text-white/25 hover:text-white/50 hover:bg-white/[0.04] transition-colors"
-                title={`Fade: ${fadeDurationSec}s (tap to change)`}
-              >
-                {fadeDurationSec}s
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M5 4v16l10-8zm12 0v16h2V4z" />
+                </svg>
+                <span className="text-[8px] font-medium leading-tight mt-0.5">{isFading ? "Skip!" : `Skip ${fadeDurationSec}s`}</span>
               </button>
             </div>
           </div>
@@ -802,6 +797,7 @@ function DashboardInner({ user }: { user: any }) {
   const togglePlay = async () => {
     if (!activeRoom) return;
     setPlayError("");
+    // Volume restoration is handled server-side in /play route
     const res = await fetch(`/api/rooms/${activeRoom.code}/play`, { method: "POST" });
     if (res.ok) {
       const data = await res.json();
@@ -820,6 +816,7 @@ function DashboardInner({ user }: { user: any }) {
     setIsFading(false);
     setProgressMs(0);
     setDurationMs(0);
+    // Volume restoration is handled server-side in /skip route
     await fetch(`/api/rooms/${activeRoom.code}/skip`, { method: "POST" });
     getSocket().emit("song-skipped", activeRoom.code);
     refreshSongs(activeRoom.code);
@@ -852,6 +849,7 @@ function DashboardInner({ user }: { user: any }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ fadeDurationMs: fadeDurationSec * 1000, mode: "pause" }),
       });
+      // Volume restoration is handled server-side in /play and /skip routes
       setIsPlaying(false);
     } catch {
       // Fall back to hard pause
@@ -913,7 +911,7 @@ function DashboardInner({ user }: { user: any }) {
     }
   };
 
-  const togglePreview = (songId: string, previewUrl: string) => {
+  const togglePreview = async (songId: string, previewUrl: string | null, spotifyUri: string) => {
     if (previewSongId === songId) {
       // Stop current preview
       previewAudioRef.current?.pause();
@@ -921,11 +919,36 @@ function DashboardInner({ user }: { user: any }) {
       setPreviewSongId(null);
       return;
     }
+
+    let url = previewUrl;
+
+    // If no cached preview URL, try fetching from Spotify
+    if (!url && activeRoom) {
+      const trackId = spotifyUri.replace("spotify:track:", "");
+      try {
+        setPreviewSongId(songId); // Show loading state
+        const res = await fetch(`/api/rooms/${activeRoom.code}/preview`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ trackId }),
+        });
+        const data = await res.json();
+        url = data.previewUrl;
+      } catch {}
+    }
+
+    if (!url) {
+      // No preview available — briefly flash the button then reset
+      setPreviewSongId(songId);
+      setTimeout(() => setPreviewSongId(null), 1500);
+      return;
+    }
+
     // Stop previous preview if any
     previewAudioRef.current?.pause();
-    const audio = new Audio(previewUrl);
+    const audio = new Audio(url);
     audio.volume = 0.5;
-    audio.play().catch(() => {});
+    audio.play().catch(() => { setPreviewSongId(null); });
     audio.onended = () => {
       setPreviewSongId(null);
       previewAudioRef.current = null;
@@ -1243,7 +1266,7 @@ function DashboardInner({ user }: { user: any }) {
       : playlists;
 
     return (
-      <div className="min-h-dvh max-w-2xl lg:max-w-3xl mx-auto select-none safe-top">
+      <div className="min-h-dvh max-w-2xl lg:max-w-3xl mx-auto select-none safe-top lg:min-h-0 lg:my-6 lg:bg-white/[0.03] lg:backdrop-blur-xl lg:border lg:border-white/[0.06] lg:rounded-3xl lg:shadow-[0_8px_32px_rgba(0,0,0,0.3)]">
         {/* Header */}
         <div className="flex items-center justify-between px-4 pt-4 pb-2">
           <button
@@ -1505,7 +1528,7 @@ function DashboardInner({ user }: { user: any }) {
     : queuePlaying;
 
   return (
-    <div className="flex flex-col max-w-6xl xl:max-w-7xl mx-auto overflow-hidden relative select-none safe-top" style={{ height: 'var(--app-height, 100dvh)' }}>
+    <div className="flex flex-col max-w-6xl xl:max-w-7xl mx-auto overflow-hidden relative select-none safe-top lg:my-6 lg:bg-white/[0.03] lg:backdrop-blur-xl lg:border lg:border-white/[0.06] lg:rounded-3xl lg:shadow-[0_8px_32px_rgba(0,0,0,0.3)] lg:max-h-[calc(100dvh-3rem)]" style={{ height: 'var(--app-height, 100dvh)' }}>
       {!isOnline && (
         <div className="flex-shrink-0 bg-red-600 text-white text-center text-xs py-1 font-medium z-[70]">
           No internet connection
@@ -1647,9 +1670,9 @@ function DashboardInner({ user }: { user: any }) {
             </div>
           )}
 
-          <div className="lg:grid lg:grid-cols-[1fr_1.5fr] lg:gap-6 xl:gap-8">
+          <div className={`${(showQR || showSettings || showGuests) ? "lg:grid lg:grid-cols-[1fr_1.5fr] lg:gap-6 xl:gap-8" : ""}`}>
           {/* Left column: Now Playing, Controls, Panels */}
-          <div>
+          <div className={`${!(showQR || showSettings || showGuests) ? "lg:hidden" : ""}`}>
 
           {/* Song added toast */}
           {songAddedToast && (
@@ -2173,7 +2196,7 @@ function DashboardInner({ user }: { user: any }) {
               </div>
             );
           })()}
-          <div ref={dragIdx === null ? songListRef : undefined} className="space-y-1.5 pb-8">
+          <div ref={dragIdx === null ? songListRef : undefined} className={`space-y-1.5 pb-8 ${!(showQR || showSettings || showGuests) ? "lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0" : ""}`}>
             {(() => {
               const queueSongs = activeRoom.songs?.filter((s: any) => !s.isPlaying) || [];
               // Build display order: if dragging, show reordered preview
@@ -2348,24 +2371,28 @@ function DashboardInner({ user }: { user: any }) {
                   </div>
                   <div className="flex items-center gap-1">
                     {/* Preview button — desktop only */}
-                    {song.previewUrl && (
-                      <button
-                        onClick={() => togglePreview(song.id, song.previewUrl)}
-                        className={`hidden lg:flex w-7 h-7 rounded-lg items-center justify-center transition-colors ${previewSongId === song.id ? "text-accent bg-accent/10" : "text-white/20 hover:text-white/40 hover:bg-white/[0.04]"}`}
-                        title={previewSongId === song.id ? "Stop preview" : "Preview 30s clip"}
-                      >
-                        {previewSongId === song.id ? (
+                    <button
+                      onClick={() => togglePreview(song.id, song.previewUrl, song.spotifyUri)}
+                      className={`hidden lg:flex w-7 h-7 rounded-lg items-center justify-center transition-colors ${previewSongId === song.id ? "text-accent bg-accent/10" : "text-white/20 hover:text-white/40 hover:bg-white/[0.04]"}`}
+                      title={previewSongId === song.id ? "Stop preview" : "Preview 30s clip"}
+                    >
+                      {previewSongId === song.id ? (
+                        previewAudioRef.current ? (
                           <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
                             <rect x="6" y="4" width="4" height="16" rx="1" />
                             <rect x="14" y="4" width="4" height="16" rx="1" />
                           </svg>
                         ) : (
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M15.536 8.464a5 5 0 010 7.072M17.95 6.05a8 8 0 010 11.9M6.5 8.5l5-4v15l-5-4H4a1 1 0 01-1-1v-5a1 1 0 011-1h2.5z" />
+                          <svg className="w-3.5 h-3.5 text-white/30" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 5.636a9 9 0 11-12.728 0M12 9v4m0 4h.01" />
                           </svg>
-                        )}
-                      </button>
-                    )}
+                        )
+                      ) : (
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M15.536 8.464a5 5 0 010 7.072M17.95 6.05a8 8 0 010 11.9M6.5 8.5l5-4v15l-5-4H4a1 1 0 01-1-1v-5a1 1 0 011-1h2.5z" />
+                        </svg>
+                      )}
+                    </button>
                     {!(song.isLocked && activeRoom.lastPreQueuedId !== song.id) && (
                       <div className="text-right mr-0.5">
                         {(() => {
@@ -2405,21 +2432,19 @@ function DashboardInner({ user }: { user: any }) {
                         <>
                           <div className="fixed inset-0 z-40" onClick={() => setSongMenuOpen(null)} />
                           <div className="absolute right-0 top-full mt-1 z-50 bg-bg-card border border-white/[0.1] rounded-xl shadow-2xl overflow-hidden min-w-[140px]">
-                            {song.previewUrl && (
-                              <button
-                                onClick={() => { togglePreview(song.id, song.previewUrl); setSongMenuOpen(null); }}
-                                className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm hover:bg-white/[0.06] transition-colors text-left"
-                              >
-                                <svg className={`w-4 h-4 ${previewSongId === song.id ? "text-accent" : "text-white/40"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
-                                  {previewSongId === song.id ? (
-                                    <><rect x="6" y="4" width="4" height="16" rx="1" fill="currentColor" stroke="none" /><rect x="14" y="4" width="4" height="16" rx="1" fill="currentColor" stroke="none" /></>
-                                  ) : (
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.536 8.464a5 5 0 010 7.072M17.95 6.05a8 8 0 010 11.9M6.5 8.5l5-4v15l-5-4H4a1 1 0 01-1-1v-5a1 1 0 011-1h2.5z" />
-                                  )}
-                                </svg>
-                                <span className={previewSongId === song.id ? "text-accent" : ""}>{previewSongId === song.id ? "Stop Preview" : "Preview"}</span>
-                              </button>
-                            )}
+                            <button
+                              onClick={() => { togglePreview(song.id, song.previewUrl, song.spotifyUri); setSongMenuOpen(null); }}
+                              className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm hover:bg-white/[0.06] transition-colors text-left"
+                            >
+                              <svg className={`w-4 h-4 ${previewSongId === song.id ? "text-accent" : "text-white/40"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
+                                {previewSongId === song.id ? (
+                                  <><rect x="6" y="4" width="4" height="16" rx="1" fill="currentColor" stroke="none" /><rect x="14" y="4" width="4" height="16" rx="1" fill="currentColor" stroke="none" /></>
+                                ) : (
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.536 8.464a5 5 0 010 7.072M17.95 6.05a8 8 0 010 11.9M6.5 8.5l5-4v15l-5-4H4a1 1 0 01-1-1v-5a1 1 0 011-1h2.5z" />
+                                )}
+                              </svg>
+                              <span className={previewSongId === song.id ? "text-accent" : ""}>{previewSongId === song.id ? "Stop Preview" : "Preview"}</span>
+                            </button>
                             <button
                               onClick={() => { lockSong(song.id); setSongMenuOpen(null); }}
                               className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm hover:bg-white/[0.06] transition-colors text-left"
