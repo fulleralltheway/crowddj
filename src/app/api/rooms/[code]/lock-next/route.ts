@@ -27,7 +27,9 @@ export async function POST(
   }
 
   // Lock the song AND set lastPreQueuedId so the UI shows "Up Next" style
-  // (votes visible but disabled) instead of DJ lock style (hides votes)
+  // (votes visible but disabled) instead of DJ lock style (hides votes).
+  // Also update lastSyncAdvance to signal "transition in progress" so the
+  // cron's maxSongDuration handler backs off and doesn't race with the fade.
   if (!nextSong.isLocked) {
     await prisma.roomSong.update({
       where: { id: nextSong.id },
@@ -36,7 +38,7 @@ export async function POST(
   }
   await prisma.room.update({
     where: { id: room.id },
-    data: { lastPreQueuedId: nextSong.id },
+    data: { lastPreQueuedId: nextSong.id, lastSyncAdvance: new Date() },
   });
 
   return NextResponse.json({

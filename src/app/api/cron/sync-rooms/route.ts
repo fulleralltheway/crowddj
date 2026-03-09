@@ -70,7 +70,10 @@ export async function GET(req: NextRequest) {
         if (room.maxSongDurationSec >= 30 && playback.is_playing) {
           const maxMs = room.maxSongDurationSec * 1000;
           const timeSinceSync = Date.now() - room.lastSyncAdvance.getTime();
-          if (playback.progress_ms >= maxMs && timeSinceSync >= 10000) {
+          // 30s debounce — client fade can take up to 12s fade + volume restore.
+          // lock-next sets lastSyncAdvance when transition starts, so this ensures
+          // the cron doesn't race with an in-progress fade.
+          if (playback.progress_ms >= maxMs && timeSinceSync >= 30000) {
             // Mark current as played
             await prisma.roomSong.update({
               where: { id: currentSong.id },
