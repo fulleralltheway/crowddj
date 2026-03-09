@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getNextSong } from "@/lib/queue";
-import { startPlayback, getCurrentPlayback, setVolume, pausePlayback, skipToNext, addToQueue } from "@/lib/spotify";
+import { startPlayback, getCurrentPlayback, setVolume, pausePlayback } from "@/lib/spotify";
 import { NextRequest, NextResponse } from "next/server";
 
 // Vercel hobby default is 10s — fades with volume restore need more time
@@ -15,15 +15,13 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * Uses an ease-out curve so the fade feels natural (slows down toward silence).
  */
 function buildFadeCurve(durationMs: number): { multipliers: number[]; stepMs: number } {
-  // ~6-8 steps per second feels smooth without hammering the API
   const stepsPerSec = 6;
   const totalSteps = Math.max(2, Math.round((durationMs / 1000) * stepsPerSec));
   const stepMs = Math.round(durationMs / totalSteps);
 
   const multipliers: number[] = [];
   for (let i = 1; i <= totalSteps; i++) {
-    const t = i / totalSteps; // 0→1
-    // Ease-out curve: starts fast, slows near silence
+    const t = i / totalSteps;
     const vol = Math.pow(1 - t, 1.8);
     multipliers.push(Math.max(0, vol));
   }
@@ -45,8 +43,7 @@ export async function POST(
     return NextResponse.json({ error: "Not authorized" }, { status: 403 });
   }
 
-  // Parse options: fadeDurationMs (number) and mode ("skip" | "pause")
-  let fadeDurationMs = 2500; // default 2.5s
+  let fadeDurationMs = 2500;
   let mode: "skip" | "pause" = "skip";
   try {
     const body = await req.json();
@@ -54,81 +51,52 @@ export async function POST(
       fadeDurationMs = Math.max(500, Math.min(30000, body.fadeDurationMs));
     }
     if (body.mode === "pause") mode = "pause";
-  } catch {
-    // No body or invalid JSON — use defaults
-  }
+  } catch {}
 
   const { multipliers, stepMs } = buildFadeCurve(fadeDurationMs);
 
-  // Track whether we successfully pre-queued the next song
-  let preQueuedSongId: string | null = null;
-  let lockedNextSong: any = null; // The song we locked/queued before fading — use THIS after fade
+  // Determine the next song BEFORE fading so we know exactly what to play
+  let lockedNextSong: any = null;
   let originalVolume = 80;
 
   try {
-    // Get current playback to know the starting volume
     const playback = await getCurrentPlayback(accessToken);
     originalVolume = playback?.device?.volume_percent ?? 80;
 
-    // If skip mode: lock the next song AND pre-queue it into Spotify BEFORE fading
-    // This way the UI shows it as "up next" and Spotify has it ready to play
+    // Lock the next song in DB so UI shows it as "up next"
     if (mode === "skip") {
       const nextUp = await getNextSong(room.id, room.autoShuffle);
       if (nextUp) {
         lockedNextSong = nextUp;
-        // Lock in DB if not already locked
         if (!nextUp.isLocked) {
           await prisma.roomSong.update({
             where: { id: nextUp.id },
             data: { isLocked: true },
           });
         }
-        // Pre-queue into Spotify's queue (unless already pre-queued by cron)
-        if (room.lastPreQueuedId !== nextUp.id) {
-          try {
-            await addToQueue(accessToken, nextUp.spotifyUri);
-            await prisma.room.update({
-              where: { id: room.id },
-              data: { lastPreQueuedId: nextUp.id },
-            });
-            preQueuedSongId = nextUp.id;
-            console.log(`[fade-skip] Pre-queued "${nextUp.trackName}" into Spotify queue`);
-          } catch (qErr: any) {
-            console.log(`[fade-skip] addToQueue failed: ${qErr?.message || "unknown"} — will use startPlayback`);
-            // addToQueue can fail if no active device — we'll fall back to startPlayback later
-          }
-        } else {
-          // Already pre-queued by cron
-          preQueuedSongId = nextUp.id;
-        }
       }
     }
 
     // Safety: if volume is already very low, don't fade — just skip/pause
-    // This prevents double-fading if the endpoint is called twice
     if (originalVolume < 10) {
       if (mode === "pause") {
         await pausePlayback(accessToken);
         try { await setVolume(accessToken, 80); } catch {}
         return NextResponse.json({ success: true, action: "paused", originalVolume: 80 });
       }
-      // Fall through to skip logic without fading
     } else {
-      // Fade out from current volume — each step is wrapped in try/catch
-      // so a single Spotify API error doesn't abort the entire fade
+      // Fade out — each step wrapped in try/catch so one error doesn't abort
       for (const mult of multipliers) {
         try { await setVolume(accessToken, Math.round(originalVolume * mult)); } catch {}
         await sleep(stepMs);
       }
-      // Ensure we hit zero
       try { await setVolume(accessToken, 0); } catch {}
     }
 
-    // Immediately pause after fade — never leave a song playing at volume 0
+    // Immediately pause — never leave a song playing at volume 0
     try { await pausePlayback(accessToken); } catch {}
 
     if (mode === "pause") {
-      // Fade & Pause: already paused above, just restore volume
       await sleep(300);
       try { await setVolume(accessToken, originalVolume); } catch {}
       return NextResponse.json({ success: true, action: "paused", originalVolume });
@@ -138,7 +106,6 @@ export async function POST(
     const playing = await prisma.roomSong.findFirst({
       where: { roomId: room.id, isPlaying: true },
     });
-
     if (playing) {
       await prisma.roomSong.update({
         where: { id: playing.id },
@@ -146,9 +113,6 @@ export async function POST(
       });
     }
 
-    // Use the song we locked before the fade — don't re-query, as the queue
-    // order may have changed during the fade (votes, reorder). If we pre-queued
-    // it into Spotify, we MUST play that same song or it'll be orphaned in the queue.
     const nextSong = lockedNextSong ?? await getNextSong(room.id, room.autoShuffle);
 
     if (nextSong) {
@@ -157,37 +121,24 @@ export async function POST(
         data: { isPlaying: true, isLocked: false },
       });
 
-      // 1. Restore volume while paused (works on most devices)
+      // Restore volume while paused
       try { await setVolume(accessToken, originalVolume); } catch {}
       await sleep(400);
 
-      // 2. Start the next song — prefer skipToNext if we pre-queued it
-      const wasPreQueued = preQueuedSongId === nextSong.id || room.lastPreQueuedId === nextSong.id;
+      // Start the exact song by URI — never skipToNext which plays unknown songs
       try {
-        if (wasPreQueued) {
-          await skipToNext(accessToken);
-        } else {
-          await startPlayback(accessToken, [nextSong.spotifyUri]);
-        }
+        await startPlayback(accessToken, [nextSong.spotifyUri]);
       } catch {
-        // Fallback: try the other method
-        try {
-          if (wasPreQueued) {
-            await startPlayback(accessToken, [nextSong.spotifyUri]);
-          } else {
-            await skipToNext(accessToken);
-          }
-        } catch {}
+        // Retry once
+        await sleep(300);
+        try { await startPlayback(accessToken, [nextSong.spotifyUri]); } catch {}
       }
 
-      // 3. CRITICAL: Set volume AGAIN after playback starts
-      // Some Spotify devices ignore setVolume while paused, so the pre-start
-      // volume set may not have taken effect. This second set while playing
-      // is the reliable one.
+      // Set volume AGAIN after playback starts (some devices ignore it while paused)
       await sleep(300);
       try { await setVolume(accessToken, originalVolume); } catch {}
 
-      // 4. Final verification — if still wrong, force it one more time
+      // Final verification
       await sleep(500);
       try {
         const check = await getCurrentPlayback(accessToken);
@@ -197,7 +148,7 @@ export async function POST(
         }
       } catch {}
 
-      // Update room: clear pre-queue, debounce cron, track stats
+      // Clear pre-queue, debounce cron, track stats
       await prisma.room.update({
         where: { id: room.id },
         data: {
@@ -207,18 +158,16 @@ export async function POST(
         },
       });
     } else {
-      // No next song — pause and restore volume
       try { await pausePlayback(accessToken); } catch {}
-      await setVolume(accessToken, originalVolume);
+      try { await setVolume(accessToken, originalVolume); } catch {}
     }
 
-    return NextResponse.json({ success: true, action: "skipped", song: nextSong, originalVolume, preQueued: !!preQueuedSongId });
+    return NextResponse.json({ success: true, action: "skipped", song: nextSong?.trackName, originalVolume });
   } catch (e: any) {
-    // Emergency recovery — pause playback and restore volume
-    // Never leave a song playing at reduced/zero volume
+    // Emergency recovery — pause and restore volume
     try { await pausePlayback(accessToken); } catch {}
     try { await setVolume(accessToken, originalVolume); } catch {}
-    // Still try to advance to next song so the queue doesn't get stuck
+    // Still try to advance the queue
     try {
       const playing = await prisma.roomSong.findFirst({
         where: { roomId: room.id, isPlaying: true },

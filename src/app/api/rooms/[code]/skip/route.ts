@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getNextSong } from "@/lib/queue";
-import { startPlayback, skipToNext, getCurrentPlayback, setVolume, pausePlayback } from "@/lib/spotify";
+import { startPlayback, getCurrentPlayback, setVolume, pausePlayback } from "@/lib/spotify";
 import { NextRequest, NextResponse } from "next/server";
 
 export const maxDuration = 30;
@@ -52,25 +52,13 @@ export async function POST(
       }
     } catch {}
 
-    // If this song was already pre-queued into Spotify's queue, use skipToNext
-    // to consume it. Otherwise startPlayback would leave an orphaned copy in the
-    // queue that would replay the song when it finishes.
-    const wasPreQueued = room.lastPreQueuedId === nextSong.id;
+    // Always use startPlayback with explicit URI — skipToNext is unreliable
+    // because Spotify's queue may contain stale pre-queued or autoplay songs
     try {
-      if (wasPreQueued) {
-        await skipToNext(accessToken);
-      } else {
-        await startPlayback(accessToken, [nextSong.spotifyUri]);
-      }
+      await startPlayback(accessToken, [nextSong.spotifyUri]);
     } catch {
-      // Try the other method as fallback
-      try {
-        if (wasPreQueued) {
-          await startPlayback(accessToken, [nextSong.spotifyUri]);
-        } else {
-          await skipToNext(accessToken);
-        }
-      } catch {}
+      await new Promise((r) => setTimeout(r, 300));
+      try { await startPlayback(accessToken, [nextSong.spotifyUri]); } catch {}
     }
 
     // Update room: clear pre-queue, debounce cron, track stats
