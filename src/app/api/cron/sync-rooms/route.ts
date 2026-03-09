@@ -64,47 +64,62 @@ export async function GET(req: NextRequest) {
       if (playback.item.uri === currentSong.spotifyUri) {
         const remaining = playback.item.duration_ms - playback.progress_ms;
 
-        // Auto-transition: if maxSongDurationSec is set and exceeded, skip to next
-        // Server-side backup: if the client-side fade didn't fire (tab backgrounded,
-        // app closed, etc.), catch it here. Check if a fade is already in progress
-        // by looking for a locked next song — if one exists, the client is handling it.
+        // Auto-transition: works even when owner closes the app.
+        // The cron handles pre-queueing and transitions server-side.
+        // If the client is also open, it handles fading — the cron defers
+        // to it by checking for a locked next song (client locks before fading).
         if (room.maxSongDurationSec >= 30 && playback.is_playing) {
           const maxMs = room.maxSongDurationSec * 1000;
           const timeSinceSync = Date.now() - room.lastSyncAdvance.getTime();
-          // Only act if song is past threshold AND no recent transition activity
-          // Use 15s debounce — short enough to catch missed transitions, long enough
-          // to not race with an in-progress fade (lock-next sets lastSyncAdvance)
-          const hasLockedNext = await prisma.roomSong.findFirst({
-            where: { roomId: room.id, isPlayed: false, isPlaying: false, isLocked: true },
-          });
-          // If a song is locked, the client is mid-transition — don't interfere
-          if (playback.progress_ms >= maxMs && timeSinceSync >= 15000 && !hasLockedNext) {
-            // Mark current as played
-            await prisma.roomSong.update({
-              where: { id: currentSong.id },
-              data: { isPlaying: false, isPlayed: true },
-            });
-            const nextSong = await getNextSong(room.id, room.autoShuffle);
-            if (nextSong) {
+
+          // Pre-queue: 15s before threshold, lock the next song so UI shows "Queued Next"
+          const preQueueMs = maxMs - 15000;
+          if (playback.progress_ms >= preQueueMs && playback.progress_ms < maxMs && !room.lastPreQueuedId) {
+            const nextUp = await getNextSong(room.id, room.autoShuffle);
+            if (nextUp && !nextUp.isLocked) {
               await prisma.roomSong.update({
-                where: { id: nextSong.id },
-                data: { isPlaying: true, isLocked: false },
+                where: { id: nextUp.id },
+                data: { isLocked: true },
               });
-              // Use startPlayback for maxSongDuration auto-transitions since
-              // pre-queuing is disabled in this mode (nothing in Spotify's queue)
-              try { await startPlayback(accessToken, [nextSong.spotifyUri]); } catch {
-                // Retry once
-                try { await startPlayback(accessToken, [nextSong.spotifyUri]); } catch {}
-              }
               await prisma.room.update({
                 where: { id: room.id },
-                data: { lastPreQueuedId: null, lastSyncAdvance: new Date(), totalSongsPlayed: { increment: 1 } },
+                data: { lastPreQueuedId: nextUp.id },
               });
-              results.push({ code: room.code, status: "auto_transition", detail: nextSong.trackName });
-            } else {
-              results.push({ code: room.code, status: "auto_transition_end" });
+              results.push({ code: room.code, status: "prequeued_maxdur", detail: nextUp.trackName });
             }
-            continue;
+          }
+
+          // Transition: song is past threshold
+          if (playback.progress_ms >= maxMs && timeSinceSync >= 15000) {
+            // Check if the client is mid-fade (locked song = client is handling it)
+            const hasLockedNext = await prisma.roomSong.findFirst({
+              where: { roomId: room.id, isPlayed: false, isPlaying: false, isLocked: true },
+            });
+            if (!hasLockedNext) {
+              // No client handling it — cron takes over
+              await prisma.roomSong.update({
+                where: { id: currentSong.id },
+                data: { isPlaying: false, isPlayed: true },
+              });
+              const nextSong = await getNextSong(room.id, room.autoShuffle);
+              if (nextSong) {
+                await prisma.roomSong.update({
+                  where: { id: nextSong.id },
+                  data: { isPlaying: true, isLocked: false },
+                });
+                try { await startPlayback(accessToken, [nextSong.spotifyUri]); } catch {
+                  try { await startPlayback(accessToken, [nextSong.spotifyUri]); } catch {}
+                }
+                await prisma.room.update({
+                  where: { id: room.id },
+                  data: { lastPreQueuedId: null, lastSyncAdvance: new Date(), totalSongsPlayed: { increment: 1 } },
+                });
+                results.push({ code: room.code, status: "auto_transition", detail: nextSong.trackName });
+              } else {
+                results.push({ code: room.code, status: "auto_transition_end" });
+              }
+              continue;
+            }
           }
         }
 
