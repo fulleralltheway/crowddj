@@ -235,7 +235,52 @@ export async function GET(req: NextRequest) {
         }
       }
 
-      // Spotify is playing something not in our queue
+      // Spotify is playing something not in our queue.
+      // Check if it matches ANY unplayed song in the room (played out of order).
+      const matchInQueue = await prisma.roomSong.findFirst({
+        where: { roomId: room.id, spotifyUri: playback.item.uri, isPlayed: false },
+      });
+      if (matchInQueue) {
+        const timeSince = Date.now() - room.lastSyncAdvance.getTime();
+        if (timeSince >= 10000) {
+          // Mark old song as played, make the matched song current
+          await prisma.roomSong.update({
+            where: { id: currentSong.id },
+            data: { isPlaying: false, isPlayed: true },
+          });
+          await prisma.roomSong.update({
+            where: { id: matchInQueue.id },
+            data: { isPlaying: true, isLocked: false },
+          });
+          await prisma.room.update({
+            where: { id: room.id },
+            data: { lastSyncAdvance: new Date(), lastPreQueuedId: null, totalSongsPlayed: { increment: 1 } },
+          });
+          results.push({ code: room.code, status: "advanced_external", detail: matchInQueue.trackName });
+          continue;
+        }
+      }
+
+      // External song not in queue — if maxSongDurationSec is active and Spotify
+      // has been off-queue for a while, force-start the current queue song to
+      // bring Spotify back in sync with the room.
+      if (room.maxSongDurationSec >= 30 && playback.is_playing) {
+        const timeSince = Date.now() - room.lastSyncAdvance.getTime();
+        if (timeSince >= 30000) {
+          try {
+            await startPlayback(accessToken, [currentSong.spotifyUri]);
+            await prisma.room.update({
+              where: { id: room.id },
+              data: { lastSyncAdvance: new Date() },
+            });
+            results.push({ code: room.code, status: "resynced", detail: currentSong.trackName });
+          } catch {
+            results.push({ code: room.code, status: "resync_failed" });
+          }
+          continue;
+        }
+      }
+
       results.push({ code: room.code, status: "external", detail: playback.item.name });
     } catch (err) {
       results.push({ code: room.code, status: "error" });
