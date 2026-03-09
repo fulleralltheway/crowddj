@@ -141,6 +141,7 @@ function MiniPlayer({
   onSkip,
   onFadeSkip,
   onFadePause,
+  onHardSkipDuringFade,
   controlsLocked,
   onToggleLock,
   isFading,
@@ -156,6 +157,7 @@ function MiniPlayer({
   onSkip: () => void;
   onFadeSkip: () => void;
   onFadePause: () => void;
+  onHardSkipDuringFade: () => void;
   controlsLocked: boolean;
   onToggleLock: () => void;
   isFading: boolean;
@@ -290,7 +292,7 @@ function MiniPlayer({
 
               {/* Skip — fade skip by default, hard skip if already fading */}
               <button
-                onClick={controlsLocked ? undefined : (isFading ? onSkip : onFadeSkip)}
+                onClick={controlsLocked ? undefined : (isFading ? onHardSkipDuringFade : onFadeSkip)}
                 className={`flex flex-col items-center justify-center rounded-lg px-2 py-1 transition-colors ${
                   controlsLocked ? "opacity-30 cursor-not-allowed" : isFading ? "text-accent bg-accent/10" : "text-white/40 hover:text-white/70 hover:bg-white/[0.04]"
                 }`}
@@ -805,68 +807,107 @@ function DashboardInner({ user }: { user: any }) {
     }
   };
 
+  // Mutex to prevent rapid-tap race conditions on all playback controls
+  const playbackBusy = useRef(false);
+
   const togglePlay = async () => {
-    if (!activeRoom) return;
+    if (!activeRoom || playbackBusy.current) return;
+    playbackBusy.current = true;
     setPlayError("");
-    // Volume restoration is handled server-side in /play route
-    const res = await fetch(`/api/rooms/${activeRoom.code}/play`, { method: "POST" });
-    if (res.ok) {
-      const data = await res.json();
-      setIsPlaying(data.action === "playing" || data.action === "resumed");
-      getSocket().emit("song-skipped", activeRoom.code); // notify guests of playback change
-    } else {
-      const data = await res.json();
-      setPlayError(data.error || "Open Spotify on a device and try again.");
-      setTimeout(() => setPlayError(""), 6000);
+    try {
+      const res = await fetch(`/api/rooms/${activeRoom.code}/play`, { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        setIsPlaying(data.action === "playing" || data.action === "resumed");
+        getSocket().emit("song-skipped", activeRoom.code);
+      } else {
+        const data = await res.json();
+        setPlayError(data.error || "Open Spotify on a device and try again.");
+        setTimeout(() => setPlayError(""), 6000);
+      }
+      refreshSongs(activeRoom.code);
+    } finally {
+      playbackBusy.current = false;
     }
-    refreshSongs(activeRoom.code);
   };
 
   const skipSong = async () => {
-    if (!activeRoom) return;
+    if (!activeRoom || playbackBusy.current) return;
+    playbackBusy.current = true;
     setIsFading(false);
     setProgressMs(0);
     setDurationMs(0);
-    // Volume restoration is handled server-side in /skip route
-    await fetch(`/api/rooms/${activeRoom.code}/skip`, { method: "POST" });
-    getSocket().emit("song-skipped", activeRoom.code);
-    refreshSongs(activeRoom.code);
+    try {
+      await fetch(`/api/rooms/${activeRoom.code}/skip`, { method: "POST" });
+      getSocket().emit("song-skipped", activeRoom.code);
+      refreshSongs(activeRoom.code);
+    } finally {
+      playbackBusy.current = false;
+    }
+  };
+
+  // Hard skip that bypasses the mutex — used ONLY when interrupting an in-progress fade
+  const hardSkipDuringFade = async () => {
+    if (!activeRoom) return;
+    // The server-side fade is still running, but we do a hard skip to override it.
+    // The fade's DB updates (mark played, set next playing) will either have already
+    // happened or will fail harmlessly since we advance the queue here.
+    setIsFading(false);
+    setProgressMs(0);
+    setDurationMs(0);
+    try {
+      await fetch(`/api/rooms/${activeRoom.code}/skip`, { method: "POST" });
+      getSocket().emit("song-skipped", activeRoom.code);
+      refreshSongs(activeRoom.code);
+    } finally {
+      playbackBusy.current = false;
+    }
   };
 
   const fadeSkipSong = async () => {
-    if (!activeRoom || isFading) return;
+    if (!activeRoom || isFading || playbackBusy.current) return;
+    playbackBusy.current = true;
     setIsFading(true);
     try {
-      await fetch(`/api/rooms/${activeRoom.code}/fade-skip`, {
+      const res = await fetch(`/api/rooms/${activeRoom.code}/fade-skip`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ fadeDurationMs: fadeDurationSec * 1000, mode: "skip" }),
       });
+      if (!res.ok) throw new Error("Fade skip failed");
       getSocket().emit("song-skipped", activeRoom.code);
       refreshSongs(activeRoom.code);
     } catch {
+      // Fall back to hard skip (bypasses mutex since we already hold it)
+      playbackBusy.current = false;
       await skipSong();
     } finally {
       setIsFading(false);
+      playbackBusy.current = false;
     }
   };
 
   const fadePause = async () => {
-    if (!activeRoom || isFading) return;
+    if (!activeRoom || isFading || playbackBusy.current) return;
+    playbackBusy.current = true;
     setIsFading(true);
     try {
-      await fetch(`/api/rooms/${activeRoom.code}/fade-skip`, {
+      const res = await fetch(`/api/rooms/${activeRoom.code}/fade-skip`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ fadeDurationMs: fadeDurationSec * 1000, mode: "pause" }),
       });
-      // Volume restoration is handled server-side in /play and /skip routes
+      if (!res.ok) throw new Error("Fade pause failed");
       setIsPlaying(false);
     } catch {
       // Fall back to hard pause
-      await togglePlay();
+      try {
+        await fetch(`/api/rooms/${activeRoom.code}/play`, { method: "POST" });
+        setIsPlaying(false);
+      } catch {}
     } finally {
       setIsFading(false);
+      playbackBusy.current = false;
     }
   };
 
@@ -874,15 +915,19 @@ function DashboardInner({ user }: { user: any }) {
   fadeSkipRef.current = fadeSkipSong;
   // Track when maxSongDurationSec changes to avoid triggering on mid-song setting changes
   const prevMaxDurRef = useRef(activeRoom?.maxSongDurationSec ?? 0);
-  const maxDurChangedAt = useRef(0);
+  const maxDurSkipUri = useRef<string | null>(null); // URI to skip auto-transition for (setting changed mid-song)
   useEffect(() => {
     const newMax = activeRoom?.maxSongDurationSec ?? 0;
     if (newMax !== prevMaxDurRef.current) {
+      const oldMax = prevMaxDurRef.current;
       prevMaxDurRef.current = newMax;
-      maxDurChangedAt.current = Date.now();
-      // Don't reset autoTransitionFired — let it take effect on next song
+      // If the new limit is lower than the old one and the song might already be past it,
+      // skip auto-transition for the current song entirely
+      if (newMax > 0 && (oldMax === 0 || newMax < oldMax) && spotifyTrack?.uri) {
+        maxDurSkipUri.current = spotifyTrack.uri;
+      }
     }
-  }, [activeRoom?.maxSongDurationSec]);
+  }, [activeRoom?.maxSongDurationSec, spotifyTrack?.uri]);
   useEffect(() => {
     const maxDur = activeRoom?.maxSongDurationSec;
     if (!maxDur || maxDur <= 0 || !isPlaying || isFading) return;
@@ -892,10 +937,10 @@ function DashboardInner({ user }: { user: any }) {
     const triggerMs = Math.max(0, maxMs - fadeDurationSec * 1000);
     const id = setInterval(() => {
       if (autoTransitionFired.current) return;
+      // Skip if setting was changed mid-song for this track (takes effect next song)
+      if (maxDurSkipUri.current && maxDurSkipUri.current === spotifyTrack?.uri) return;
       const elapsed = Date.now() - progressSyncedAt.current;
       const currentProgress = progressMs + elapsed;
-      // Skip if the setting was changed less than 3s ago (avoids instant trigger on mid-song change)
-      if (Date.now() - maxDurChangedAt.current < 3000) return;
       // Skip if progress data is stale (>15s old) — wait for fresh sync
       if (elapsed > 15000) return;
       // Skip if progress seems unreasonable (e.g. stale data from previous song)
@@ -2625,6 +2670,7 @@ function DashboardInner({ user }: { user: any }) {
             onSkip={skipSong}
             onFadeSkip={fadeSkipSong}
             onFadePause={fadePause}
+            onHardSkipDuringFade={hardSkipDuringFade}
             controlsLocked={controlsLocked}
             onToggleLock={toggleControlsLock}
             isFading={isFading}

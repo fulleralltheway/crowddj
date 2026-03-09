@@ -46,9 +46,8 @@ export async function POST(
     try {
       const playback = await getCurrentPlayback(accessToken);
       const currentVol = playback?.device?.volume_percent ?? 100;
-      if (currentVol < 30) {
-        // Restore to a reasonable level — 70 is safe default
-        await setVolume(accessToken, 70);
+      if (currentVol < 20) {
+        await setVolume(accessToken, 65);
         await new Promise((r) => setTimeout(r, 200));
       }
     } catch {}
