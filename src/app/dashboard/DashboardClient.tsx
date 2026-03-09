@@ -871,7 +871,10 @@ function DashboardInner({ user }: { user: any }) {
   const fadeSkipSong = async () => {
     if (!activeRoom || isFading || playbackBusy.current) return;
     playbackBusy.current = true;
+    autoTransitionFired.current = true; // Block auto-transition until new song's progress is confirmed
     setIsFading(true);
+    setProgressMs(0);
+    setDurationMs(0);
     try {
       // Lock next song so UI shows it as "up next" before the fade begins
       await lockNextSong(activeRoom.code);
@@ -896,6 +899,7 @@ function DashboardInner({ user }: { user: any }) {
   const fadePause = async () => {
     if (!activeRoom || isFading || playbackBusy.current) return;
     playbackBusy.current = true;
+    autoTransitionFired.current = true; // Block auto-transition during fade-to-pause
     setIsFading(true);
     try {
       // No lock-next needed for fade-to-pause (not advancing to next song)
