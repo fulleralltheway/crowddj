@@ -937,7 +937,7 @@ function DashboardInner({ user }: { user: any }) {
       setIsPlaying(false);
       // Refresh songs since queue advanced (next song is now "playing" but paused)
       await refreshSongs(activeRoom.code);
-      socketRef.current?.emit("song-skipped", activeRoom.code);
+      getSocket().emit("song-skipped", activeRoom.code);
     } catch {
       // Fall back to hard pause
       try {
