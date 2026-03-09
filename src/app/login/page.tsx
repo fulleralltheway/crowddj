@@ -1,8 +1,13 @@
 "use client";
 
 import { signIn } from "next-auth/react";
+import { useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 
-export default function LoginPage() {
+function LoginContent() {
+  const searchParams = useSearchParams();
+  const error = searchParams.get("error");
+
   return (
     <div className="min-h-dvh flex flex-col items-center justify-center px-4 select-none">
       <div className="max-w-sm w-full text-center space-y-8 lg:max-w-md lg:bg-bg-card/50 lg:backdrop-blur-xl lg:border lg:border-white/[0.06] lg:rounded-3xl lg:p-10 lg:shadow-[0_8px_32px_rgba(0,0,0,0.3)]">
@@ -17,6 +22,12 @@ export default function LoginPage() {
             Connect your Spotify to start hosting
           </p>
         </div>
+
+        {error && (
+          <div className="bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3 text-sm text-red-400">
+            Sign in failed. Please try again.
+          </div>
+        )}
 
         <button
           onClick={() => signIn("spotify", { callbackUrl: "/dashboard" })}
@@ -33,5 +44,13 @@ export default function LoginPage() {
         </a>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginContent />
+    </Suspense>
   );
 }
