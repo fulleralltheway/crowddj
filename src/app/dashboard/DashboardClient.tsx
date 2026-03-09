@@ -927,7 +927,7 @@ function DashboardInner({ user }: { user: any }) {
     setIsFading(true);
     try {
       // Lock the next song before fading so UI shows "up next"
-      await lockNextSong();
+      await lockNextSong(activeRoom.code);
       const res = await fetch(`/api/rooms/${activeRoom.code}/fade-skip`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
