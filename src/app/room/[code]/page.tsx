@@ -315,16 +315,20 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     socket.on("room-closed", handleRoomClosed);
     socket.on("server-time", handleServerTime);
 
-    // Polling — always fetch songs to supplement socket updates
+    // Polling — fetch songs only when socket is disconnected, sync always runs
     let pollCount = 0;
+    let tabHidden = false;
+    const onVisChange = () => { tabHidden = document.hidden; };
+    document.addEventListener("visibilitychange", onVisChange);
     const interval = setInterval(() => {
+      if (tabHidden) return; // Skip polling when tab is backgrounded
       fetch(`/api/rooms/${code}/sync`, { method: "POST" }).then(async (res) => {
         if (res.ok) {
           const data = await res.json();
           if (data.spotifyTrack) setSpotifyTrack(data.spotifyTrack);
         }
       }).catch(() => {});
-      fetchSongs(); // Always fetch songs for freshness
+      if (!socket.connected) fetchSongs(); // Only fetch songs when socket is down
       pollCount++;
       if (pollCount % 4 === 0) {
         fetch(`/api/rooms/${code}`).then(async (res) => {
@@ -365,6 +369,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       socket.off("room-update", handleRoomUpdate);
       socket.off("room-closed", handleRoomClosed);
       socket.off("server-time", handleServerTime);
+      document.removeEventListener("visibilitychange", onVisChange);
       clearInterval(interval);
       clearInterval(flushInterval);
     };

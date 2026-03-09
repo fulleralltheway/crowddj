@@ -59,11 +59,17 @@ export default function DisplayPage() {
     }
   }, [code]);
 
-  // Poll room data every 5 seconds
+  // Poll room data every 5 seconds (pauses when tab hidden)
   useEffect(() => {
     fetchRoom();
-    const interval = setInterval(fetchRoom, 5000);
-    return () => clearInterval(interval);
+    let tabHidden = false;
+    const onVisChange = () => { tabHidden = document.hidden; };
+    document.addEventListener("visibilitychange", onVisChange);
+    const interval = setInterval(() => { if (!tabHidden) fetchRoom(); }, 5000);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisChange);
+      clearInterval(interval);
+    };
   }, [fetchRoom]);
 
   // Auto-hide cursor after 3 seconds of no movement

@@ -498,7 +498,11 @@ function DashboardInner({ user }: { user: any }) {
 
     // Fallback polling (slower when socket is connected, full speed when not)
     let pollCount = 0;
+    let tabHidden = false;
+    const onVisChange = () => { tabHidden = document.hidden; };
+    document.addEventListener("visibilitychange", onVisChange);
     const interval = setInterval(async () => {
+      if (tabHidden) return; // Skip polling when tab is backgrounded
       try {
         pollCount++;
         const syncRes = await fetch(`/api/rooms/${code}/sync`, { method: "POST" });
@@ -541,6 +545,7 @@ function DashboardInner({ user }: { user: any }) {
       socket.off("guest-count", handleGuestCount);
       socket.off("request-received", handleRequestReceived);
       socket.off("room-update", handleRoomUpdate);
+      document.removeEventListener("visibilitychange", onVisChange);
       clearInterval(interval);
     };
   }, [view, activeRoom?.code, activeRoom?.requireApproval]);

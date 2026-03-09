@@ -70,26 +70,26 @@ io.on("connection", (socket) => {
     io.to(roomCode).emit("guest-count", getRoomCount(roomCode));
   });
 
-  // Client signals that something changed — fetch fresh data and broadcast
-  socket.on("vote-update", async (roomCode: string) => {
-    await broadcastSongs(roomCode);
+  // Client signals that something changed — debounced to coalesce rapid events
+  socket.on("vote-update", (roomCode: string) => {
+    debouncedBroadcastSongs(roomCode);
   });
 
-  socket.on("song-requested", async (roomCode: string) => {
-    await broadcastSongs(roomCode);
+  socket.on("song-requested", (roomCode: string) => {
+    debouncedBroadcastSongs(roomCode);
     io.to(roomCode).emit("request-received");
   });
 
   socket.on("song-skipped", async (roomCode: string) => {
-    await broadcastSongs(roomCode);
+    await broadcastSongs(roomCode); // Immediate — user expects instant feedback
   });
 
-  socket.on("request-handled", async (roomCode: string) => {
-    await broadcastSongs(roomCode);
+  socket.on("request-handled", (roomCode: string) => {
+    debouncedBroadcastSongs(roomCode);
   });
 
   socket.on("songs-reordered", async (roomCode: string) => {
-    await broadcastSongs(roomCode);
+    await broadcastSongs(roomCode); // Immediate — host drag-and-drop
   });
 
   // Dashboard detected a song change in Spotify — broadcast immediately
@@ -99,7 +99,7 @@ io.on("connection", (socket) => {
   });
 
   socket.on("room-settings-changed", async (roomCode: string) => {
-    await broadcastRoomState(roomCode);
+    await broadcastRoomState(roomCode); // Immediate — settings are infrequent
   });
 
   socket.on("room-closed", (roomCode: string) => {
@@ -118,6 +118,26 @@ io.on("connection", (socket) => {
     }
   });
 });
+
+// Debounced broadcast — coalesces rapid calls (e.g., multiple votes within 500ms) into one fetch
+const songsBroadcastTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const roomStateBroadcastTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function debouncedBroadcastSongs(roomCode: string, delayMs = 500) {
+  if (songsBroadcastTimers.has(roomCode)) clearTimeout(songsBroadcastTimers.get(roomCode)!);
+  songsBroadcastTimers.set(roomCode, setTimeout(() => {
+    songsBroadcastTimers.delete(roomCode);
+    broadcastSongs(roomCode);
+  }, delayMs));
+}
+
+function debouncedBroadcastRoomState(roomCode: string, delayMs = 500) {
+  if (roomStateBroadcastTimers.has(roomCode)) clearTimeout(roomStateBroadcastTimers.get(roomCode)!);
+  roomStateBroadcastTimers.set(roomCode, setTimeout(() => {
+    roomStateBroadcastTimers.delete(roomCode);
+    broadcastRoomState(roomCode);
+  }, delayMs));
+}
 
 // Fetch songs from Vercel API and broadcast to all clients in the room
 async function broadcastSongs(roomCode: string) {
@@ -156,8 +176,9 @@ async function syncAllRooms() {
   if (activeRooms.size === 0) return;
 
   try {
-    // Call the Vercel cron endpoint which syncs ALL active rooms in the DB
-    const url = `${VERCEL_URL}/api/cron/sync-rooms?secret=${encodeURIComponent(CRON_SECRET)}`;
+    // Only sync rooms that have connected clients (not all active rooms in DB)
+    const connectedRooms = Array.from(activeRooms.keys()).join(",");
+    const url = `${VERCEL_URL}/api/cron/sync-rooms?secret=${encodeURIComponent(CRON_SECRET)}&rooms=${encodeURIComponent(connectedRooms)}`;
     const res = await fetch(url);
     if (res.ok) {
       const data = await res.json();

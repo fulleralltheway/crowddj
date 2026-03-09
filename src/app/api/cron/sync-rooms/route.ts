@@ -10,8 +10,16 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // Only sync specific rooms if provided (from socket server), otherwise all active
+  const roomCodes = req.nextUrl.searchParams.get("rooms");
+  const whereClause: any = { isActive: true };
+  if (roomCodes) {
+    const codes = roomCodes.split(",").filter(Boolean);
+    if (codes.length > 0) whereClause.code = { in: codes };
+  }
+
   const rooms = await prisma.room.findMany({
-    where: { isActive: true },
+    where: whereClause,
     include: {
       songs: {
         where: { isPlaying: true },
