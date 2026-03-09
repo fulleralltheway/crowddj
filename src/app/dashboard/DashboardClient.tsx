@@ -564,6 +564,7 @@ function DashboardInner({ user }: { user: any }) {
   // Auto-transition: refs declared here, effect below after fadeSkipSong
   const autoTransitionFired = useRef(false);
   const autoTransitionSongUri = useRef<string | null>(null); // the URI we last confirmed progress for
+  const autoPreQueueFired = useRef(false); // tracks if we pre-queued 15s before fade
   const fadeSkipRef = useRef<() => void>(() => {});
 
   const fetchPlaylists = async () => {
@@ -835,6 +836,7 @@ function DashboardInner({ user }: { user: any }) {
     if (!activeRoom || playbackBusy.current) return;
     playbackBusy.current = true;
     autoTransitionFired.current = true; // Block auto-transition until new song's progress is confirmed
+    autoPreQueueFired.current = false; // Reset pre-queue for next song
     setIsFading(false);
     setProgressMs(0);
     setDurationMs(0);
@@ -853,6 +855,7 @@ function DashboardInner({ user }: { user: any }) {
   const hardSkipDuringFade = async () => {
     if (!activeRoom) return;
     autoTransitionFired.current = true; // Block auto-transition until new song's progress is confirmed
+    autoPreQueueFired.current = false; // Reset pre-queue for next song
     // The server-side fade is still running, but we do a hard skip to override it.
     // The fade's DB updates (mark played, set next playing) will either have already
     // happened or will fail harmlessly since we advance the queue here.
@@ -872,6 +875,7 @@ function DashboardInner({ user }: { user: any }) {
     if (!activeRoom || isFading || playbackBusy.current) return;
     playbackBusy.current = true;
     autoTransitionFired.current = true; // Block auto-transition until new song's progress is confirmed
+    autoPreQueueFired.current = false; // Reset pre-queue for next song
     setIsFading(true);
     setProgressMs(0);
     setDurationMs(0);
@@ -902,6 +906,7 @@ function DashboardInner({ user }: { user: any }) {
     if (!activeRoom || isFading || playbackBusy.current) return;
     playbackBusy.current = true;
     autoTransitionFired.current = true; // Block auto-transition during fade-to-pause
+    autoPreQueueFired.current = false;
     setIsFading(true);
     try {
       // No lock-next needed for fade-to-pause (not advancing to next song)
@@ -966,9 +971,19 @@ function DashboardInner({ user }: { user: any }) {
         // progress is well below trigger AND the URI has changed since the transition
         if (currentUri !== autoTransitionSongUri.current && currentProgress < triggerMs * 0.8) {
           autoTransitionFired.current = false;
+          autoPreQueueFired.current = false;
           autoTransitionSongUri.current = currentUri;
         }
         return;
+      }
+
+      // Pre-queue: 15s before fade threshold, lock the next song so UI shows "up next"
+      const preQueueMs = triggerMs - 15000;
+      if (preQueueMs > 0 && currentProgress >= preQueueMs && !autoPreQueueFired.current) {
+        autoPreQueueFired.current = true;
+        if (activeRoom?.code) {
+          lockNextSong(activeRoom.code);
+        }
       }
 
       if (currentProgress >= triggerMs) {
@@ -1983,9 +1998,9 @@ function DashboardInner({ user }: { user: any }) {
                 <label className="block text-sm font-medium text-text-secondary mb-1">
                   Max Song Duration (seconds)
                 </label>
-                <p className="text-[11px] text-white/30 mb-1.5">0 = full length. Auto-fades to next song at this time.</p>
+                <p className="text-[11px] text-white/30 mb-1.5">0 = full length. Auto-fades to next song at this time. Min 25s (15s pre-queue + 10s play).</p>
                 <div className="flex gap-2">
-                  {[0, 60, 90, 120, 180].map((sec) => (
+                  {[0, 30, 60, 90, 120].map((sec) => (
                     <button
                       key={sec}
                       onClick={() => saveSettings({ maxSongDurationSec: sec } as any)}
@@ -2004,7 +2019,11 @@ function DashboardInner({ user }: { user: any }) {
                   value={activeRoom.maxSongDurationSec ?? 0}
                   min={0}
                   max={600}
-                  onSave={(v) => saveSettings({ maxSongDurationSec: v } as any)}
+                  onSave={(v) => {
+                    // Enforce min 25s when non-zero (need 15s for pre-queue + 10s play)
+                    const val = v === 0 ? 0 : Math.max(25, v);
+                    saveSettings({ maxSongDurationSec: val } as any);
+                  }}
                 />
               </div>
               <div>
