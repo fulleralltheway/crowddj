@@ -835,10 +835,17 @@ function DashboardInner({ user }: { user: any }) {
     }
   };
 
-  // Lock the next song in the queue so the UI shows it as "up next" before a fade/skip starts
+  // Lock the next song in the queue so the UI shows it as "Queued Next" before a fade/skip starts
   const lockNextSong = async (roomCode: string) => {
     try {
-      await fetch(`/api/rooms/${roomCode}/lock-next`, { method: "POST" });
+      const res = await fetch(`/api/rooms/${roomCode}/lock-next`, { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        // Update lastPreQueuedId immediately so UI shows "Queued Next" styling
+        if (data.song?.id) {
+          setActiveRoom((prev) => prev ? { ...prev, lastPreQueuedId: data.song.id } : null);
+        }
+      }
       await refreshSongs(roomCode);
     } catch {}
   };

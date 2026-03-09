@@ -26,12 +26,18 @@ export async function POST(
     return NextResponse.json({ success: true, song: null });
   }
 
+  // Lock the song AND set lastPreQueuedId so the UI shows "Up Next" style
+  // (votes visible but disabled) instead of DJ lock style (hides votes)
   if (!nextSong.isLocked) {
     await prisma.roomSong.update({
       where: { id: nextSong.id },
       data: { isLocked: true },
     });
   }
+  await prisma.room.update({
+    where: { id: room.id },
+    data: { lastPreQueuedId: nextSong.id },
+  });
 
   return NextResponse.json({
     success: true,
