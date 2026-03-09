@@ -944,8 +944,8 @@ function DashboardInner({ user }: { user: any }) {
     if (!maxDur || maxDur <= 0 || !isPlaying || isFading) return;
 
     const maxMs = maxDur * 1000;
-    // Account for fade duration so we start fading before the limit
-    const triggerMs = Math.max(0, maxMs - fadeDurationSec * 1000);
+    // Fade starts AFTER the max duration — fade time is extra on top
+    const triggerMs = maxMs;
     const currentUri = spotifyTrack?.uri ?? null;
     const id = setInterval(() => {
       // Skip if setting was changed mid-song for this track (takes effect next song)
