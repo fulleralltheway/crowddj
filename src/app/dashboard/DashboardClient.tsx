@@ -884,6 +884,8 @@ function DashboardInner({ user }: { user: any }) {
         body: JSON.stringify({ fadeDurationMs: fadeDurationSec * 1000, mode: "skip" }),
       });
       if (!res.ok) throw new Error("Fade skip failed");
+      const data = await res.json();
+      console.log("[fadeSkip] result:", data);
       getSocket().emit("song-skipped", activeRoom.code);
       refreshSongs(activeRoom.code);
     } catch {

@@ -92,7 +92,9 @@ export async function POST(
               data: { lastPreQueuedId: nextUp.id },
             });
             preQueuedSongId = nextUp.id;
-          } catch {
+            console.log(`[fade-skip] Pre-queued "${nextUp.trackName}" into Spotify queue`);
+          } catch (qErr: any) {
+            console.log(`[fade-skip] addToQueue failed: ${qErr?.message || "unknown"} — will use startPlayback`);
             // addToQueue can fail if no active device — we'll fall back to startPlayback later
           }
         } else {
@@ -210,7 +212,7 @@ export async function POST(
       await setVolume(accessToken, originalVolume);
     }
 
-    return NextResponse.json({ success: true, action: "skipped", song: nextSong, originalVolume });
+    return NextResponse.json({ success: true, action: "skipped", song: nextSong, originalVolume, preQueued: !!preQueuedSongId });
   } catch (e: any) {
     // Emergency recovery — pause playback and restore volume
     // Never leave a song playing at reduced/zero volume
