@@ -987,6 +987,8 @@ function DashboardInner({ user }: { user: any }) {
       }
 
       if (currentProgress >= triggerMs) {
+        // Don't fire if a playback operation is in progress — try again next tick
+        if (playbackBusy.current) return;
         autoTransitionFired.current = true;
         autoTransitionSongUri.current = currentUri;
         fadeSkipRef.current();
