@@ -3,7 +3,7 @@ import { Server } from "socket.io";
 
 const VERCEL_URL = process.env.VERCEL_URL || "https://crowddj.vercel.app";
 const CRON_SECRET = process.env.CRON_SECRET || "";
-const SYNC_INTERVAL = 3_000; // 3 seconds — fast enough to catch song endings quickly
+const SYNC_INTERVAL = 10_000; // 10 seconds — balanced between responsiveness and rate limits
 const CORS_ORIGINS = [
   VERCEL_URL,
   "https://crowddj.vercel.app",
@@ -145,12 +145,15 @@ async function broadcastRoomState(roomCode: string) {
   }
 }
 
-// Background sync loop — keeps ALL active rooms alive even with zero browser tabs open
+// Background sync loop — only runs when clients are connected
 async function syncAllRooms() {
   if (!CRON_SECRET) {
     console.warn("CRON_SECRET not set — sync loop disabled");
     return;
   }
+
+  // Skip sync if no active rooms — prevents hammering Turso when idle
+  if (activeRooms.size === 0) return;
 
   try {
     // Call the Vercel cron endpoint which syncs ALL active rooms in the DB
