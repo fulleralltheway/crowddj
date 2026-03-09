@@ -948,7 +948,7 @@ function DashboardInner({ user }: { user: any }) {
   }, [activeRoom?.maxSongDurationSec, spotifyTrack?.uri]);
   useEffect(() => {
     const maxDur = activeRoom?.maxSongDurationSec;
-    if (!maxDur || maxDur <= 0 || !isPlaying || isFading) return;
+    if (!maxDur || maxDur < 30 || !isPlaying || isFading) return;
 
     const maxMs = maxDur * 1000;
     // Fade starts AFTER the max duration — fade time is extra on top
@@ -1998,7 +1998,7 @@ function DashboardInner({ user }: { user: any }) {
                 <label className="block text-sm font-medium text-text-secondary mb-1">
                   Max Song Duration (seconds)
                 </label>
-                <p className="text-[11px] text-white/30 mb-1.5">0 = full length. Auto-fades to next song at this time. Min 25s (15s pre-queue + 10s play).</p>
+                <p className="text-[11px] text-white/30 mb-1.5">0 = full length. Auto-fades to next song at this time. Min 30s.</p>
                 <div className="flex gap-2">
                   {[0, 30, 60, 90, 120].map((sec) => (
                     <button
@@ -2020,8 +2020,7 @@ function DashboardInner({ user }: { user: any }) {
                   min={0}
                   max={600}
                   onSave={(v) => {
-                    // Enforce min 25s when non-zero (need 15s for pre-queue + 10s play)
-                    const val = v === 0 ? 0 : Math.max(25, v);
+                    const val = v === 0 ? 0 : Math.max(30, v);
                     saveSettings({ maxSongDurationSec: val } as any);
                   }}
                 />

@@ -67,7 +67,7 @@ export async function GET(req: NextRequest) {
         // Auto-transition: if maxSongDurationSec is set and exceeded, skip to next
         // This is a server-side backup — the client fade-skip should handle it first.
         // Debounce to avoid racing with the client-side fade transition.
-        if (room.maxSongDurationSec > 0 && playback.is_playing) {
+        if (room.maxSongDurationSec >= 30 && playback.is_playing) {
           const maxMs = room.maxSongDurationSec * 1000;
           const timeSinceSync = Date.now() - room.lastSyncAdvance.getTime();
           if (playback.progress_ms >= maxMs && timeSinceSync >= 10000) {
@@ -101,7 +101,7 @@ export async function GET(req: NextRequest) {
 
         // At 15 seconds remaining, queue the next song and lock it in
         // Skip pre-queue when maxSongDurationSec is active (auto-transition handles it)
-        if (remaining <= 15000 && playback.is_playing && !room.lastPreQueuedId && !(room.maxSongDurationSec > 0)) {
+        if (remaining <= 15000 && playback.is_playing && !room.lastPreQueuedId && !(room.maxSongDurationSec >= 30)) {
           const nextSong = await getNextSong(room.id, room.autoShuffle);
 
           if (nextSong) {
