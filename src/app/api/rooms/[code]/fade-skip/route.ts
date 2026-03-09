@@ -94,11 +94,12 @@ export async function POST(
       try { await setVolume(accessToken, 0); } catch {}
     }
 
+    // Immediately pause after fade — never leave a song playing at volume 0
+    await pausePlayback(accessToken);
+
     if (mode === "pause") {
-      // Fade & Pause: pause playback first, then restore volume
-      await pausePlayback(accessToken);
+      // Fade & Pause: already paused above, just restore volume
       await sleep(300);
-      // Restore volume so next play resumes at correct level
       try { await setVolume(accessToken, originalVolume); } catch {}
       return NextResponse.json({ success: true, action: "paused", originalVolume });
     }
@@ -126,10 +127,7 @@ export async function POST(
         data: { isPlaying: true, isLocked: false },
       });
 
-      // 1. Pause the faded-out song so nothing is playing at volume 0
-      try { await pausePlayback(accessToken); } catch {}
-
-      // 2. Restore volume while paused (works on most devices)
+      // 1. Restore volume while paused (works on most devices)
       try { await setVolume(accessToken, originalVolume); } catch {}
       await sleep(400);
 
