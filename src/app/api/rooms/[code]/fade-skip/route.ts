@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { startPlayback, getCurrentPlayback, setVolume, pausePlayback, skipToNext } from "@/lib/spotify";
+import { startPlayback, getCurrentPlayback, setVolume, pausePlayback, skipToNext, addToQueue } from "@/lib/spotify";
 import { NextRequest, NextResponse } from "next/server";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -56,22 +56,45 @@ export async function POST(
 
   const { multipliers, stepMs } = buildFadeCurve(fadeDurationMs);
 
+  // Track whether we successfully pre-queued the next song
+  let preQueuedSongId: string | null = null;
+
   try {
     // Get current playback to know the starting volume
     const playback = await getCurrentPlayback(accessToken);
     const originalVolume = playback?.device?.volume_percent ?? 80;
 
-    // If skip mode, lock the next song BEFORE fading so the queue shows what's coming
+    // If skip mode: lock the next song AND pre-queue it into Spotify BEFORE fading
+    // This way the UI shows it as "up next" and Spotify has it ready to play
     if (mode === "skip") {
       const nextUp = await prisma.roomSong.findFirst({
         where: { roomId: room.id, isPlayed: false, isPlaying: false },
         orderBy: { sortOrder: "asc" },
       });
-      if (nextUp && !nextUp.isLocked) {
-        await prisma.roomSong.update({
-          where: { id: nextUp.id },
-          data: { isLocked: true },
-        });
+      if (nextUp) {
+        // Lock in DB if not already locked
+        if (!nextUp.isLocked) {
+          await prisma.roomSong.update({
+            where: { id: nextUp.id },
+            data: { isLocked: true },
+          });
+        }
+        // Pre-queue into Spotify's queue (unless already pre-queued by cron)
+        if (room.lastPreQueuedId !== nextUp.id) {
+          try {
+            await addToQueue(accessToken, nextUp.spotifyUri);
+            await prisma.room.update({
+              where: { id: room.id },
+              data: { lastPreQueuedId: nextUp.id },
+            });
+            preQueuedSongId = nextUp.id;
+          } catch {
+            // addToQueue can fail if no active device — we'll fall back to startPlayback later
+          }
+        } else {
+          // Already pre-queued by cron
+          preQueuedSongId = nextUp.id;
+        }
       }
     }
 
@@ -131,8 +154,8 @@ export async function POST(
       try { await setVolume(accessToken, originalVolume); } catch {}
       await sleep(400);
 
-      // 3. Start the next song
-      const wasPreQueued = room.lastPreQueuedId === nextSong.id;
+      // 2. Start the next song — prefer skipToNext if we pre-queued it
+      const wasPreQueued = preQueuedSongId === nextSong.id || room.lastPreQueuedId === nextSong.id;
       try {
         if (wasPreQueued) {
           await skipToNext(accessToken);
@@ -140,6 +163,7 @@ export async function POST(
           await startPlayback(accessToken, [nextSong.spotifyUri]);
         }
       } catch {
+        // Fallback: try the other method
         try {
           if (wasPreQueued) {
             await startPlayback(accessToken, [nextSong.spotifyUri]);
@@ -149,14 +173,14 @@ export async function POST(
         } catch {}
       }
 
-      // 4. CRITICAL: Set volume AGAIN after playback starts
+      // 3. CRITICAL: Set volume AGAIN after playback starts
       // Some Spotify devices ignore setVolume while paused, so the pre-start
       // volume set may not have taken effect. This second set while playing
       // is the reliable one.
       await sleep(300);
       try { await setVolume(accessToken, originalVolume); } catch {}
 
-      // 5. Final verification — if still wrong, force it one more time
+      // 4. Final verification — if still wrong, force it one more time
       await sleep(500);
       try {
         const check = await getCurrentPlayback(accessToken);
