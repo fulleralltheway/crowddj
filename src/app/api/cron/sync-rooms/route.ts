@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { getNextSong } from "@/lib/queue";
+import { getNextSong, shiftPinnedPositions } from "@/lib/queue";
 import { getCurrentPlayback, addToQueue, skipToNext, startPlayback } from "@/lib/spotify";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -142,6 +142,7 @@ export async function GET(req: NextRequest) {
                     where: { id: room.id },
                     data: { lastPreQueuedId: null, lastSyncAdvance: new Date(), totalSongsPlayed: { increment: 1 } },
                   });
+                  await shiftPinnedPositions(room.id);
                   results.push({ code: room.code, status: "auto_transition", detail: nextSong.trackName });
                 } else {
                   results.push({ code: room.code, status: "auto_transition_end" });
@@ -204,6 +205,7 @@ export async function GET(req: NextRequest) {
           where: { id: nextSong.id },
           data: { isPlaying: true, isLocked: false },
         });
+        await shiftPinnedPositions(room.id);
 
         results.push({ code: room.code, status: "advanced", detail: nextSong.trackName });
         continue;
@@ -233,6 +235,7 @@ export async function GET(req: NextRequest) {
             where: { id: preQueued.id },
             data: { isPlaying: true, isLocked: false },
           });
+          await shiftPinnedPositions(room.id);
 
           results.push({ code: room.code, status: "advanced_prequeued", detail: preQueued.trackName });
           continue;
@@ -260,6 +263,7 @@ export async function GET(req: NextRequest) {
             where: { id: room.id },
             data: { lastSyncAdvance: new Date(), lastPreQueuedId: null, totalSongsPlayed: { increment: 1 } },
           });
+          await shiftPinnedPositions(room.id);
           results.push({ code: room.code, status: "advanced_external", detail: matchInQueue.trackName });
           continue;
         }

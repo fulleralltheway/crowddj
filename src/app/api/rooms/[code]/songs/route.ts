@@ -99,5 +99,15 @@ export async function GET(
     sorted = [...playing, ...nonPlaying];
   }
 
+  // "Queued Next" song (lastPreQueuedId) always goes to position 0 in the queue
+  if (room.lastPreQueuedId) {
+    const queueStart = sorted.findIndex((s) => !s.isPlaying);
+    const qIdx = sorted.findIndex((s) => s.id === room.lastPreQueuedId && !s.isPlaying);
+    if (qIdx > queueStart && queueStart >= 0) {
+      const [queued] = sorted.splice(qIdx, 1);
+      sorted.splice(queueStart, 0, queued);
+    }
+  }
+
   return NextResponse.json(sorted);
 }

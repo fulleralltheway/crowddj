@@ -1,16 +1,37 @@
 import { prisma } from "@/lib/db";
 
 /**
+ * When a song finishes playing and leaves the queue, all pinned songs
+ * should shift up by one position (since the #1 slot just emptied).
+ * Call this after every song transition.
+ */
+export async function shiftPinnedPositions(roomId: string) {
+  await prisma.roomSong.updateMany({
+    where: { roomId, isPinned: true, isPlayed: false, isPlaying: false, pinnedPosition: { gt: 0 } },
+    data: { pinnedPosition: { decrement: 1 } },
+  });
+}
+
+/**
  * Get the next song to play — uses the EXACT same ordering as the
  * songs display API so what the user sees at #1 is what plays next.
  */
 export async function getNextSong(roomId: string, autoShuffle: boolean) {
-  const candidates = await prisma.roomSong.findMany({
-    where: { roomId, isPlayed: false, isPlaying: false },
-    orderBy: { sortOrder: "asc" },
-  });
+  const [candidates, room] = await Promise.all([
+    prisma.roomSong.findMany({
+      where: { roomId, isPlayed: false, isPlaying: false },
+      orderBy: { sortOrder: "asc" },
+    }),
+    prisma.room.findFirst({ where: { id: roomId }, select: { lastPreQueuedId: true } }),
+  ]);
 
   if (candidates.length === 0) return null;
+
+  // "Queued Next" song (lastPreQueuedId) always plays first
+  if (room?.lastPreQueuedId) {
+    const queued = candidates.find((s) => s.id === room.lastPreQueuedId);
+    if (queued) return queued;
+  }
 
   if (!autoShuffle) {
     // Simple sortOrder — first candidate is next

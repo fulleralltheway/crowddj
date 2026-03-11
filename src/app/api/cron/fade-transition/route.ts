@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { getNextSong } from "@/lib/queue";
+import { getNextSong, shiftPinnedPositions } from "@/lib/queue";
 import { startPlayback, getCurrentPlayback, setVolume, pausePlayback } from "@/lib/spotify";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -173,6 +173,7 @@ export async function POST(req: NextRequest) {
           totalSongsPlayed: { increment: 1 },
         },
       });
+      await shiftPinnedPositions(room.id);
 
       return NextResponse.json({ success: true, action: "faded", song: nextSong.trackName, originalVolume });
     } else {

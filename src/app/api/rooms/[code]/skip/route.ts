@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getNextSong } from "@/lib/queue";
+import { getNextSong, shiftPinnedPositions } from "@/lib/queue";
 import { startPlayback, getCurrentPlayback, setVolume, pausePlayback } from "@/lib/spotify";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -70,6 +70,8 @@ export async function POST(
         totalSongsPlayed: { increment: 1 },
       },
     });
+    // Shift pinned songs up since a song left the queue
+    await shiftPinnedPositions(room.id);
   } else {
     // No more songs — pause Spotify so it doesn't auto-play random music
     try { await pausePlayback(accessToken); } catch {}

@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getNextSong } from "@/lib/queue";
+import { getNextSong, shiftPinnedPositions } from "@/lib/queue";
 import { startPlayback, getCurrentPlayback, setVolume, pausePlayback } from "@/lib/spotify";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -151,6 +151,7 @@ export async function POST(
             totalSongsPlayed: { increment: 1 },
           },
         });
+        await shiftPinnedPositions(room.id);
 
         return NextResponse.json({ success: true, action: "stopped", song: nextSong.trackName, originalVolume });
       } else {
@@ -206,6 +207,7 @@ export async function POST(
           totalSongsPlayed: { increment: 1 },
         },
       });
+      await shiftPinnedPositions(room.id);
     } else {
       try { await pausePlayback(accessToken); } catch {}
       await sleep(500);
@@ -238,6 +240,7 @@ export async function POST(
         try { await startPlayback(accessToken, [nextSong.spotifyUri]); } catch {}
         await sleep(500);
         await restoreVolume(accessToken, originalVolume);
+        await shiftPinnedPositions(room.id);
       }
     } catch {}
     return NextResponse.json(
