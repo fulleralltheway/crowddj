@@ -1227,55 +1227,26 @@ function DashboardInner({ user }: { user: any }) {
         height: 80,
       }, (controller: any) => {
         embedControllerRef.current = controller;
-        let playing = false;
-
-        // Track if audio actually starts (prevents double-toggle on retries)
+        // Detect when preview finishes playing — clear equalizer animation
         try {
           controller.addListener("playback_update", (e: any) => {
-            if (e?.data && !e.data.isPaused) {
-              playing = true;
-              console.log("[Preview] audio started playing");
+            if (e?.data?.isPaused && e.data.position > 0) {
+              // Paused after playing = preview ended
+              setInlinePreviewId(null);
             }
           });
-        } catch (err) {
-          console.log("[Preview] playback_update listener failed:", err);
-        }
-
-        // Best approach: ready event fires at exactly the right moment
-        try {
-          controller.addListener("ready", () => {
-            console.log("[Preview] ready event fired, playing:", playing);
-            if (!playing) {
-              try { controller.togglePlay(); } catch {}
-            }
-          });
-        } catch (err) {
-          console.log("[Preview] ready listener failed:", err);
-        }
-
-        // Fallback: setTimeout in case ready event doesn't fire
+        } catch {}
+        // Single togglePlay after embed has time to load — no ready event
+        // (ready event conflicts with this and causes double-toggle)
         setTimeout(() => {
-          console.log("[Preview] 1200ms fallback, playing:", playing);
-          if (!playing) {
-            try { controller.togglePlay(); } catch {}
-          }
-        }, 1200);
-        // Second fallback at 2.5s
-        setTimeout(() => {
-          console.log("[Preview] 2500ms fallback, playing:", playing);
-          if (!playing) {
-            try { controller.togglePlay(); } catch {}
-          }
-        }, 2500);
-        // Last resort at 4s
-        setTimeout(() => {
-          console.log("[Preview] 4000ms fallback, playing:", playing);
-          if (!playing) {
-            try { controller.togglePlay(); } catch {}
-          }
-        }, 4000);
+          try { controller.togglePlay(); } catch {}
+        }, 1000);
       });
       setInlinePreviewId(id);
+      // Safety: auto-clear animation after 35s (previews are ~30s)
+      setTimeout(() => {
+        setInlinePreviewId((cur) => cur === id ? null : cur);
+      }, 35000);
     } else {
       setSongAddedToast("Preview loading...");
       setTimeout(() => setSongAddedToast(""), 2000);
