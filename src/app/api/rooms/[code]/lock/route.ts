@@ -37,6 +37,12 @@ export async function POST(
       orderBy: { sortOrder: "asc" },
     });
 
+    // Use same startOrder as reorderByVotes so sortOrders stay consistent after votes
+    const playingSong = await prisma.roomSong.findFirst({
+      where: { roomId: room.id, isPlaying: true },
+    });
+    const startOrder = playingSong ? playingSong.sortOrder + 1 : 0;
+
     // Remove the target song from the list
     const without = queueSongs.filter((s) => s.id !== songId);
     const targetIdx = Math.max(0, Math.min(position, without.length));
@@ -45,7 +51,7 @@ export async function POST(
 
     // Only update songs whose sortOrder actually changed (+ always update target for lock fields)
     const updates = without
-      .map((s, i) => ({ song: s, newOrder: i }))
+      .map((s, i) => ({ song: s, newOrder: startOrder + i }))
       .filter(({ song: s, newOrder }) => s.sortOrder !== newOrder || s.id === songId);
 
     await prisma.$transaction(
@@ -66,7 +72,7 @@ export async function POST(
 
     // Verify the lock persisted
     const verify = await prisma.roomSong.findFirst({ where: { id: songId } });
-    console.log(`[Lock] Position lock: song=${songId} pos=${targetIdx} locked=${verify?.isLocked} sortOrder=${verify?.sortOrder} updates=${updates.length}/${without.length}`);
+    console.log(`[Lock] Position lock: song=${songId} pos=${targetIdx} startOrder=${startOrder} locked=${verify?.isLocked} sortOrder=${verify?.sortOrder} updates=${updates.length}/${without.length}`);
 
     return NextResponse.json({ success: true, locked: true, position: targetIdx, verified: verify?.isLocked });
   }
