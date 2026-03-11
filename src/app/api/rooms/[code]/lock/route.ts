@@ -11,7 +11,7 @@ export async function POST(
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { songId, forceLock } = await req.json();
+  const { songId, forceLock, position } = await req.json();
   if (!songId) return NextResponse.json({ error: "Missing songId" }, { status: 400 });
 
   const room = await prisma.room.findUnique({ where: { code } });
@@ -27,7 +27,12 @@ export async function POST(
   const newLocked = forceLock === true ? true : !song.isLocked;
   await prisma.roomSong.update({
     where: { id: songId },
-    data: { isLocked: newLocked },
+    data: {
+      isLocked: newLocked,
+      // When locking with a position, set pinnedPosition; when unlocking, clear it
+      isPinned: newLocked && position != null ? true : false,
+      pinnedPosition: newLocked && position != null ? position : null,
+    },
   });
 
   // Re-sort on unlock (song needs to find its vote-based position)

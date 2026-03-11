@@ -3,7 +3,7 @@ import { Server } from "socket.io";
 
 const VERCEL_URL = process.env.VERCEL_URL || "https://crowddj.vercel.app";
 const CRON_SECRET = process.env.CRON_SECRET || "";
-const SYNC_INTERVAL = 10_000; // 10 seconds — balanced between responsiveness and rate limits
+const SYNC_INTERVAL = 5_000; // 5 seconds — snappier server-side transitions
 const CORS_ORIGINS = [
   VERCEL_URL,
   "https://crowddj.vercel.app",

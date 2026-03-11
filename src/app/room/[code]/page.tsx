@@ -1249,15 +1249,13 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
           const myUpvotes = myVotes.filter((v) => v.value === 1).length;
           const myDownvotes = myVotes.filter((v) => v.value === -1).length;
           const isQueuedNext = song.isLocked && room.lastPreQueuedId === song.id;
-          const isManualLocked = song.isLocked && !isQueuedNext && !song.isPinned;
+          const isManualLocked = song.isLocked && !isQueuedNext;
 
           return (
             <div
               key={song.id}
               className={`song-card flex items-center gap-3 p-3 rounded-xl border transition-colors ${
-                song.isPinned
-                  ? "bg-blue-400/5 border-blue-400/20"
-                  : isQueuedNext
+                isQueuedNext
                   ? "bg-accent/8 border-accent/30"
                   : isManualLocked
                   ? "bg-yellow-500/5 border-yellow-500/20"
@@ -1265,11 +1263,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
               }`}
             >
               <div className="w-5 text-center flex-shrink-0">
-                {song.isPinned ? (
-                  <svg className="w-3.5 h-3.5 text-blue-400 mx-auto" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z" />
-                  </svg>
-                ) : isManualLocked ? (
+                {isManualLocked ? (
                   <svg className="w-3.5 h-3.5 text-yellow-500 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                   </svg>
@@ -1296,19 +1290,20 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                 <p className="text-white/40 text-xs truncate">{song.artistName}</p>
               </div>
 
-              {isManualLocked ? (
+              {song.isLocked ? (
                 <div className="flex-shrink-0 text-right pr-1">
-                  <p className="text-[10px] text-yellow-500/50">Locked</p>
+                  {isQueuedNext ? (
+                    <p className="text-[10px] text-accent/70 font-semibold">Up Next</p>
+                  ) : (
+                    <p className="text-[10px] text-yellow-500/50">Locked</p>
+                  )}
                 </div>
               ) : (
-                <div className={`flex items-center gap-0.5 flex-shrink-0 ${isQueuedNext ? "opacity-50" : ""}`}>
+                <div className="flex items-center gap-0.5 flex-shrink-0">
                   <button
-                    onClick={() => !isQueuedNext && vote(song.id, 1)}
-                    disabled={isQueuedNext}
+                    onClick={() => vote(song.id, 1)}
                     className={`vote-btn p-2.5 rounded-xl relative ${
-                      isQueuedNext
-                        ? "cursor-default"
-                        : myUpvotes > 0
+                      myUpvotes > 0
                         ? "bg-upvote/15"
                         : "hover:bg-white/[0.06] active:bg-upvote/10"
                     }`}
@@ -1336,12 +1331,9 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                   </span>
 
                   <button
-                    onClick={() => !isQueuedNext && vote(song.id, -1)}
-                    disabled={isQueuedNext}
+                    onClick={() => vote(song.id, -1)}
                     className={`vote-btn p-2.5 rounded-xl relative ${
-                      isQueuedNext
-                        ? "cursor-default"
-                        : myDownvotes > 0
+                      myDownvotes > 0
                         ? "bg-downvote/15"
                         : "hover:bg-white/[0.06] active:bg-downvote/10"
                     }`}

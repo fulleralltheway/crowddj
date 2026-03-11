@@ -1076,37 +1076,14 @@ function DashboardInner({ user }: { user: any }) {
       return {
         ...prev,
         songs: prev.songs.map((s: any) =>
-          s.id === songId ? { ...s, isLocked: !s.isLocked } : s
+          s.id === songId ? { ...s, isLocked: !s.isLocked, isPinned: false, pinnedPosition: null } : s
         ),
       };
     });
     await fetch(`/api/rooms/${activeRoom.code}/lock`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ songId, position: position || 1 }),
-    });
-    getSocket().emit("songs-reordered", activeRoom.code);
-    refreshSongs(activeRoom.code);
-  };
-
-  const pinSong = async (songId: string, pin: boolean, position?: number) => {
-    if (!activeRoom) return;
-    // Optimistic UI
-    setActiveRoom((prev) => {
-      if (!prev) return null;
-      return {
-        ...prev,
-        songs: prev.songs.map((s: any) =>
-          s.id === songId
-            ? { ...s, isPinned: pin, pinnedPosition: pin ? (position ?? null) : null, isLocked: pin ? true : false }
-            : s
-        ),
-      };
-    });
-    await fetch(`/api/rooms/${activeRoom.code}/pin`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ songId, pin, position }),
+      body: JSON.stringify({ songId, position }),
     });
     getSocket().emit("songs-reordered", activeRoom.code);
     refreshSongs(activeRoom.code);
@@ -2301,14 +2278,14 @@ function DashboardInner({ user }: { user: any }) {
             <span className="text-white/25 text-xs">{(activeRoom.songs?.filter((s: any) => !s.isPlaying) || []).length} songs</span>
           </div>
           {(() => {
-            const pinnedCount = (activeRoom.songs || []).filter((s: any) => s.isPinned && !s.isPlaying && !s.isPlayed).length;
-            if (pinnedCount === 0) return null;
+            const lockedCount = (activeRoom.songs || []).filter((s: any) => s.isLocked && !s.isPlaying && !s.isPlayed && activeRoom.lastPreQueuedId !== s.id).length;
+            if (lockedCount === 0) return null;
             return (
-              <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-lg border border-blue-400/15 bg-blue-400/5">
-                <svg className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z" />
+              <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-lg border border-yellow-500/15 bg-yellow-500/5">
+                <svg className="w-3.5 h-3.5 text-yellow-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                 </svg>
-                <span className="text-blue-400 text-xs font-medium">{pinnedCount} song{pinnedCount !== 1 ? "s" : ""} pinned</span>
+                <span className="text-yellow-500 text-xs font-medium">{lockedCount} song{lockedCount !== 1 ? "s" : ""} DJ locked</span>
               </div>
             );
           })()}
@@ -2329,9 +2306,7 @@ function DashboardInner({ user }: { user: any }) {
                 <div
                   key={song.id}
                   className={`flex items-center gap-2.5 p-3 border rounded-xl song-card transition-all ${
-                    song.isPinned
-                      ? "border-blue-400/20 bg-blue-400/5"
-                      : song.isLocked && activeRoom.lastPreQueuedId === song.id
+                    song.isLocked && activeRoom.lastPreQueuedId === song.id
                       ? "border-accent/30 bg-accent/8"
                       : song.isLocked
                       ? "border-yellow-500/20 bg-yellow-500/5"
@@ -2443,11 +2418,7 @@ function DashboardInner({ user }: { user: any }) {
                   </div>
 
                   <span className="text-white/30 text-xs w-4 text-center flex-shrink-0 font-medium">
-                    {song.isPinned ? (
-                      <svg className="w-3.5 h-3.5 text-blue-400 mx-auto" fill="currentColor" viewBox="0 0 24 24">
-                        <path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z" />
-                      </svg>
-                    ) : song.isLocked && activeRoom.lastPreQueuedId !== song.id ? (
+                    {song.isLocked && activeRoom.lastPreQueuedId !== song.id ? (
                       <svg className="w-3.5 h-3.5 text-yellow-500 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                       </svg>
@@ -2470,11 +2441,11 @@ function DashboardInner({ user }: { user: any }) {
                     onClick={() => openPreview(song.spotifyUri, song.trackName, song.artistName)}
                     className="flex-1 min-w-0 text-left"
                   >
-                    {song.isPinned && (
-                      <p className="text-[10px] font-semibold text-blue-400 uppercase tracking-wider">Pinned #{song.pinnedPosition != null ? song.pinnedPosition + 1 : i + 1}</p>
-                    )}
-                    {song.isLocked && !song.isPinned && activeRoom.lastPreQueuedId === song.id && (
+                    {song.isLocked && activeRoom.lastPreQueuedId === song.id && (
                       <p className="text-[10px] font-semibold text-accent uppercase tracking-wider">Queued Next</p>
+                    )}
+                    {song.isLocked && activeRoom.lastPreQueuedId !== song.id && (
+                      <p className="text-[10px] font-semibold text-yellow-500 uppercase tracking-wider">DJ Locked</p>
                     )}
                     <p className="font-medium text-sm truncate">{song.trackName}</p>
                     <p className="text-text-secondary text-xs truncate">{song.artistName}</p>
@@ -2515,7 +2486,7 @@ function DashboardInner({ user }: { user: any }) {
                         </svg>
                       )}
                     </button>
-                    {!(song.isLocked && activeRoom.lastPreQueuedId !== song.id) && (
+                    {!song.isLocked && (
                       <div className="text-right mr-0.5">
                         {(() => {
                           const net = song.upvotes - song.downvotes;
@@ -2568,7 +2539,7 @@ function DashboardInner({ user }: { user: any }) {
                               <span className={previewTrackId === song.spotifyUri.replace("spotify:track:", "") ? "text-accent" : ""}>{previewTrackId === song.spotifyUri.replace("spotify:track:", "") ? "Stop Preview" : "Preview"}</span>
                             </button>
                             <button
-                              onClick={() => { lockSong(song.id); setSongMenuOpen(null); }}
+                              onClick={() => { lockSong(song.id, i); setSongMenuOpen(null); }}
                               className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm hover:bg-white/[0.06] transition-colors text-left"
                             >
                               <svg className={`w-4 h-4 ${song.isLocked ? "text-yellow-500" : "text-white/40"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
@@ -2579,15 +2550,6 @@ function DashboardInner({ user }: { user: any }) {
                                 )}
                               </svg>
                               <span className={song.isLocked ? "text-yellow-500" : ""}>{song.isLocked ? "Unlock" : "DJ Lock"}</span>
-                            </button>
-                            <button
-                              onClick={() => { pinSong(song.id, !song.isPinned, i); setSongMenuOpen(null); }}
-                              className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm hover:bg-white/[0.06] transition-colors text-left"
-                            >
-                              <svg className={`w-4 h-4 ${song.isPinned ? "text-blue-400" : "text-white/40"}`} fill="currentColor" viewBox="0 0 24 24">
-                                <path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z" />
-                              </svg>
-                              <span className={song.isPinned ? "text-blue-400" : ""}>{song.isPinned ? "Unpin" : "Pin to Position"}</span>
                             </button>
                             <button
                               onClick={() => { handleRemoveClick(song.id, song.trackName); setSongMenuOpen(null); }}
