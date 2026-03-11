@@ -18,8 +18,11 @@ export async function getNextSong(roomId: string, autoShuffle: boolean) {
   }
 
   // AutoShuffle: replicate the songs API display logic exactly
-  // Locked songs stay at their sortOrder-based positions; unlocked sort by netScore
-  const locked = candidates.filter((s) => s.isLocked);
+  // Pinned songs (DJ position lock) go at pinnedPosition,
+  // other locked songs keep sortOrder-based positions,
+  // unlocked sort by netScore and fill gaps
+  const pinned = candidates.filter((s) => s.isPinned && s.pinnedPosition != null);
+  const lockedNotPinned = candidates.filter((s) => s.isLocked && !s.isPinned);
   const unlocked = candidates.filter((s) => !s.isLocked);
 
   unlocked.sort((a, b) => {
@@ -29,21 +32,37 @@ export async function getNextSong(roomId: string, autoShuffle: boolean) {
     return a.sortOrder - b.sortOrder;
   });
 
-  // Rebuild: locked songs keep their relative positions, unlocked fill the gaps
-  const lockedPositions = new Map<number, (typeof locked)[0]>();
-  locked.forEach((s) => {
-    lockedPositions.set(candidates.indexOf(s), s);
-  });
+  const totalSlots = candidates.length;
+  const result: (typeof candidates[0] | null)[] = new Array(totalSlots).fill(null);
 
-  const result: typeof candidates = [];
-  let unlockedIdx = 0;
-  for (let i = 0; i < candidates.length; i++) {
-    if (lockedPositions.has(i)) {
-      result.push(lockedPositions.get(i)!);
-    } else if (unlockedIdx < unlocked.length) {
-      result.push(unlocked[unlockedIdx++]);
+  // 1) Place pinned songs at their explicit positions
+  for (const s of pinned) {
+    const idx = Math.max(0, Math.min(s.pinnedPosition!, totalSlots - 1));
+    if (result[idx] === null) {
+      result[idx] = s;
+    } else {
+      for (let d = 1; d < totalSlots; d++) {
+        if (idx + d < totalSlots && result[idx + d] === null) { result[idx + d] = s; break; }
+        if (idx - d >= 0 && result[idx - d] === null) { result[idx - d] = s; break; }
+      }
     }
   }
 
-  return result[0] ?? null;
+  // 2) Place locked-not-pinned at their sortOrder index
+  lockedNotPinned.forEach((s) => {
+    const idx = candidates.indexOf(s);
+    if (idx >= 0 && idx < totalSlots && result[idx] === null) {
+      result[idx] = s;
+    }
+  });
+
+  // 3) Fill remaining with unlocked (sorted by netScore)
+  let unlockedIdx = 0;
+  for (let i = 0; i < totalSlots; i++) {
+    if (result[i] === null && unlockedIdx < unlocked.length) {
+      result[i] = unlocked[unlockedIdx++];
+    }
+  }
+
+  return result.find((s) => s !== null) ?? null;
 }

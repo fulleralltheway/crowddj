@@ -44,31 +44,56 @@ export async function GET(
 
   let sorted: typeof withScore;
   if (room.autoShuffle) {
-    // Locked songs stay at their sortOrder-based positions; unlocked sort by netScore
-    // First, sort all non-playing by sortOrder to establish positions
+    // Pinned songs (DJ position lock) use pinnedPosition as authoritative index.
+    // Other locked songs (auto-queue) keep their sortOrder-based positions.
+    // Unlocked songs sort by netScore and fill the remaining gaps.
     nonPlaying.sort((a, b) => a.sortOrder - b.sortOrder);
-    const locked = nonPlaying.filter((s) => s.isLocked);
+    const pinned = nonPlaying.filter((s) => s.isPinned && s.pinnedPosition != null);
+    const lockedNotPinned = nonPlaying.filter((s) => s.isLocked && !s.isPinned);
     const unlocked = nonPlaying.filter((s) => !s.isLocked);
     unlocked.sort((a, b) => {
       if (b.netScore !== a.netScore) return b.netScore - a.netScore;
       return a.sortOrder - b.sortOrder;
     });
 
-    // Rebuild: locked songs keep their relative positions, unlocked fill the gaps
-    const lockedPositions = new Map<number, (typeof locked)[0]>();
-    locked.forEach((s) => {
-      lockedPositions.set(nonPlaying.indexOf(s), s);
-    });
-    const result: typeof withScore = [];
-    let unlockedIdx = 0;
-    for (let i = 0; i < nonPlaying.length; i++) {
-      if (lockedPositions.has(i)) {
-        result.push(lockedPositions.get(i)!);
-      } else if (unlockedIdx < unlocked.length) {
-        result.push(unlocked[unlockedIdx++]);
+    // Build result: pinned songs go at their exact pinnedPosition,
+    // locked-not-pinned keep their sortOrder index, unlocked fill gaps
+    const totalSlots = nonPlaying.length;
+    const result: (typeof withScore[0] | null)[] = new Array(totalSlots).fill(null);
+
+    // 1) Place pinned songs at their explicit positions
+    for (const s of pinned) {
+      const idx = Math.max(0, Math.min(s.pinnedPosition!, totalSlots - 1));
+      if (result[idx] === null) {
+        result[idx] = s;
+      } else {
+        // Slot taken by another pin — find nearest open slot
+        for (let d = 1; d < totalSlots; d++) {
+          if (idx + d < totalSlots && result[idx + d] === null) { result[idx + d] = s; break; }
+          if (idx - d >= 0 && result[idx - d] === null) { result[idx - d] = s; break; }
+        }
       }
     }
-    sorted = [...playing, ...result];
+
+    // 2) Place locked-not-pinned songs at their sortOrder-based index
+    const lockedPositions = new Set<number>();
+    lockedNotPinned.forEach((s) => {
+      const idx = nonPlaying.indexOf(s);
+      if (idx >= 0 && idx < totalSlots && result[idx] === null) {
+        result[idx] = s;
+        lockedPositions.add(idx);
+      }
+    });
+
+    // 3) Fill remaining slots with unlocked songs (sorted by netScore)
+    let unlockedIdx = 0;
+    for (let i = 0; i < totalSlots; i++) {
+      if (result[i] === null && unlockedIdx < unlocked.length) {
+        result[i] = unlocked[unlockedIdx++];
+      }
+    }
+
+    sorted = [...playing, ...result.filter((s): s is typeof withScore[0] => s !== null)];
   } else {
     nonPlaying.sort((a, b) => a.sortOrder - b.sortOrder);
     sorted = [...playing, ...nonPlaying];
