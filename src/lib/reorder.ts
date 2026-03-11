@@ -22,6 +22,10 @@ export async function reorderByVotes(roomId: string, displayLimit: number) {
 
   if (songs.length === 0) return;
 
+  // Sort by sortOrder so locked songs keep their correct positions
+  // (concatenation order of baseSongs + requestedSongs may not match sortOrder)
+  songs.sort((a, b) => a.sortOrder - b.sortOrder);
+
   const locked = songs.filter((s) => s.isLocked);
   const unlocked = songs.filter((s) => !s.isLocked);
   const sortedUnlocked = unlocked.sort((a, b) => {

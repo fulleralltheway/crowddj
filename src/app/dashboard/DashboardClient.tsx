@@ -1320,11 +1320,14 @@ function DashboardInner({ user }: { user: any }) {
         ),
       };
     });
-    await fetch(`/api/rooms/${activeRoom.code}/lock`, {
+    const res = await fetch(`/api/rooms/${activeRoom.code}/lock`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ songId, position, ...(hasPosition ? { forceLock: true } : {}) }),
     });
+    if (!res.ok) {
+      console.error("[DJ Lock] API failed:", res.status, await res.text().catch(() => ""));
+    }
     getSocket().emit("songs-reordered", activeRoom.code);
     await refreshSongs(activeRoom.code);
     // Only restore scroll for simple toggle (position lock should show the new location)
