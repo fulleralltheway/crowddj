@@ -1193,12 +1193,11 @@ function DashboardInner({ user }: { user: any }) {
       return;
     }
 
-    // Stop any existing preview (audio or embed)
+    // Stop any existing HTML5 Audio preview
     if (previewAudioRef.current) {
       previewAudioRef.current.pause();
       previewAudioRef.current = null;
     }
-    stopEmbedPreview();
 
     // Unlock audio context from user gesture (helps browsers allow iframe audio)
     try {
@@ -1207,6 +1206,8 @@ function DashboardInner({ user }: { user: any }) {
     } catch {}
 
     if (previewUrl) {
+      // Switching to Audio path — destroy any existing embed
+      stopEmbedPreview();
       // Has a direct preview URL — use HTML5 Audio (faster, no iframe)
       const audio = new Audio(previewUrl);
       audio.volume = 0.5;
@@ -1217,8 +1218,19 @@ function DashboardInner({ user }: { user: any }) {
       };
       previewAudioRef.current = audio;
       setInlinePreviewId(id);
+    } else if (embedControllerRef.current) {
+      // Existing embed controller — reuse it with loadUri (avoids destroy+create race)
+      try { embedControllerRef.current.loadUri(spotifyUri); } catch {}
+      setTimeout(() => {
+        try { embedControllerRef.current?.togglePlay(); } catch {}
+      }, 500);
+      setInlinePreviewId(id);
+      // Fallback: auto-clear animation after 27s
+      setTimeout(() => {
+        setInlinePreviewId((cur) => cur === id ? null : cur);
+      }, 27000);
     } else if (spotifyApiRef.current && embedContainerRef.current) {
-      // No preview URL — use hidden Spotify iFrame API embed
+      // No existing controller — create fresh embed
       const el = document.createElement("div");
       embedContainerRef.current.appendChild(el);
       spotifyApiRef.current.createController(el, {
