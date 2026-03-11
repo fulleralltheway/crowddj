@@ -2761,15 +2761,26 @@ function DashboardInner({ user }: { user: any }) {
                       const queueIdx = queueSongs.findIndex((s: any) => s.id === song.id);
                       return (
                         <div key={song.id} className={`flex items-center gap-3 p-2 rounded-lg ${song.isLocked ? "bg-yellow-500/5" : ""}`}>
-                          {song.albumArt && (
-                            <img src={song.albumArt} alt="" className="w-9 h-9 rounded-md" />
-                          )}
-                          <div className="flex-1 min-w-0">
+                          <button
+                            onClick={() => openPreview(song.spotifyUri, song.trackName, song.artistName)}
+                            className="relative w-9 h-9 rounded-md flex-shrink-0 overflow-hidden group"
+                          >
+                            {song.albumArt && (
+                              <img src={song.albumArt} alt="" className="w-9 h-9 rounded-md" />
+                            )}
+                            <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-md">
+                              <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                            </div>
+                          </button>
+                          <button
+                            onClick={() => openPreview(song.spotifyUri, song.trackName, song.artistName)}
+                            className="flex-1 min-w-0 text-left"
+                          >
                             <p className="text-sm font-medium truncate">{song.trackName}</p>
                             <p className="text-text-secondary text-xs truncate">
                               {song.artistName} &middot; #{queueIdx + 1} in queue
                             </p>
-                          </div>
+                          </button>
                           <div className="flex items-center gap-1 flex-shrink-0">
                             <select
                               className="bg-bg-primary border border-border rounded-lg text-xs px-1.5 py-1 focus:outline-none focus:border-accent"
@@ -2833,18 +2844,27 @@ function DashboardInner({ user }: { user: any }) {
                     const justAdded = recentlyAdded.has(track.spotifyUri);
                     const unavailable = inQueue || justAdded;
                     return (
-                      <button
+                      <div
                         key={track.spotifyUri}
-                        onClick={() => !unavailable && addSongToQueue(track)}
-                        disabled={unavailable}
-                        className={`w-full flex items-center gap-3 p-2 rounded-lg text-left transition-colors ${
-                          unavailable ? "opacity-50 cursor-default" : "hover:bg-bg-card-hover"
+                        className={`flex items-center gap-3 p-2 rounded-lg transition-colors ${
+                          unavailable ? "opacity-50" : "hover:bg-bg-card-hover"
                         }`}
                       >
-                        {track.albumArt && (
-                          <img src={track.albumArt} alt="" className="w-9 h-9 rounded-md" />
-                        )}
-                        <div className="flex-1 min-w-0">
+                        <button
+                          onClick={() => openPreview(track.spotifyUri, track.trackName, track.artistName)}
+                          className="relative w-9 h-9 rounded-md flex-shrink-0 overflow-hidden group"
+                        >
+                          {track.albumArt && (
+                            <img src={track.albumArt} alt="" className="w-9 h-9 rounded-md" />
+                          )}
+                          <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-md">
+                            <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                          </div>
+                        </button>
+                        <button
+                          onClick={() => openPreview(track.spotifyUri, track.trackName, track.artistName)}
+                          className="flex-1 min-w-0 text-left"
+                        >
                           <p className="text-sm font-medium truncate">
                             {track.trackName}
                             {track.isExplicit && (
@@ -2852,11 +2872,17 @@ function DashboardInner({ user }: { user: any }) {
                             )}
                           </p>
                           <p className="text-text-secondary text-xs truncate">{track.artistName}</p>
-                        </div>
-                        <span className={`text-xs font-medium ${unavailable ? "text-upvote" : "text-accent"}`}>
+                        </button>
+                        <button
+                          onClick={() => !unavailable && addSongToQueue(track)}
+                          disabled={unavailable}
+                          className={`text-xs font-medium flex-shrink-0 px-2 py-1 rounded-lg transition-colors ${
+                            unavailable ? "cursor-default" : "hover:bg-accent/10 active:bg-accent/20"
+                          } ${unavailable ? "text-upvote" : "text-accent"}`}
+                        >
                           {justAdded ? "Added!" : inQueue ? "In queue" : "+ Add"}
-                        </span>
-                      </button>
+                        </button>
+                      </div>
                     );
                   })}
                 </div>
