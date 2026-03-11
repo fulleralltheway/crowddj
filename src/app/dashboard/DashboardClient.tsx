@@ -1236,7 +1236,7 @@ function DashboardInner({ user }: { user: any }) {
       // Auto-clear equalizer animation after 35s (previews are ~30s)
       setTimeout(() => {
         setInlinePreviewId((cur) => cur === id ? null : cur);
-      }, 35000);
+      }, 20000);
     } else {
       setSongAddedToast("Preview loading...");
       setTimeout(() => setSongAddedToast(""), 2000);
