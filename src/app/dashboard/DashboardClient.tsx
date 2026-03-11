@@ -1168,15 +1168,8 @@ function DashboardInner({ user }: { user: any }) {
     }
   }, []);
 
-  // Pause embed without destroying (keeps controller warm for fast reuse)
-  const pauseEmbed = useCallback(() => {
-    if (embedControllerRef.current) {
-      try { embedControllerRef.current.pause(); } catch {}
-    }
-  }, []);
-
-  // Fully destroy embed controller
-  const destroyEmbed = useCallback(() => {
+  // Stop embed preview — destroy controller (API only has togglePlay, no pause)
+  const stopEmbedPreview = useCallback(() => {
     if (embedControllerRef.current) {
       try { embedControllerRef.current.destroy(); } catch {}
       embedControllerRef.current = null;
@@ -1195,16 +1188,17 @@ function DashboardInner({ user }: { user: any }) {
       // Same track — stop
       previewAudioRef.current?.pause();
       previewAudioRef.current = null;
-      pauseEmbed();
+      stopEmbedPreview();
       setInlinePreviewId(null);
       return;
     }
 
-    // Stop any existing HTML5 Audio preview
+    // Stop any existing preview
     if (previewAudioRef.current) {
       previewAudioRef.current.pause();
       previewAudioRef.current = null;
     }
+    stopEmbedPreview();
 
     // Unlock audio context from user gesture (helps browsers allow iframe audio)
     try {
@@ -1214,7 +1208,6 @@ function DashboardInner({ user }: { user: any }) {
 
     if (previewUrl) {
       // Has a direct preview URL — use HTML5 Audio (faster, no iframe)
-      pauseEmbed();
       const audio = new Audio(previewUrl);
       audio.volume = 0.5;
       audio.play().catch(() => {});
@@ -1225,59 +1218,38 @@ function DashboardInner({ user }: { user: any }) {
       previewAudioRef.current = audio;
       setInlinePreviewId(id);
     } else if (spotifyApiRef.current && embedContainerRef.current) {
-      // No preview URL — use hidden Spotify iFrame API embed
-      if (embedControllerRef.current) {
-        // Reuse existing controller — just load new URI (much faster, no iframe creation)
-        try {
-          embedControllerRef.current.loadUri(spotifyUri);
-          embedControllerRef.current.play();
-        } catch {
-          // If reuse fails, destroy and recreate
-          destroyEmbed();
-          createEmbedAndPlay(spotifyUri);
-        }
-      } else {
-        createEmbedAndPlay(spotifyUri);
-      }
+      // No preview URL — create hidden Spotify iFrame API embed
+      const el = document.createElement("div");
+      embedContainerRef.current.innerHTML = "";
+      embedContainerRef.current.appendChild(el);
+      spotifyApiRef.current.createController(el, {
+        uri: spotifyUri,
+        width: 300,
+        height: 80,
+      }, (controller: any) => {
+        embedControllerRef.current = controller;
+        // The Spotify Embed API only has togglePlay() — no play() or pause()
+        let started = false;
+        controller.addListener("ready", () => {
+          if (!started) {
+            try { controller.togglePlay(); started = true; } catch {}
+          }
+        });
+        // Fallback retries if ready event is slow or doesn't fire
+        [800, 1500, 2500].forEach((delay) => {
+          setTimeout(() => {
+            if (!started) {
+              try { controller.togglePlay(); started = true; } catch {}
+            }
+          }, delay);
+        });
+      });
       setInlinePreviewId(id);
     } else {
       setSongAddedToast("Preview loading...");
       setTimeout(() => setSongAddedToast(""), 2000);
     }
-
-    function createEmbedAndPlay(uri: string) {
-      const el = document.createElement("div");
-      embedContainerRef.current!.innerHTML = "";
-      embedContainerRef.current!.appendChild(el);
-      spotifyApiRef.current.createController(el, {
-        uri,
-        width: 300,
-        height: 80,
-      }, (controller: any) => {
-        embedControllerRef.current = controller;
-        // Listen for 'ready' event — fires when embed can actually play
-        let started = false;
-        controller.addListener("ready", () => {
-          if (!started) {
-            started = true;
-            try { controller.play(); } catch {}
-          }
-        });
-        // Fallback: retry togglePlay at increasing intervals if ready event is slow
-        const retries = [600, 1200, 2000];
-        retries.forEach((delay) => {
-          setTimeout(() => {
-            if (!started) {
-              try {
-                controller.togglePlay();
-                started = true;
-              } catch {}
-            }
-          }, delay);
-        });
-      });
-    }
-  }, [inlinePreviewId, pauseEmbed, destroyEmbed]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [inlinePreviewId, stopEmbedPreview]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Cleanup audio + embed on unmount
   useEffect(() => {
