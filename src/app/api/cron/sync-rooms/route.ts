@@ -106,11 +106,15 @@ export async function GET(req: NextRequest) {
 
           // Transition: song is past threshold
           if (playback.progress_ms >= maxMs && timeSinceSync >= 15000) {
-            // Check if the client is mid-fade (locked song = client is handling it)
+            // Check if a client is actively mid-fade (recently locked a song via lock-next).
+            // lock-next sets lastSyncAdvance to now, so a recent lock means timeSinceSync < 30s.
+            // If the lock is stale (30s+), the client abandoned it or the cron's own pre-queue
+            // created it — safe to proceed with server-side transition.
             const hasLockedNext = await prisma.roomSong.findFirst({
               where: { roomId: room.id, isPlayed: false, isPlaying: false, isLocked: true },
             });
-            if (!hasLockedNext) {
+            const clientActivelyFading = hasLockedNext && timeSinceSync < 30000;
+            if (!clientActivelyFading) {
               if (deferFade) {
                 // Socket server will handle the fade — just report the need
                 // Set lastSyncAdvance so this doesn't re-trigger on the next sync cycle
