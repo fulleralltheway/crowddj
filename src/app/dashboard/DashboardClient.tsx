@@ -1200,6 +1200,12 @@ function DashboardInner({ user }: { user: any }) {
     }
     stopEmbedPreview();
 
+    // Unlock audio context from user gesture (helps browsers allow iframe audio)
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      ctx.resume().then(() => ctx.close()).catch(() => {});
+    } catch {}
+
     if (previewUrl) {
       // Has a direct preview URL — use HTML5 Audio (faster, no iframe)
       const audio = new Audio(previewUrl);
@@ -1221,7 +1227,10 @@ function DashboardInner({ user }: { user: any }) {
         height: 80,
       }, (controller: any) => {
         embedControllerRef.current = controller;
-        controller.togglePlay();
+        // Small delay to let iframe initialize before toggling play
+        setTimeout(() => {
+          try { controller.togglePlay(); } catch {}
+        }, 500);
       });
       setInlinePreviewId(id);
     } else {
@@ -1958,7 +1967,7 @@ function DashboardInner({ user }: { user: any }) {
 
           {/* Song added toast */}
           {songAddedToast && (
-            <div className="mb-3 px-4 py-2 bg-accent/10 border border-accent/20 rounded-xl text-sm text-center text-accent animate-pulse">
+            <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[200] px-4 py-2 bg-bg-card border border-accent/30 rounded-xl text-sm text-center text-accent shadow-lg animate-pulse">
               {songAddedToast}
             </div>
           )}
@@ -2477,18 +2486,6 @@ function DashboardInner({ user }: { user: any }) {
             <h3 className="text-lg font-semibold">Queue</h3>
             <span className="text-white/25 text-xs">{(activeRoom.songs?.filter((s: any) => !s.isPlaying) || []).length} songs</span>
           </div>
-          {(() => {
-            const lockedCount = (activeRoom.songs || []).filter((s: any) => s.isLocked && !s.isPlaying && !s.isPlayed && activeRoom.lastPreQueuedId !== s.id).length;
-            if (lockedCount === 0) return null;
-            return (
-              <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-lg border border-yellow-500/15 bg-yellow-500/5">
-                <svg className="w-3.5 h-3.5 text-yellow-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                </svg>
-                <span className="text-yellow-500 text-xs font-medium">{lockedCount} song{lockedCount !== 1 ? "s" : ""} DJ locked</span>
-              </div>
-            );
-          })()}
           <div ref={dragIdx === null ? songListRef : undefined} className={`space-y-1.5 pb-8 ${!(showQR || showSettings || showGuests) ? "lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0" : ""}`}>
             {(() => {
               const queueSongs = activeRoom.songs?.filter((s: any) => !s.isPlaying) || [];
@@ -2534,7 +2531,7 @@ function DashboardInner({ user }: { user: any }) {
                       let scrollRAF = 0;
                       let lastPointerY = e.clientY;
                       const EDGE_ZONE = 80; // px from top/bottom to trigger scroll
-                      const MAX_SCROLL_SPEED = 3; // px per frame at edge — keep slow so finger tracks
+                      const MAX_SCROLL_SPEED = 2; // px per frame at edge — keep slow so finger tracks
                       const scrollEl = scrollRef.current;
 
                       const autoScroll = () => {
@@ -3146,9 +3143,20 @@ function DashboardInner({ user }: { user: any }) {
       })()}
 
       {/* Hidden container for Spotify iFrame API embed playback (audio only) */}
+      {/* In-viewport with near-zero opacity so browser initializes audio */}
       <div
         ref={embedContainerRef}
-        style={{ position: "fixed", left: -9999, top: -9999, width: 1, height: 1, overflow: "hidden", pointerEvents: "none" }}
+        style={{
+          position: "fixed",
+          bottom: 0,
+          left: 0,
+          width: 300,
+          height: 80,
+          opacity: 0.01,
+          pointerEvents: "none",
+          zIndex: -1,
+          overflow: "hidden",
+        }}
         aria-hidden="true"
       />
     </div>

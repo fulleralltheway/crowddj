@@ -29,11 +29,26 @@ export async function POST(
     where: { id: songId },
     data: {
       isLocked: newLocked,
-      // When locking with a position, set pinnedPosition; when unlocking, clear it
       isPinned: newLocked && position != null ? true : false,
       pinnedPosition: newLocked && position != null ? position : null,
     },
   });
+
+  // When locking at a specific position, actually move the song there
+  if (newLocked && position != null) {
+    const queueSongs = await prisma.roomSong.findMany({
+      where: { roomId: room.id, isPlayed: false, isPlaying: false },
+      orderBy: { sortOrder: "asc" },
+    });
+    const filtered = queueSongs.filter((s) => s.id !== songId);
+    const targetIdx = Math.max(0, Math.min(position, filtered.length));
+    filtered.splice(targetIdx, 0, { ...song, isLocked: true } as any);
+    await prisma.$transaction(
+      filtered.map((s, i) =>
+        prisma.roomSong.update({ where: { id: s.id }, data: { sortOrder: i } })
+      )
+    );
+  }
 
   // Re-sort on unlock (song needs to find its vote-based position)
   // Skip on forceLock (triggered by drag — order was already set by reorder endpoint)
