@@ -1227,24 +1227,53 @@ function DashboardInner({ user }: { user: any }) {
         height: 80,
       }, (controller: any) => {
         embedControllerRef.current = controller;
-        // Track whether audio actually started via playback_update event
         let playing = false;
+
+        // Track if audio actually starts (prevents double-toggle on retries)
         try {
           controller.addListener("playback_update", (e: any) => {
-            if (e?.data && !e.data.isPaused) playing = true;
+            if (e?.data && !e.data.isPaused) {
+              playing = true;
+              console.log("[Preview] audio started playing");
+            }
           });
-        } catch {}
-        // Initial attempt after iframe loads
+        } catch (err) {
+          console.log("[Preview] playback_update listener failed:", err);
+        }
+
+        // Best approach: ready event fires at exactly the right moment
+        try {
+          controller.addListener("ready", () => {
+            console.log("[Preview] ready event fired, playing:", playing);
+            if (!playing) {
+              try { controller.togglePlay(); } catch {}
+            }
+          });
+        } catch (err) {
+          console.log("[Preview] ready listener failed:", err);
+        }
+
+        // Fallback: setTimeout in case ready event doesn't fire
         setTimeout(() => {
-          try { controller.togglePlay(); } catch {}
-        }, 500);
-        // Smart retries — only retry if playback hasn't started
+          console.log("[Preview] 1200ms fallback, playing:", playing);
+          if (!playing) {
+            try { controller.togglePlay(); } catch {}
+          }
+        }, 1200);
+        // Second fallback at 2.5s
         setTimeout(() => {
-          if (!playing) { try { controller.togglePlay(); } catch {} }
-        }, 1500);
-        setTimeout(() => {
-          if (!playing) { try { controller.togglePlay(); } catch {} }
+          console.log("[Preview] 2500ms fallback, playing:", playing);
+          if (!playing) {
+            try { controller.togglePlay(); } catch {}
+          }
         }, 2500);
+        // Last resort at 4s
+        setTimeout(() => {
+          console.log("[Preview] 4000ms fallback, playing:", playing);
+          if (!playing) {
+            try { controller.togglePlay(); } catch {}
+          }
+        }, 4000);
       });
       setInlinePreviewId(id);
     } else {
