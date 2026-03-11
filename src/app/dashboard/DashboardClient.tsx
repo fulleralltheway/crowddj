@@ -125,6 +125,84 @@ function ToggleSwitch({ enabled, onToggle, label, description }: { enabled: bool
   );
 }
 
+function BlockedArtistInput({ blockedArtists, onAdd }: { blockedArtists: string; onAdd: (artist: string) => void }) {
+  const [query, setQuery] = useState("");
+  const [suggestions, setSuggestions] = useState<{ name: string; image: string | null }[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  useEffect(() => {
+    if (query.length < 2) { setSuggestions([]); return; }
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/spotify/artists?q=${encodeURIComponent(query)}`);
+        if (res.ok) {
+          const data = await res.json();
+          setSuggestions(data);
+          setShowSuggestions(true);
+        }
+      } catch {}
+    }, 300);
+    return () => clearTimeout(debounceRef.current);
+  }, [query]);
+
+  const addArtist = (name: string) => {
+    onAdd(name);
+    setQuery("");
+    setSuggestions([]);
+    setShowSuggestions(false);
+  };
+
+  return (
+    <div className="relative">
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (query.trim()) addArtist(query.trim());
+        }}
+      >
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
+          placeholder="Search artists..."
+          className="w-full px-3 py-2 bg-bg-primary border border-border rounded-lg text-sm focus:outline-none focus:border-accent"
+        />
+      </form>
+      {showSuggestions && suggestions.length > 0 && (
+        <>
+          <div className="fixed inset-0 z-30" onClick={() => setShowSuggestions(false)} />
+          <div className="absolute left-0 right-0 top-full mt-1 z-40 bg-bg-card border border-border rounded-xl shadow-2xl overflow-hidden">
+            {suggestions.map((artist) => {
+              const alreadyBlocked = blockedArtists.toLowerCase().split(",").some((a) => a.trim().toLowerCase() === artist.name.toLowerCase());
+              return (
+                <button
+                  key={artist.name}
+                  onClick={() => !alreadyBlocked && addArtist(artist.name)}
+                  disabled={alreadyBlocked}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left transition-colors ${
+                    alreadyBlocked ? "opacity-40" : "hover:bg-white/[0.06]"
+                  }`}
+                >
+                  {artist.image ? (
+                    <img src={artist.image} alt="" className="w-7 h-7 rounded-full object-cover flex-shrink-0" />
+                  ) : (
+                    <div className="w-7 h-7 rounded-full bg-bg-card-hover flex-shrink-0" />
+                  )}
+                  <span className="truncate">{artist.name}</span>
+                  {alreadyBlocked && <span className="text-xs text-text-secondary ml-auto flex-shrink-0">Blocked</span>}
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function formatTime(ms: number) {
   const totalSec = Math.max(0, Math.floor(ms / 1000));
   const m = Math.floor(totalSec / 60);
@@ -402,8 +480,6 @@ function DashboardInner({ user }: { user: any }) {
       localStorage.setItem("pq_fade_duration", String(activeRoom.fadeDurationSec));
     }
   }, [activeRoom?.id]); // eslint-disable-line react-hooks/exhaustive-deps
-  const [previewTrackId, setPreviewTrackId] = useState<string | null>(null);
-  const [previewTrackInfo, setPreviewTrackInfo] = useState<{ name: string; artist: string } | null>(null);
   const [inlinePreviewId, setInlinePreviewId] = useState<string | null>(null);
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
   const [songListRef] = useAutoAnimate({ duration: 300 });
@@ -1065,25 +1141,9 @@ function DashboardInner({ user }: { user: any }) {
     }
   };
 
-  const openPreview = (spotifyUri: string, name: string, artist: string) => {
-    // Stop any inline audio preview when opening embed modal
-    if (previewAudioRef.current) {
-      previewAudioRef.current.pause();
-      previewAudioRef.current = null;
-      setInlinePreviewId(null);
-    }
-    const id = spotifyUri.replace("spotify:track:", "");
-    if (previewTrackId === id) {
-      setPreviewTrackId(null);
-      setPreviewTrackInfo(null);
-    } else {
-      setPreviewTrackId(id);
-      setPreviewTrackInfo({ name, artist });
-    }
-  };
-
   // Inline audio preview — plays 30s Spotify preview on album art tap
-  const toggleInlinePreview = useCallback((spotifyUri: string, previewUrl: string | null | undefined, name?: string, artist?: string) => {
+  // Falls back to API fetch when previewUrl is missing, toast when unavailable
+  const toggleInlinePreview = useCallback(async (spotifyUri: string, previewUrl: string | null | undefined, name?: string, artist?: string) => {
     const id = spotifyUri.replace("spotify:track:", "");
 
     if (inlinePreviewId === id) {
@@ -1101,18 +1161,35 @@ function DashboardInner({ user }: { user: any }) {
     }
     setInlinePreviewId(null);
 
-    if (!previewUrl) {
-      // No preview URL — fall back to embed modal
-      openPreview(spotifyUri, name || "", artist || "");
+    let url = previewUrl;
+
+    // If no preview URL cached, try fetching from Spotify API
+    if (!url && activeRoom) {
+      try {
+        const res = await fetch(`/api/rooms/${activeRoom.code}/preview`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ trackId: id }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          url = data.previewUrl;
+        }
+      } catch {}
+    }
+
+    if (!url) {
+      setSongAddedToast("No preview available");
+      setTimeout(() => setSongAddedToast(""), 2000);
       return;
     }
 
     // Play inline
-    const audio = new Audio(previewUrl);
+    const audio = new Audio(url);
     audio.volume = 0.5;
     audio.play().catch(() => {
-      // Autoplay blocked — fall back to embed
-      openPreview(spotifyUri, name || "", artist || "");
+      setSongAddedToast("Preview blocked by browser");
+      setTimeout(() => setSongAddedToast(""), 2000);
     });
     audio.onended = () => {
       setInlinePreviewId(null);
@@ -1120,7 +1197,7 @@ function DashboardInner({ user }: { user: any }) {
     };
     previewAudioRef.current = audio;
     setInlinePreviewId(id);
-  }, [inlinePreviewId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [inlinePreviewId, activeRoom?.code]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Cleanup audio on unmount
   useEffect(() => {
@@ -1132,6 +1209,8 @@ function DashboardInner({ user }: { user: any }) {
 
   const lockSong = async (songId: string, position?: number) => {
     if (!activeRoom) return;
+    // Save scroll position to prevent visual jump
+    const scrollPos = scrollRef.current?.scrollTop ?? 0;
     // Optimistic UI: toggle lock immediately
     setActiveRoom((prev) => {
       if (!prev) return null;
@@ -1148,7 +1227,13 @@ function DashboardInner({ user }: { user: any }) {
       body: JSON.stringify({ songId, position }),
     });
     getSocket().emit("songs-reordered", activeRoom.code);
-    refreshSongs(activeRoom.code);
+    await refreshSongs(activeRoom.code);
+    // Restore scroll position after re-render to prevent jump
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (scrollRef.current) scrollRef.current.scrollTop = scrollPos;
+      });
+    });
   };
 
   const removeSong = async (songId: string) => {
@@ -2188,26 +2273,14 @@ function DashboardInner({ user }: { user: any }) {
               <div>
                 <label className="block text-sm font-medium text-text-secondary mb-1">Blocked Artists</label>
                 <p className="text-[11px] text-white/30 mb-1.5">Guests cannot request songs by these artists.</p>
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    const input = (e.target as HTMLFormElement).elements.namedItem("blockedArtistInput") as HTMLInputElement;
-                    const val = input.value.trim();
-                    if (!val) return;
+                <BlockedArtistInput
+                  blockedArtists={activeRoom.blockedArtists || ""}
+                  onAdd={(artist: string) => {
                     const current = (activeRoom.blockedArtists || "").split(",").map((s) => s.trim()).filter(Boolean);
-                    if (current.some((a) => a.toLowerCase() === val.toLowerCase())) { input.value = ""; return; }
-                    const updated = [...current, val].join(",");
-                    saveSettings({ blockedArtists: updated } as any);
-                    input.value = "";
+                    if (current.some((a) => a.toLowerCase() === artist.toLowerCase())) return;
+                    saveSettings({ blockedArtists: [...current, artist].join(",") } as any);
                   }}
-                >
-                  <input
-                    name="blockedArtistInput"
-                    type="text"
-                    placeholder="Type artist name + Enter"
-                    className="w-full px-3 py-2 bg-bg-primary border border-border rounded-lg text-sm focus:outline-none focus:border-accent"
-                  />
-                </form>
+                />
                 {(activeRoom.blockedArtists || "").split(",").filter((a) => a.trim()).length > 0 && (
                   <div className="flex flex-wrap gap-1.5 mt-2">
                     {(activeRoom.blockedArtists || "").split(",").map((a) => a.trim()).filter(Boolean).map((artist) => (
@@ -2236,7 +2309,7 @@ function DashboardInner({ user }: { user: any }) {
               {/* Branding */}
               <div className="border-t border-border pt-4">
                 <label className="block text-sm font-medium text-text-secondary mb-1">Branding</label>
-                <p className="text-[11px] text-white/30 mb-3">Customize how guests see your room.</p>
+                <p className="text-[11px] text-white/30 mb-3">Shown on the TV Display page and guest room header.</p>
                 <div className="mb-3">
                   <label className="block text-xs font-medium text-text-secondary mb-1">Custom Display Name</label>
                   <input
@@ -2427,7 +2500,7 @@ function DashboardInner({ user }: { user: any }) {
                       let scrollRAF = 0;
                       let lastPointerY = e.clientY;
                       const EDGE_ZONE = 80; // px from top/bottom to trigger scroll
-                      const MAX_SCROLL_SPEED = 6; // px per frame at edge — keep it slow so drag tracks
+                      const MAX_SCROLL_SPEED = 3; // px per frame at edge — keep slow so finger tracks
                       const scrollEl = scrollRef.current;
 
                       const autoScroll = () => {
@@ -2628,20 +2701,41 @@ function DashboardInner({ user }: { user: any }) {
                       {songMenuOpen === song.id && (
                         <>
                           <div className="fixed inset-0 z-40" onClick={() => setSongMenuOpen(null)} />
-                          <div className="absolute right-0 top-full mt-1 z-50 bg-bg-card border border-white/[0.1] rounded-xl shadow-2xl overflow-hidden min-w-[140px]">
-                            <button
-                              onClick={() => { lockSong(song.id, i); setSongMenuOpen(null); }}
-                              className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm hover:bg-white/[0.06] transition-colors text-left"
-                            >
-                              <svg className={`w-4 h-4 ${song.isLocked ? "text-yellow-500" : "text-white/40"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
-                                {song.isLocked ? (
-                                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 11V7a4 4 0 118 0m-4 8v2m-2 4h4a2 2 0 002-2v-6a2 2 0 00-2-2H10a2 2 0 00-2 2v6a2 2 0 002 2z" />
-                                ) : (
-                                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                                )}
-                              </svg>
-                              <span className={song.isLocked ? "text-yellow-500" : ""}>{song.isLocked ? "Unlock" : "DJ Lock"}</span>
-                            </button>
+                          <div className="absolute right-0 top-full mt-1 z-50 bg-bg-card border border-white/[0.1] rounded-xl shadow-2xl overflow-hidden min-w-[160px]">
+                            <div className="flex items-center">
+                              <button
+                                onClick={() => { lockSong(song.id); setSongMenuOpen(null); }}
+                                className="flex-1 flex items-center gap-2.5 px-3.5 py-2.5 text-sm hover:bg-white/[0.06] transition-colors text-left"
+                              >
+                                <svg className={`w-4 h-4 ${song.isLocked ? "text-yellow-500" : "text-white/40"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
+                                  {song.isLocked ? (
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M8 11V7a4 4 0 118 0m-4 8v2m-2 4h4a2 2 0 002-2v-6a2 2 0 00-2-2H10a2 2 0 00-2 2v6a2 2 0 002 2z" />
+                                  ) : (
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                                  )}
+                                </svg>
+                                <span className={song.isLocked ? "text-yellow-500" : ""}>{song.isLocked ? "Unlock" : "DJ Lock"}</span>
+                              </button>
+                              {!song.isLocked && (
+                                <select
+                                  className="mr-2 bg-bg-primary border border-border rounded-lg text-[11px] px-1 py-1 focus:outline-none focus:border-accent text-text-secondary"
+                                  value=""
+                                  onChange={(e) => {
+                                    const pos = Number(e.target.value);
+                                    if (!pos) return;
+                                    lockSong(song.id, pos - 1);
+                                    setSongMenuOpen(null);
+                                    setSongAddedToast(`"${song.trackName}" locked at #${pos}`);
+                                    setTimeout(() => setSongAddedToast(""), 3000);
+                                  }}
+                                >
+                                  <option value="">at #</option>
+                                  {queueSongs.map((_: any, idx: number) => (
+                                    <option key={idx} value={idx + 1}>#{idx + 1}</option>
+                                  ))}
+                                </select>
+                              )}
+                            </div>
                             <button
                               onClick={() => { handleRemoveClick(song.id, song.trackName); setSongMenuOpen(null); }}
                               className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm hover:bg-downvote/10 transition-colors text-left text-downvote/80"
@@ -3017,42 +3111,6 @@ function DashboardInner({ user }: { user: any }) {
         );
       })()}
 
-      {/* Spotify Embed Preview Modal */}
-      {previewTrackId && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center" onClick={() => { setPreviewTrackId(null); setPreviewTrackInfo(null); }}>
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-          <div
-            className="relative w-full max-w-sm mx-4 rounded-2xl overflow-hidden shadow-2xl bg-[#181818] border border-white/[0.08]"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {previewTrackInfo && (
-              <div className="flex items-center justify-between px-4 pt-3 pb-2">
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-white truncate">{previewTrackInfo.name}</p>
-                  <p className="text-xs text-white/50 truncate">{previewTrackInfo.artist}</p>
-                </div>
-                <button
-                  onClick={() => { setPreviewTrackId(null); setPreviewTrackInfo(null); }}
-                  className="ml-3 w-7 h-7 flex items-center justify-center rounded-full bg-white/[0.08] hover:bg-white/[0.15] text-white/60 hover:text-white transition-colors flex-shrink-0"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-            )}
-            <iframe
-              src={`https://open.spotify.com/embed/track/${previewTrackId}?utm_source=generator&theme=0`}
-              width="100%"
-              height="152"
-              frameBorder="0"
-              allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
-              loading="lazy"
-              className="rounded-b-2xl"
-            />
-          </div>
-        </div>
-      )}
     </div>
   );
 }

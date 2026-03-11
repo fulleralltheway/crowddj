@@ -83,6 +83,20 @@ export async function searchTracks(accessToken: string, query: string) {
   }));
 }
 
+export async function searchArtists(accessToken: string, query: string) {
+  const res = await fetch(
+    `${SPOTIFY_API}/search?q=${encodeURIComponent(query)}&type=artist&limit=6`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+  if (!res.ok) throw new Error("Failed to search artists");
+  const data = await res.json();
+  return data.artists.items.map((artist: any) => ({
+    name: artist.name,
+    image: artist.images?.[artist.images.length - 1]?.url || null,
+    id: artist.id,
+  }));
+}
+
 export async function startPlayback(
   accessToken: string,
   uris: string[],
