@@ -482,6 +482,10 @@ function DashboardInner({ user }: { user: any }) {
   }, [activeRoom?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const [inlinePreviewId, setInlinePreviewId] = useState<string | null>(null);
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
+  // Spotify iFrame API refs for hidden embed playback
+  const spotifyApiRef = useRef<any>(null);
+  const embedControllerRef = useRef<any>(null);
+  const embedContainerRef = useRef<HTMLDivElement>(null);
   const [songListRef] = useAutoAnimate({ duration: 300 });
   const [pullRefreshing, setPullRefreshing] = useState(false);
   const [pullDistance, setPullDistance] = useState(0);
@@ -1141,69 +1145,99 @@ function DashboardInner({ user }: { user: any }) {
     }
   };
 
-  // Inline audio preview — plays 30s Spotify preview on album art tap
-  // Falls back to API fetch when previewUrl is missing, toast when unavailable
-  const toggleInlinePreview = useCallback(async (spotifyUri: string, previewUrl: string | null | undefined, name?: string, artist?: string) => {
+  // Load Spotify iFrame API once for hidden embed playback
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (spotifyApiRef.current) return;
+    // Check if already loaded
+    if ((window as any).__spotifyIframeAPI) {
+      spotifyApiRef.current = (window as any).__spotifyIframeAPI;
+      return;
+    }
+    const prevCallback = (window as any).onSpotifyIframeApiReady;
+    (window as any).onSpotifyIframeApiReady = (IFrameAPI: any) => {
+      spotifyApiRef.current = IFrameAPI;
+      (window as any).__spotifyIframeAPI = IFrameAPI;
+      if (prevCallback) prevCallback(IFrameAPI);
+    };
+    if (!document.querySelector('script[src*="iframe-api/v1"]')) {
+      const script = document.createElement("script");
+      script.src = "https://open.spotify.com/embed/iframe-api/v1";
+      script.async = true;
+      document.body.appendChild(script);
+    }
+  }, []);
+
+  // Stop any embed preview
+  const stopEmbedPreview = useCallback(() => {
+    if (embedControllerRef.current) {
+      try { embedControllerRef.current.destroy(); } catch {}
+      embedControllerRef.current = null;
+    }
+    if (embedContainerRef.current) {
+      embedContainerRef.current.innerHTML = "";
+    }
+  }, []);
+
+  // Inline audio preview — plays Spotify preview on album art tap
+  // Uses HTML5 Audio when previewUrl exists, hidden Spotify embed otherwise
+  const toggleInlinePreview = useCallback((spotifyUri: string, previewUrl: string | null | undefined, _name?: string, _artist?: string) => {
     const id = spotifyUri.replace("spotify:track:", "");
 
     if (inlinePreviewId === id) {
       // Same track — stop
       previewAudioRef.current?.pause();
       previewAudioRef.current = null;
+      stopEmbedPreview();
       setInlinePreviewId(null);
       return;
     }
 
-    // Stop any existing inline preview
+    // Stop any existing preview (audio or embed)
     if (previewAudioRef.current) {
       previewAudioRef.current.pause();
       previewAudioRef.current = null;
     }
-    setInlinePreviewId(null);
+    stopEmbedPreview();
 
-    let url = previewUrl;
-
-    // If no preview URL cached, try fetching from Spotify API
-    if (!url && activeRoom) {
-      try {
-        const res = await fetch(`/api/rooms/${activeRoom.code}/preview`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ trackId: id }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          url = data.previewUrl;
-        }
-      } catch {}
-    }
-
-    if (!url) {
-      setSongAddedToast("No preview available");
+    if (previewUrl) {
+      // Has a direct preview URL — use HTML5 Audio (faster, no iframe)
+      const audio = new Audio(previewUrl);
+      audio.volume = 0.5;
+      audio.play().catch(() => {});
+      audio.onended = () => {
+        setInlinePreviewId(null);
+        previewAudioRef.current = null;
+      };
+      previewAudioRef.current = audio;
+      setInlinePreviewId(id);
+    } else if (spotifyApiRef.current && embedContainerRef.current) {
+      // No preview URL — use hidden Spotify iFrame API embed
+      const el = document.createElement("div");
+      embedContainerRef.current.appendChild(el);
+      spotifyApiRef.current.createController(el, {
+        uri: spotifyUri,
+        width: 300,
+        height: 80,
+      }, (controller: any) => {
+        embedControllerRef.current = controller;
+        controller.togglePlay();
+      });
+      setInlinePreviewId(id);
+    } else {
+      setSongAddedToast("Preview loading...");
       setTimeout(() => setSongAddedToast(""), 2000);
-      return;
     }
+  }, [inlinePreviewId, stopEmbedPreview]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // Play inline
-    const audio = new Audio(url);
-    audio.volume = 0.5;
-    audio.play().catch(() => {
-      setSongAddedToast("Preview blocked by browser");
-      setTimeout(() => setSongAddedToast(""), 2000);
-    });
-    audio.onended = () => {
-      setInlinePreviewId(null);
-      previewAudioRef.current = null;
-    };
-    previewAudioRef.current = audio;
-    setInlinePreviewId(id);
-  }, [inlinePreviewId, activeRoom?.code]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Cleanup audio on unmount
+  // Cleanup audio + embed on unmount
   useEffect(() => {
     return () => {
       previewAudioRef.current?.pause();
       previewAudioRef.current = null;
+      if (embedControllerRef.current) {
+        try { embedControllerRef.current.destroy(); } catch {}
+      }
     };
   }, []);
 
@@ -3111,6 +3145,12 @@ function DashboardInner({ user }: { user: any }) {
         );
       })()}
 
+      {/* Hidden container for Spotify iFrame API embed playback (audio only) */}
+      <div
+        ref={embedContainerRef}
+        style={{ position: "fixed", left: -9999, top: -9999, width: 1, height: 1, overflow: "hidden", pointerEvents: "none" }}
+        aria-hidden="true"
+      />
     </div>
   );
 }
