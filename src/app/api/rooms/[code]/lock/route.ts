@@ -25,30 +25,51 @@ export async function POST(
   if (!song) return NextResponse.json({ error: "Song not found" }, { status: 404 });
 
   const newLocked = forceLock === true ? true : !song.isLocked;
-  await prisma.roomSong.update({
-    where: { id: songId },
-    data: {
-      isLocked: newLocked,
-      isPinned: newLocked && position != null ? true : false,
-      pinnedPosition: newLocked && position != null ? position : null,
-    },
-  });
 
-  // When locking at a specific position, actually move the song there
+  // When locking at a specific position, move the song there in one atomic operation
   if (newLocked && position != null) {
+    // Get all queue songs (non-playing, non-played) in current order
     const queueSongs = await prisma.roomSong.findMany({
       where: { roomId: room.id, isPlayed: false, isPlaying: false },
       orderBy: { sortOrder: "asc" },
     });
-    const filtered = queueSongs.filter((s) => s.id !== songId);
-    const targetIdx = Math.max(0, Math.min(position, filtered.length));
-    filtered.splice(targetIdx, 0, { ...song, isLocked: true } as any);
+
+    // Remove the target song from the list
+    const without = queueSongs.filter((s) => s.id !== songId);
+    const targetIdx = Math.max(0, Math.min(position, without.length));
+    // Insert at the desired position
+    without.splice(targetIdx, 0, song);
+
+    // Update all sortOrders + lock the target song in one transaction
     await prisma.$transaction(
-      filtered.map((s, i) =>
-        prisma.roomSong.update({ where: { id: s.id }, data: { sortOrder: i } })
+      without.map((s, i) =>
+        prisma.roomSong.update({
+          where: { id: s.id },
+          data: {
+            sortOrder: i,
+            // Only update lock fields on the target song
+            ...(s.id === songId ? {
+              isLocked: true,
+              isPinned: true,
+              pinnedPosition: position,
+            } : {}),
+          },
+        })
       )
     );
+
+    return NextResponse.json({ success: true, locked: true, position: targetIdx });
   }
+
+  // Simple lock toggle (no position)
+  await prisma.roomSong.update({
+    where: { id: songId },
+    data: {
+      isLocked: newLocked,
+      isPinned: false,
+      pinnedPosition: null,
+    },
+  });
 
   // Re-sort on unlock (song needs to find its vote-based position)
   // Skip on forceLock (triggered by drag — order was already set by reorder endpoint)

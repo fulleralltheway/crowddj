@@ -1292,11 +1292,24 @@ function DashboardInner({ user }: { user: any }) {
 
   const lockSong = async (songId: string, position?: number) => {
     if (!activeRoom) return;
-    // Save scroll position to prevent visual jump
-    const scrollPos = scrollRef.current?.scrollTop ?? 0;
-    // Optimistic UI: toggle lock immediately
+    const hasPosition = position != null;
+    // Save scroll position for simple lock toggle (no position change)
+    const scrollPos = !hasPosition ? (scrollRef.current?.scrollTop ?? 0) : null;
+    // Optimistic UI
     setActiveRoom((prev) => {
       if (!prev) return null;
+      if (hasPosition) {
+        // Move song to target position and lock it
+        const playing = prev.songs.filter((s: any) => s.isPlaying);
+        const queue = prev.songs.filter((s: any) => !s.isPlaying);
+        const song = queue.find((s: any) => s.id === songId);
+        if (!song) return prev;
+        const without = queue.filter((s: any) => s.id !== songId);
+        const idx = Math.max(0, Math.min(position, without.length));
+        without.splice(idx, 0, { ...song, isLocked: true, isPinned: true, pinnedPosition: position });
+        return { ...prev, songs: [...playing, ...without] };
+      }
+      // Simple toggle
       return {
         ...prev,
         songs: prev.songs.map((s: any) =>
@@ -1307,16 +1320,18 @@ function DashboardInner({ user }: { user: any }) {
     await fetch(`/api/rooms/${activeRoom.code}/lock`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ songId, position }),
+      body: JSON.stringify({ songId, position, ...(hasPosition ? { forceLock: true } : {}) }),
     });
     getSocket().emit("songs-reordered", activeRoom.code);
     await refreshSongs(activeRoom.code);
-    // Restore scroll position after re-render to prevent jump
-    requestAnimationFrame(() => {
+    // Only restore scroll for simple toggle (position lock should show the new location)
+    if (scrollPos != null) {
       requestAnimationFrame(() => {
-        if (scrollRef.current) scrollRef.current.scrollTop = scrollPos;
+        requestAnimationFrame(() => {
+          if (scrollRef.current) scrollRef.current.scrollTop = scrollPos;
+        });
       });
-    });
+    }
   };
 
   const removeSong = async (songId: string) => {
