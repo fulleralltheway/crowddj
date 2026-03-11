@@ -1359,10 +1359,10 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
 
       {/* Spotify Embed Preview */}
       {previewTrackId && (
-        <div className="fixed inset-0 z-[100] flex items-end justify-center" onClick={() => { setPreviewTrackId(null); setPreviewTrackInfo(null); }}>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center" onClick={() => { setPreviewTrackId(null); setPreviewTrackInfo(null); }}>
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
           <div
-            className="relative w-full max-w-sm mx-4 mb-4 rounded-2xl overflow-hidden shadow-2xl bg-[#181818] border border-white/[0.08]"
+            className="relative w-full max-w-sm mx-4 rounded-2xl overflow-hidden shadow-2xl bg-[#181818] border border-white/[0.08]"
             onClick={(e) => e.stopPropagation()}
           >
             {previewTrackInfo && (

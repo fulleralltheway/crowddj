@@ -1563,7 +1563,17 @@ function DashboardInner({ user }: { user: any }) {
                     <p className="text-white/30 text-xs">Show countdown until start</p>
                   </div>
                   <button
-                    onClick={() => setScheduleEnabled(!scheduleEnabled)}
+                    onClick={() => {
+                      const next = !scheduleEnabled;
+                      setScheduleEnabled(next);
+                      if (next && !scheduledStart) {
+                        // Default to tomorrow at 8 PM
+                        const d = new Date();
+                        d.setDate(d.getDate() + 1);
+                        d.setHours(20, 0, 0, 0);
+                        setScheduledStart(d.toISOString().slice(0, 16));
+                      }
+                    }}
                     className={`w-11 h-6 rounded-full transition-colors flex-shrink-0 flex items-center px-0.5 ${
                       scheduleEnabled ? "bg-accent" : "bg-white/15"
                     }`}
@@ -1576,13 +1586,20 @@ function DashboardInner({ user }: { user: any }) {
                   </button>
                 </div>
                 {scheduleEnabled && (
-                  <input
-                    type="datetime-local"
-                    value={scheduledStart}
-                    onChange={(e) => setScheduledStart(e.target.value)}
-                    min={new Date().toISOString().slice(0, 16)}
-                    className="w-full px-3 py-2 bg-white/[0.06] border border-white/[0.08] rounded-lg text-sm focus:outline-none focus:border-accent/40 transition-colors [color-scheme:dark]"
-                  />
+                  <>
+                    <input
+                      type="datetime-local"
+                      value={scheduledStart}
+                      onChange={(e) => setScheduledStart(e.target.value)}
+                      min={new Date().toISOString().slice(0, 16)}
+                      className="w-full px-3 py-2.5 bg-white/[0.06] border border-white/[0.08] rounded-lg text-sm focus:outline-none focus:border-accent/40 transition-colors [color-scheme:dark]"
+                    />
+                    {scheduledStart && (
+                      <p className="text-white/30 text-xs">
+                        {new Date(scheduledStart).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })} at {new Date(scheduledStart).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                      </p>
+                    )}
+                  </>
                 )}
               </div>
             </div>
@@ -2859,10 +2876,10 @@ function DashboardInner({ user }: { user: any }) {
 
       {/* Spotify Embed Preview Modal */}
       {previewTrackId && (
-        <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center" onClick={() => { setPreviewTrackId(null); setPreviewTrackInfo(null); }}>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center" onClick={() => { setPreviewTrackId(null); setPreviewTrackInfo(null); }}>
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
           <div
-            className="relative w-full max-w-sm mx-4 mb-4 sm:mb-0 rounded-2xl overflow-hidden shadow-2xl bg-[#181818] border border-white/[0.08]"
+            className="relative w-full max-w-sm mx-4 rounded-2xl overflow-hidden shadow-2xl bg-[#181818] border border-white/[0.08]"
             onClick={(e) => e.stopPropagation()}
           >
             {previewTrackInfo && (

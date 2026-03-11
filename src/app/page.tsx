@@ -21,12 +21,25 @@ function getLastRoom(): { code: string; roomName: string } | null {
 export default function Home() {
   const [roomCode, setRoomCode] = useState("");
   const [lastRoom, setLastRoom] = useState<{ code: string; roomName: string } | null>(null);
+  const [isHost, setIsHost] = useState(false);
   const [checking, setChecking] = useState(true);
   const router = useRouter();
 
-  // Check for a saved room and verify it's still active
+  // Check for a saved room and verify it's still active, also check if user is a host
   useEffect(() => {
     const saved = getLastRoom();
+    // Check if user has an active host session
+    fetch("/api/rooms")
+      .then(async (res) => {
+        if (res.ok) {
+          const rooms = await res.json();
+          if (Array.isArray(rooms) && rooms.length > 0) {
+            setIsHost(true);
+          }
+        }
+      })
+      .catch(() => {});
+
     if (!saved) {
       setChecking(false);
       return;
@@ -39,7 +52,6 @@ export default function Home() {
           if (data.isActive) {
             setLastRoom({ code: saved.code, roomName: data.name });
           } else {
-            // Room closed — clear saved data
             try { localStorage.removeItem("crowddj_last_room"); } catch {}
           }
         }
@@ -142,14 +154,20 @@ export default function Home() {
               <div className="flex-1 h-px bg-border" />
             </div>
             <div className="space-y-3">
-              <p className="text-text-secondary text-sm">
-                Want to host? Create a room and let your crowd decide the vibe.
-              </p>
+              {!isHost && (
+                <p className="text-text-secondary text-sm">
+                  Want to host? Create a room and let your crowd decide the vibe.
+                </p>
+              )}
               <a
                 href="/dashboard"
-                className="inline-block w-full py-3 bg-bg-card hover:bg-bg-card-hover border border-border rounded-xl font-medium transition-colors"
+                className={`inline-block w-full py-3 rounded-xl font-medium transition-colors ${
+                  isHost
+                    ? "bg-accent hover:bg-accent-hover text-black font-semibold"
+                    : "bg-bg-card hover:bg-bg-card-hover border border-border"
+                }`}
               >
-                Host a Room
+                {isHost ? "My Dashboard" : "Host a Room"}
               </a>
             </div>
           </>
