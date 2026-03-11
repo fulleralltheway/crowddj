@@ -1168,7 +1168,7 @@ function DashboardInner({ user }: { user: any }) {
     }
   }, []);
 
-  // Stop embed preview — destroy controller (API only has togglePlay, no pause)
+  // Stop any embed preview
   const stopEmbedPreview = useCallback(() => {
     if (embedControllerRef.current) {
       try { embedControllerRef.current.destroy(); } catch {}
@@ -1193,7 +1193,7 @@ function DashboardInner({ user }: { user: any }) {
       return;
     }
 
-    // Stop any existing preview
+    // Stop any existing preview (audio or embed)
     if (previewAudioRef.current) {
       previewAudioRef.current.pause();
       previewAudioRef.current = null;
@@ -1218,7 +1218,7 @@ function DashboardInner({ user }: { user: any }) {
       previewAudioRef.current = audio;
       setInlinePreviewId(id);
     } else if (spotifyApiRef.current && embedContainerRef.current) {
-      // No preview URL — create hidden Spotify iFrame API embed
+      // No preview URL — use hidden Spotify iFrame API embed
       const el = document.createElement("div");
       embedContainerRef.current.appendChild(el);
       spotifyApiRef.current.createController(el, {
@@ -1227,23 +1227,13 @@ function DashboardInner({ user }: { user: any }) {
         height: 80,
       }, (controller: any) => {
         embedControllerRef.current = controller;
-        // Detect when preview finishes playing — clear equalizer animation
-        try {
-          controller.addListener("playback_update", (e: any) => {
-            if (e?.data?.isPaused && e.data.position > 0) {
-              // Paused after playing = preview ended
-              setInlinePreviewId(null);
-            }
-          });
-        } catch {}
-        // Single togglePlay after embed has time to load — no ready event
-        // (ready event conflicts with this and causes double-toggle)
+        // Small delay to let iframe initialize before toggling play
         setTimeout(() => {
           try { controller.togglePlay(); } catch {}
-        }, 1000);
+        }, 500);
       });
       setInlinePreviewId(id);
-      // Safety: auto-clear animation after 35s (previews are ~30s)
+      // Auto-clear equalizer animation after 35s (previews are ~30s)
       setTimeout(() => {
         setInlinePreviewId((cur) => cur === id ? null : cur);
       }, 35000);
@@ -1296,9 +1286,8 @@ function DashboardInner({ user }: { user: any }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ songId, position, ...(hasPosition ? { forceLock: true } : {}) }),
     });
-    if (!res.ok) {
-      console.error("[DJ Lock] API failed:", res.status, await res.text().catch(() => ""));
-    }
+    const lockResult = await res.json().catch(() => null);
+    console.log("[DJ Lock] response:", res.status, lockResult);
     getSocket().emit("songs-reordered", activeRoom.code);
     await refreshSongs(activeRoom.code);
     // Only restore scroll for simple toggle (position lock should show the new location)

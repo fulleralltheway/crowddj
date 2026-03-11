@@ -3,6 +3,9 @@ import { prisma } from "@/lib/db";
 import { reorderByVotes } from "@/lib/reorder";
 import { NextRequest, NextResponse } from "next/server";
 
+// Position-based lock reorders all queue songs — can be slow for large queues
+export const maxDuration = 30;
+
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ code: string }> }
@@ -40,14 +43,17 @@ export async function POST(
     // Insert at the desired position
     without.splice(targetIdx, 0, song);
 
-    // Update all sortOrders + lock the target song in one transaction
+    // Only update songs whose sortOrder actually changed (+ always update target for lock fields)
+    const updates = without
+      .map((s, i) => ({ song: s, newOrder: i }))
+      .filter(({ song: s, newOrder }) => s.sortOrder !== newOrder || s.id === songId);
+
     await prisma.$transaction(
-      without.map((s, i) =>
+      updates.map(({ song: s, newOrder }) =>
         prisma.roomSong.update({
           where: { id: s.id },
           data: {
-            sortOrder: i,
-            // Only update lock fields on the target song
+            sortOrder: newOrder,
             ...(s.id === songId ? {
               isLocked: true,
               isPinned: true,
@@ -58,7 +64,11 @@ export async function POST(
       )
     );
 
-    return NextResponse.json({ success: true, locked: true, position: targetIdx });
+    // Verify the lock persisted
+    const verify = await prisma.roomSong.findFirst({ where: { id: songId } });
+    console.log(`[Lock] Position lock: song=${songId} pos=${targetIdx} locked=${verify?.isLocked} sortOrder=${verify?.sortOrder} updates=${updates.length}/${without.length}`);
+
+    return NextResponse.json({ success: true, locked: true, position: targetIdx, verified: verify?.isLocked });
   }
 
   // Simple lock toggle (no position)
@@ -71,11 +81,15 @@ export async function POST(
     },
   });
 
+  // Verify
+  const verify = await prisma.roomSong.findFirst({ where: { id: songId } });
+  console.log(`[Lock] Simple toggle: song=${songId} locked=${verify?.isLocked}`);
+
   // Re-sort on unlock (song needs to find its vote-based position)
   // Skip on forceLock (triggered by drag — order was already set by reorder endpoint)
   if (room.autoShuffle && !newLocked && !forceLock) {
     await reorderByVotes(room.id, room.queueDisplaySize || 50);
   }
 
-  return NextResponse.json({ success: true, locked: newLocked });
+  return NextResponse.json({ success: true, locked: newLocked, verified: verify?.isLocked });
 }
