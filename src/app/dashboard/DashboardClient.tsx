@@ -1220,7 +1220,6 @@ function DashboardInner({ user }: { user: any }) {
     } else if (spotifyApiRef.current && embedContainerRef.current) {
       // No preview URL — create hidden Spotify iFrame API embed
       const el = document.createElement("div");
-      embedContainerRef.current.innerHTML = "";
       embedContainerRef.current.appendChild(el);
       spotifyApiRef.current.createController(el, {
         uri: spotifyUri,
@@ -1228,21 +1227,24 @@ function DashboardInner({ user }: { user: any }) {
         height: 80,
       }, (controller: any) => {
         embedControllerRef.current = controller;
-        // The Spotify Embed API only has togglePlay() — no play() or pause()
-        let started = false;
-        controller.addListener("ready", () => {
-          if (!started) {
-            try { controller.togglePlay(); started = true; } catch {}
-          }
-        });
-        // Fallback retries if ready event is slow or doesn't fire
-        [800, 1500, 2500].forEach((delay) => {
-          setTimeout(() => {
-            if (!started) {
-              try { controller.togglePlay(); started = true; } catch {}
-            }
-          }, delay);
-        });
+        // Track whether audio actually started via playback_update event
+        let playing = false;
+        try {
+          controller.addListener("playback_update", (e: any) => {
+            if (e?.data && !e.data.isPaused) playing = true;
+          });
+        } catch {}
+        // Initial attempt after iframe loads
+        setTimeout(() => {
+          try { controller.togglePlay(); } catch {}
+        }, 500);
+        // Smart retries — only retry if playback hasn't started
+        setTimeout(() => {
+          if (!playing) { try { controller.togglePlay(); } catch {} }
+        }, 1500);
+        setTimeout(() => {
+          if (!playing) { try { controller.togglePlay(); } catch {} }
+        }, 2500);
       });
       setInlinePreviewId(id);
     } else {
