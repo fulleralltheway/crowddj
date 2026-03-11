@@ -1231,9 +1231,22 @@ function DashboardInner({ user }: { user: any }) {
         setTimeout(() => {
           try { controller.togglePlay(); } catch {}
         }, 500);
+        // Detect when preview clip finishes — clear equalizer animation
+        // (separate from play trigger — only used for end detection)
+        let wasPlaying = false;
+        try {
+          controller.addListener("playback_update", (e: any) => {
+            if (e?.data) {
+              if (!e.data.isPaused) wasPlaying = true;
+              if (wasPlaying && e.data.isPaused) {
+                setInlinePreviewId(null);
+              }
+            }
+          });
+        } catch {} // Silently fail — 27s fallback handles it
       });
       setInlinePreviewId(id);
-      // Auto-clear equalizer animation after 35s (previews are ~30s)
+      // Fallback: auto-clear animation after 27s if playback_update doesn't work
       setTimeout(() => {
         setInlinePreviewId((cur) => cur === id ? null : cur);
       }, 27000);

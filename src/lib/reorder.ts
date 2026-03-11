@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 
 /**
  * Re-sort visible songs by net vote score (respecting locked positions).
+ * Locked songs keep their exact positions — only unlocked songs move.
  * Only touches visible songs (display limit + requested), not the full queue.
  */
 export async function reorderByVotes(roomId: string, displayLimit: number) {
@@ -22,12 +23,14 @@ export async function reorderByVotes(roomId: string, displayLimit: number) {
 
   if (songs.length === 0) return;
 
-  // Sort by sortOrder so locked songs keep their correct positions
-  // (concatenation order of baseSongs + requestedSongs may not match sortOrder)
+  // Sort by sortOrder so positions are consistent
   songs.sort((a, b) => a.sortOrder - b.sortOrder);
 
   const locked = songs.filter((s) => s.isLocked);
   const unlocked = songs.filter((s) => !s.isLocked);
+
+  if (unlocked.length === 0) return; // Nothing to reorder
+
   const sortedUnlocked = unlocked.sort((a, b) => {
     const scoreA = a.upvotes - a.downvotes;
     const scoreB = b.upvotes - b.downvotes;
@@ -40,27 +43,35 @@ export async function reorderByVotes(roomId: string, displayLimit: number) {
   });
   const startOrder = playingSong ? playingSong.sortOrder + 1 : 0;
 
-  const lockedPositions = new Map<number, (typeof locked)[0]>();
+  // Record which array indices are locked
+  const lockedIndices = new Set<number>();
   locked.forEach((s) => {
-    const relPos = songs.indexOf(s);
-    lockedPositions.set(relPos, s);
+    lockedIndices.add(songs.indexOf(s));
   });
 
+  // Build merged array: locked songs keep their index, unlocked fill gaps
   const merged: typeof songs = [];
   let unlockedIdx = 0;
   for (let i = 0; i < songs.length; i++) {
-    if (lockedPositions.has(i)) {
-      merged.push(lockedPositions.get(i)!);
+    if (lockedIndices.has(i)) {
+      merged.push(songs[i]); // Keep locked song at its index
     } else if (unlockedIdx < sortedUnlocked.length) {
       merged.push(sortedUnlocked[unlockedIdx++]);
     }
   }
 
+  // Only update UNLOCKED songs — locked songs keep their exact sortOrder
+  const updates = merged
+    .map((song, i) => ({ song, newOrder: startOrder + i }))
+    .filter(({ song }) => !song.isLocked);
+
+  if (updates.length === 0) return;
+
   await prisma.$transaction(
-    merged.map((song, i) =>
+    updates.map(({ song, newOrder }) =>
       prisma.roomSong.update({
         where: { id: song.id },
-        data: { sortOrder: startOrder + i },
+        data: { sortOrder: newOrder },
       })
     )
   );
