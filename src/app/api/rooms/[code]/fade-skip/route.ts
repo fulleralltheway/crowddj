@@ -15,8 +15,10 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * Uses an ease-out curve so the fade feels natural (slows down toward silence).
  */
 function buildFadeCurve(durationMs: number): { multipliers: number[]; stepMs: number } {
-  const stepsPerSec = 6;
-  const totalSteps = Math.max(2, Math.round((durationMs / 1000) * stepsPerSec));
+  // Use fewer steps for longer fades to avoid Spotify API rate limits
+  // Short fades (1-3s): 4 steps/sec, long fades (5s+): 2 steps/sec
+  const stepsPerSec = durationMs <= 3000 ? 4 : 2;
+  const totalSteps = Math.max(2, Math.min(24, Math.round((durationMs / 1000) * stepsPerSec)));
   const stepMs = Math.round(durationMs / totalSteps);
 
   const multipliers: number[] = [];
@@ -27,6 +29,23 @@ function buildFadeCurve(durationMs: number): { multipliers: number[]; stepMs: nu
   }
 
   return { multipliers, stepMs };
+}
+
+// Restore volume with retries — critical after fade to avoid stuck-at-zero
+async function restoreVolume(accessToken: string, targetVolume: number, maxRetries = 3) {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      await setVolume(accessToken, targetVolume);
+      // Verify it took effect
+      await sleep(300);
+      const check = await getCurrentPlayback(accessToken);
+      const actual = check?.device?.volume_percent ?? 0;
+      if (actual >= targetVolume - 10) return; // Close enough
+    } catch {}
+    await sleep(500); // Wait before retry (rate limit cooldown)
+  }
+  // Last-resort attempt
+  try { await setVolume(accessToken, targetVolume); } catch {}
 }
 
 export async function POST(
@@ -115,13 +134,14 @@ export async function POST(
         });
 
         // Load next song silently: keep volume at 0, start, immediately pause, then restore volume
+        await sleep(500); // Rate limit cooldown after fade
         try { await setVolume(accessToken, 0); } catch {}
         await sleep(200);
         try { await startPlayback(accessToken, [nextSong.spotifyUri]); } catch {}
         await sleep(300);
         try { await pausePlayback(accessToken); } catch {}
-        await sleep(200);
-        try { await setVolume(accessToken, originalVolume); } catch {}
+        await sleep(300);
+        await restoreVolume(accessToken, originalVolume);
 
         await prisma.room.update({
           where: { id: room.id },
@@ -135,7 +155,8 @@ export async function POST(
         return NextResponse.json({ success: true, action: "stopped", song: nextSong.trackName, originalVolume });
       } else {
         // No next song — just restore volume and stay paused
-        try { await setVolume(accessToken, originalVolume); } catch {}
+        await sleep(500);
+        await restoreVolume(accessToken, originalVolume);
         return NextResponse.json({ success: true, action: "stopped", song: null, originalVolume });
       }
     }
@@ -159,32 +180,22 @@ export async function POST(
         data: { isPlaying: true, isLocked: false },
       });
 
-      // Restore volume while paused
-      try { await setVolume(accessToken, originalVolume); } catch {}
-      await sleep(400);
+      // Wait for rate limit cooldown after fade, then restore volume
+      await sleep(800);
+      await restoreVolume(accessToken, originalVolume);
 
       // Start the exact song by URI — never skipToNext which plays unknown songs
       try {
         await startPlayback(accessToken, [nextSong.spotifyUri]);
       } catch {
         // Retry once
-        await sleep(300);
+        await sleep(500);
         try { await startPlayback(accessToken, [nextSong.spotifyUri]); } catch {}
       }
 
-      // Set volume AGAIN after playback starts (some devices ignore it while paused)
-      await sleep(300);
-      try { await setVolume(accessToken, originalVolume); } catch {}
-
-      // Final verification
+      // Set volume AGAIN after playback starts (some devices ignore while paused)
       await sleep(500);
-      try {
-        const check = await getCurrentPlayback(accessToken);
-        const currentVol = check?.device?.volume_percent ?? 0;
-        if (currentVol < originalVolume - 15) {
-          await setVolume(accessToken, originalVolume);
-        }
-      } catch {}
+      await restoreVolume(accessToken, originalVolume);
 
       // Clear pre-queue, debounce cron, track stats
       await prisma.room.update({
@@ -197,14 +208,16 @@ export async function POST(
       });
     } else {
       try { await pausePlayback(accessToken); } catch {}
-      try { await setVolume(accessToken, originalVolume); } catch {}
+      await sleep(500);
+      await restoreVolume(accessToken, originalVolume);
     }
 
     return NextResponse.json({ success: true, action: "skipped", song: nextSong?.trackName, originalVolume });
   } catch (e: any) {
     // Emergency recovery — pause and restore volume
     try { await pausePlayback(accessToken); } catch {}
-    try { await setVolume(accessToken, originalVolume); } catch {}
+    await sleep(500);
+    await restoreVolume(accessToken, originalVolume);
     // Still try to advance the queue
     try {
       const playing = await prisma.roomSong.findFirst({
@@ -223,8 +236,8 @@ export async function POST(
           data: { isPlaying: true, isLocked: false },
         });
         try { await startPlayback(accessToken, [nextSong.spotifyUri]); } catch {}
-        await sleep(300);
-        try { await setVolume(accessToken, originalVolume); } catch {}
+        await sleep(500);
+        await restoreVolume(accessToken, originalVolume);
       }
     } catch {}
     return NextResponse.json(

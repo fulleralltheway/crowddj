@@ -9,8 +9,9 @@ export const maxDuration = 60;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function buildFadeCurve(durationMs: number) {
-  const stepsPerSec = 6;
-  const totalSteps = Math.max(2, Math.round((durationMs / 1000) * stepsPerSec));
+  // Fewer steps for longer fades to avoid Spotify API rate limits
+  const stepsPerSec = durationMs <= 3000 ? 4 : 2;
+  const totalSteps = Math.max(2, Math.min(24, Math.round((durationMs / 1000) * stepsPerSec)));
   const stepMs = Math.round(durationMs / totalSteps);
   const multipliers: number[] = [];
   for (let i = 1; i <= totalSteps; i++) {
@@ -18,6 +19,20 @@ function buildFadeCurve(durationMs: number) {
     multipliers.push(Math.max(0, Math.pow(1 - t, 1.8)));
   }
   return { multipliers, stepMs };
+}
+
+async function restoreVolume(accessToken: string, targetVolume: number, maxRetries = 3) {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      await setVolume(accessToken, targetVolume);
+      await sleep(300);
+      const check = await getCurrentPlayback(accessToken);
+      const actual = check?.device?.volume_percent ?? 0;
+      if (actual >= targetVolume - 10) return;
+    } catch {}
+    await sleep(500);
+  }
+  try { await setVolume(accessToken, targetVolume); } catch {}
 }
 
 /**
@@ -139,16 +154,16 @@ export async function POST(req: NextRequest) {
         data: { isPlaying: true, isLocked: false },
       });
 
-      try { await setVolume(accessToken, originalVolume); } catch {}
-      await sleep(400);
+      await sleep(800);
+      await restoreVolume(accessToken, originalVolume);
 
       try { await startPlayback(accessToken, [nextSong.spotifyUri]); } catch {
-        await sleep(300);
+        await sleep(500);
         try { await startPlayback(accessToken, [nextSong.spotifyUri]); } catch {}
       }
 
-      await sleep(300);
-      try { await setVolume(accessToken, originalVolume); } catch {}
+      await sleep(500);
+      await restoreVolume(accessToken, originalVolume);
 
       await prisma.room.update({
         where: { id: room.id },
@@ -161,12 +176,14 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({ success: true, action: "faded", song: nextSong.trackName, originalVolume });
     } else {
-      try { await setVolume(accessToken, originalVolume); } catch {}
+      await sleep(500);
+      await restoreVolume(accessToken, originalVolume);
       return NextResponse.json({ success: true, action: "paused_end", originalVolume });
     }
   } catch (e: any) {
     try { await pausePlayback(accessToken); } catch {}
-    try { await setVolume(accessToken, originalVolume); } catch {}
+    await sleep(500);
+    await restoreVolume(accessToken, originalVolume);
     return NextResponse.json({ error: e.message || "Fade transition failed" }, { status: 500 });
   }
 }
