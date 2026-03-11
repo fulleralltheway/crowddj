@@ -114,12 +114,14 @@ export async function POST(
           data: { isPlaying: true, isLocked: false },
         });
 
-        // Restore volume while paused, then start+pause to load the next song
-        try { await setVolume(accessToken, originalVolume); } catch {}
-        await sleep(400);
+        // Load next song silently: keep volume at 0, start, immediately pause, then restore volume
+        try { await setVolume(accessToken, 0); } catch {}
+        await sleep(200);
         try { await startPlayback(accessToken, [nextSong.spotifyUri]); } catch {}
-        await sleep(600);
+        await sleep(300);
         try { await pausePlayback(accessToken); } catch {}
+        await sleep(200);
+        try { await setVolume(accessToken, originalVolume); } catch {}
 
         await prisma.room.update({
           where: { id: room.id },

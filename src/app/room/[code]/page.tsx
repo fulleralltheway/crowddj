@@ -1145,11 +1145,15 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                         </p>
                         <p className="text-text-secondary text-xs truncate">{track.artistName}</p>
                       </button>
-                      <span className={`text-xs font-medium flex-shrink-0 ${
-                        recentStatus === "pending" ? "text-yellow-500" : recentStatus === "added" ? "text-upvote" : track.alreadyPlayed ? "text-text-secondary" : track.inQueue ? "text-text-secondary" : "text-accent"
-                      }`}>
+                      <button
+                        onClick={() => !unavailable && requestSong(track)}
+                        disabled={unavailable}
+                        className={`text-xs font-medium flex-shrink-0 px-2 py-1 rounded-lg transition-colors ${
+                          unavailable ? "cursor-default" : "hover:bg-accent/10 active:bg-accent/20"
+                        } ${recentStatus === "pending" ? "text-yellow-500" : recentStatus === "added" ? "text-upvote" : track.alreadyPlayed ? "text-text-secondary" : track.inQueue ? "text-text-secondary" : "text-accent"}`}
+                      >
                         {recentStatus === "pending" ? "Pending" : recentStatus === "added" ? "Added!" : track.alreadyPlayed ? "Played" : track.inQueue ? "In queue" : "+ Add"}
-                      </span>
+                      </button>
                     </div>
                     );
                   })}

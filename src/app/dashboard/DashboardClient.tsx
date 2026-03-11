@@ -261,12 +261,16 @@ function MiniPlayer({
                   controlsLocked ? "opacity-30 cursor-not-allowed" : "text-white/40 hover:text-white/70 hover:bg-white/[0.04]"
                 }`}
                 disabled={controlsLocked || isFading}
-                title="Fade out, stop, and load next song"
+                title={`Fade out over ${fadeDurationSec}s, stop, and load next song`}
               >
                 <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
                   <rect x="4" y="4" width="16" height="16" rx="2" />
                 </svg>
-                <span className="text-[8px] font-medium leading-tight mt-0.5">Stop</span>
+                <span
+                  className="text-[8px] font-medium leading-tight mt-0.5 hover:text-accent transition-colors"
+                  onClick={(e) => { e.stopPropagation(); e.preventDefault(); onCycleFadeDuration(); }}
+                  title="Tap to change fade duration"
+                >{fadeDurationSec}s</span>
               </button>
 
               {/* Play/Pause — main control, larger */}
@@ -302,7 +306,11 @@ function MiniPlayer({
                 <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
                   <path d="M5 4v16l10-8zm12 0v16h2V4z" />
                 </svg>
-                <span className="text-[8px] font-medium leading-tight mt-0.5">{isFading ? "Skip!" : "Skip!"}</span>
+                <span
+                  className={`text-[8px] font-medium leading-tight mt-0.5 ${!isFading ? "hover:text-accent transition-colors" : ""}`}
+                  onClick={isFading ? undefined : (e) => { e.stopPropagation(); e.preventDefault(); onCycleFadeDuration(); }}
+                  title={isFading ? undefined : "Tap to change fade duration"}
+                >{isFading ? "Skip!" : `${fadeDurationSec}s`}</span>
               </button>
             </div>
           </div>
