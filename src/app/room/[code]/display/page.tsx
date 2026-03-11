@@ -126,7 +126,7 @@ export default function DisplayPage() {
       />
 
       {/* Main layout */}
-      <div className="relative z-10 min-h-screen flex flex-col p-6 md:p-10 lg:p-12">
+      <div className="relative z-10 min-h-screen flex flex-col p-6 pt-[max(1.5rem,env(safe-area-inset-top))] md:p-10 lg:p-12">
         {/* Top bar: Room name + guest count */}
         <div className="flex items-center justify-between mb-6 md:mb-10">
           <h1 className="text-xl md:text-2xl lg:text-3xl font-bold text-text-primary truncate">

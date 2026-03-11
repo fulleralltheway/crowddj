@@ -302,7 +302,7 @@ function MiniPlayer({
                 <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
                   <path d="M5 4v16l10-8zm12 0v16h2V4z" />
                 </svg>
-                <span className="text-[8px] font-medium leading-tight mt-0.5">{isFading ? "Skip!" : `Skip ${fadeDurationSec}s`}</span>
+                <span className="text-[8px] font-medium leading-tight mt-0.5">{isFading ? "Skip!" : "Skip!"}</span>
               </button>
             </div>
           </div>
@@ -1041,16 +1041,14 @@ function DashboardInner({ user }: { user: any }) {
     if (res.ok) {
       getSocket().emit("room-closed", code);
       const data = await res.json();
-      setActiveRoom(null);
       if (data.stats) {
         setRecapStats(data.stats);
-        // Recap modal's "Done" button navigates to rooms view
-      } else {
-        setView("rooms");
       }
+      // Always navigate to rooms — recap modal renders at top level
+      setActiveRoom(null);
+      setView("rooms");
       fetchRooms();
     } else {
-      // API failed — still navigate back so the user isn't stuck
       setActiveRoom(null);
       setView("rooms");
       fetchRooms();
@@ -1300,7 +1298,7 @@ function DashboardInner({ user }: { user: any }) {
           )}
         </div>
 
-        {/* Event recap modal */}
+        {/* Event recap modal — shown after closing a room */}
         {recapStats && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-6">
             <div className="bg-bg-card border border-border rounded-2xl p-6 max-w-sm w-full space-y-5">
@@ -1328,7 +1326,7 @@ function DashboardInner({ user }: { user: any }) {
                 </div>
               </div>
               <button
-                onClick={() => { setRecapStats(null); setView("rooms"); }}
+                onClick={() => setRecapStats(null)}
                 className="w-full py-2.5 bg-accent hover:bg-accent-hover text-black font-semibold rounded-xl transition-colors"
               >
                 Done
@@ -1524,12 +1522,12 @@ function DashboardInner({ user }: { user: any }) {
                   <span className="text-sm">Vote reset</span>
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => setVoteResetMinutes(Math.max(5, voteResetMinutes - 5))}
+                      onClick={() => setVoteResetMinutes(Math.max(1, voteResetMinutes - (voteResetMinutes <= 5 ? 1 : 5)))}
                       className="w-7 h-7 rounded-lg bg-white/[0.06] hover:bg-white/[0.1] flex items-center justify-center text-white/50 transition-colors"
                     >-</button>
                     <span className="text-sm font-semibold w-10 text-center tabular-nums">{voteResetMinutes}m</span>
                     <button
-                      onClick={() => setVoteResetMinutes(Math.min(1440, voteResetMinutes + 5))}
+                      onClick={() => setVoteResetMinutes(Math.min(1440, voteResetMinutes + (voteResetMinutes < 5 ? 1 : 5)))}
                       className="w-7 h-7 rounded-lg bg-white/[0.06] hover:bg-white/[0.1] flex items-center justify-center text-white/50 transition-colors"
                     >+</button>
                   </div>
@@ -1973,7 +1971,7 @@ function DashboardInner({ user }: { user: any }) {
                 <NumInput
                   label="Vote Reset (min)"
                   value={activeRoom.voteResetMinutes}
-                  min={5}
+                  min={1}
                   max={1440}
                   onSave={(v) => saveSettings({ voteResetMinutes: v } as any)}
                 />
@@ -2525,19 +2523,6 @@ function DashboardInner({ user }: { user: any }) {
                         <>
                           <div className="fixed inset-0 z-40" onClick={() => setSongMenuOpen(null)} />
                           <div className="absolute right-0 top-full mt-1 z-50 bg-bg-card border border-white/[0.1] rounded-xl shadow-2xl overflow-hidden min-w-[140px]">
-                            <button
-                              onClick={() => { openPreview(song.spotifyUri, song.trackName, song.artistName); setSongMenuOpen(null); }}
-                              className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm hover:bg-white/[0.06] transition-colors text-left"
-                            >
-                              <svg className={`w-4 h-4 ${previewTrackId === song.spotifyUri.replace("spotify:track:", "") ? "text-accent" : "text-white/40"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
-                                {previewTrackId === song.spotifyUri.replace("spotify:track:", "") ? (
-                                  <><rect x="6" y="4" width="4" height="16" rx="1" fill="currentColor" stroke="none" /><rect x="14" y="4" width="4" height="16" rx="1" fill="currentColor" stroke="none" /></>
-                                ) : (
-                                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.536 8.464a5 5 0 010 7.072M17.95 6.05a8 8 0 010 11.9M6.5 8.5l5-4v15l-5-4H4a1 1 0 01-1-1v-5a1 1 0 011-1h2.5z" />
-                                )}
-                              </svg>
-                              <span className={previewTrackId === song.spotifyUri.replace("spotify:track:", "") ? "text-accent" : ""}>{previewTrackId === song.spotifyUri.replace("spotify:track:", "") ? "Stop Preview" : "Preview"}</span>
-                            </button>
                             <button
                               onClick={() => { lockSong(song.id, i); setSongMenuOpen(null); }}
                               className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm hover:bg-white/[0.06] transition-colors text-left"
