@@ -49,15 +49,28 @@ export async function POST(req: NextRequest) {
   }
 
   let roomCode: string;
+  let expectedSongId: string | undefined;
   try {
     const body = await req.json();
     roomCode = body.roomCode;
+    expectedSongId = body.expectedSongId;
   } catch {
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   }
 
   const room = await prisma.room.findUnique({ where: { code: roomCode } });
   if (!room) return NextResponse.json({ error: "Room not found" }, { status: 404 });
+
+  // Safety check: verify the expected song is still playing
+  // Prevents double-advances when client and server race
+  if (expectedSongId) {
+    const currentPlaying = await prisma.roomSong.findFirst({
+      where: { roomId: room.id, isPlaying: true },
+    });
+    if (!currentPlaying || currentPlaying.id !== expectedSongId) {
+      return NextResponse.json({ skipped: true, reason: "Song already changed" });
+    }
+  }
 
   // Read fade duration from the room's saved settings
   const fadeDurationMs = (room.fadeDurationSec ?? 3) * 1000;

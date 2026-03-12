@@ -16,7 +16,7 @@ const httpServer = createServer((req, res) => {
   // Health check endpoint for Fly.io
   if (req.url === "/health") {
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ status: "ok", rooms: activeRooms.size, backgroundRooms: backgroundRooms.size }));
+    res.end(JSON.stringify({ status: "ok", rooms: activeRooms.size, backgroundRooms: backgroundRooms.size, scheduledFades: scheduledFades.size }));
     return;
   }
   res.writeHead(404);
@@ -41,6 +41,9 @@ const backgroundRooms = new Set<string>();
 
 // Track rooms currently being faded (prevent double-triggers)
 const fadingRooms = new Set<string>();
+
+// Scheduled fade timers — set when pre-queue fires, fires at threshold for precise timing
+const scheduledFades = new Map<string, ReturnType<typeof setTimeout>>();
 
 function getRoomCount(roomCode: string): number {
   return activeRooms.get(roomCode)?.size || 0;
@@ -127,6 +130,10 @@ io.on("connection", (socket) => {
     // Clean up all tracking — room is done
     activeRooms.delete(roomCode);
     backgroundRooms.delete(roomCode);
+    if (scheduledFades.has(roomCode)) {
+      clearTimeout(scheduledFades.get(roomCode)!);
+      scheduledFades.delete(roomCode);
+    }
   });
 
   socket.on("disconnect", () => {
@@ -188,17 +195,19 @@ async function broadcastRoomState(roomCode: string) {
 
 // Trigger a server-side fade transition via the Vercel endpoint
 // Runs in the background — doesn't block the sync loop
-async function triggerServerFade(roomCode: string) {
+async function triggerServerFade(roomCode: string, expectedSongId?: string) {
   if (fadingRooms.has(roomCode)) return;
   fadingRooms.add(roomCode);
   console.log(`[${roomCode}] Triggering server-side fade transition`);
 
   try {
     const url = `${VERCEL_URL}/api/cron/fade-transition?secret=${encodeURIComponent(CRON_SECRET)}`;
+    const body: Record<string, string> = { roomCode };
+    if (expectedSongId) body.expectedSongId = expectedSongId;
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ roomCode }),
+      body: JSON.stringify(body),
     });
     const result = await res.json();
     console.log(`[${roomCode}] Fade result:`, JSON.stringify(result));
@@ -241,15 +250,47 @@ async function syncAllRooms() {
         if (result.status === "room_closed" || result.status === "room_expired") {
           backgroundRooms.delete(result.code);
           activeRooms.delete(result.code);
+          if (scheduledFades.has(result.code)) {
+            clearTimeout(scheduledFades.get(result.code)!);
+            scheduledFades.delete(result.code);
+          }
           console.log(`[${result.code}] Room ended — removed from sync`);
           continue;
+        }
+
+        // Cancel scheduled fades if the song already advanced (client handled it)
+        if (scheduledFades.has(result.code) &&
+            (result.status === "advanced" || result.status === "advanced_prequeued" || result.status === "advanced_external")) {
+          clearTimeout(scheduledFades.get(result.code)!);
+          scheduledFades.delete(result.code);
         }
 
         if (result.status !== "playing" && result.status !== "no_current_song" && result.status !== "debounced") {
           // needs_fade means the cron detected a song past its max duration
           // and no client is handling the fade — trigger server-side fade
+          // (only if no scheduled fade is already pending for precise timing)
           if (result.status === "needs_fade" && !fadingRooms.has(result.code)) {
-            triggerServerFade(result.code);
+            if (!scheduledFades.has(result.code)) {
+              triggerServerFade(result.code);
+            }
+          }
+
+          // Schedule a precise fade when pre-queue fires — triggers at
+          // approximately threshold time instead of waiting for the next
+          // sync cycle to detect needs_fade (saves 5-10s of latency)
+          if (result.status === "prequeued_maxdur" && result.fadeInMs && result.currentSongId) {
+            if (!scheduledFades.has(result.code) && !fadingRooms.has(result.code)) {
+              // Subtract 3s to compensate for network round-trip overhead
+              const delay = Math.max(1000, result.fadeInMs - 3000);
+              console.log(`[${result.code}] Scheduling server fade in ${delay}ms (threshold in ${result.fadeInMs}ms)`);
+              const fadeRoomCode = result.code;
+              const fadeSongId = result.currentSongId;
+              const timer = setTimeout(() => {
+                scheduledFades.delete(fadeRoomCode);
+                triggerServerFade(fadeRoomCode, fadeSongId);
+              }, delay);
+              scheduledFades.set(result.code, timer);
+            }
           }
 
           // Only broadcast to rooms with connected clients

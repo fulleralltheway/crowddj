@@ -74,8 +74,14 @@ Three layers handle transitions, with automatic fallback:
 - **Manual DJ lock** (`isLocked && lastPreQueuedId !== song.id`): owner override, hides votes, yellow highlight
 - **Auto-queue lock** (`isLocked && lastPreQueuedId === song.id`): cron/client-triggered, shows votes dimmed, accent highlight with "Up Next"/"Queued Next" label
 - `lastSyncAdvance` timestamp debounces transitions — prevents cron from racing with client-side fades
-- **Position-based DJ lock** sets `isPinned: true` + `pinnedPosition` on the RoomSong. `pinnedPosition` is the authoritative queue index — songs API, `getNextSong`, and `reorderByVotes` all place pinned songs at their `pinnedPosition` regardless of `sortOrder`
-- `shiftPinnedPositions()` in `queue.ts` decrements all pinned positions by 1 on every song transition — called from all transition paths (skip, fade-skip, fade-transition, sync-rooms). This ensures pinned songs progress toward #1 as songs above them play
+- **DJ position lock** (dropdown "lock at #X" and drag-and-drop) both use the same two-step path: `/reorder` (sets explicit sortOrders from the display order) then `/lock` with `forceLock: true` (simple lock, no `isPinned`). The lock endpoint also has a legacy position-based path using `isPinned`/`pinnedPosition` — the songs API, `getNextSong`, and `reorderByVotes` still support it via three-way merge, but the UI no longer uses it
+- `shiftPinnedPositions()` in `queue.ts` decrements all pinned positions by 1 on every song transition — called from all transition paths (skip, fade-skip, fade-transition, sync-rooms)
+
+### Vote System & Guest Stats
+- Votes are individual records (`Vote` table) with `value: 1` (upvote) or `-1` (downvote)
+- **Reclaim**: voting opposite direction deletes the existing vote (refunds it) — does NOT create a new vote. Upvote→downvote = neutral, not both
+- `Guest.totalUpvotes`/`totalDownvotes` are **lifetime counters** that accumulate at **vote reset time only** (not on each vote). Before votes are bulk-deleted on reset, current counts are added to these fields
+- Guest stats display: `totalUpvotes + currentUpvotes.length` = past resets + current period (no double-counting)
 
 ### Fade-out Volume Control
 - `buildFadeCurve()` generates smooth ease-out curve (power curve 1.8): 4 steps/sec for fades ≤3s, 2 steps/sec for longer fades, max 24 total steps (avoids Spotify API rate limits)
@@ -125,7 +131,7 @@ When Spotify plays a song not in the queue (user changed song via Spotify app, a
 - `src/app/api/cron/sync-rooms/route.ts` — Background sync: detects song transitions, pre-queues, external recovery
 - `src/app/api/cron/fade-transition/route.ts` — Server-side fade endpoint (called by socket server, auth via CRON_SECRET)
 - `src/app/api/rooms/[code]/fade-skip/route.ts` — Client-side fade endpoint (auth via session, supports mode: "skip" | "pause")
-- `src/app/api/rooms/[code]/lock/route.ts` — DJ lock: simple toggle or position-based lock (atomic transaction, `maxDuration = 30`)
+- `src/app/api/rooms/[code]/lock/route.ts` — DJ lock: simple toggle with `forceLock` option; also has legacy position-based lock path (`maxDuration = 30`)
 - `src/app/api/rooms/[code]/lock-next/route.ts` — Locks next song and sets lastPreQueuedId for "Queued Next" UI
 - `src/app/api/rooms/[code]/sync/route.ts` — Returns current Spotify track info + room state for polling
 - `socket-server.ts` — Standalone Socket.io server with sync loop and server-side fade triggering

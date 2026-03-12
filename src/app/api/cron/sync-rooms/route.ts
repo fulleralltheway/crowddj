@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
     },
   });
 
-  const results: { code: string; status: string; detail?: string }[] = [];
+  const results: { code: string; status: string; detail?: string; fadeInMs?: number; currentSongId?: string }[] = [];
 
   // Report rooms that the caller asked about but aren't active (closed/expired/not found)
   if (roomCodes) {
@@ -100,7 +100,7 @@ export async function GET(req: NextRequest) {
                 where: { id: room.id },
                 data: { lastPreQueuedId: nextUp.id },
               });
-              results.push({ code: room.code, status: "prequeued_maxdur", detail: nextUp.trackName });
+              results.push({ code: room.code, status: "prequeued_maxdur", detail: nextUp.trackName, fadeInMs: maxMs - playback.progress_ms, currentSongId: currentSong.id });
             }
           }
 
