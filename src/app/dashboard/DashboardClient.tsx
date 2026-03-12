@@ -825,14 +825,15 @@ function DashboardInner({ user }: { user: any }) {
       fetch(`/api/rooms/${code}/songs`),
       fetch(`/api/rooms/${code}/sync`, { method: "POST" }),
     ]);
-    if (roomRes.ok) {
-      const data = await roomRes.json();
-      setActiveRoom(data);
-      if (data.requireApproval) fetchRequests(code);
-    }
-    if (songsRes.ok) {
-      const songs = await songsRes.json();
-      setActiveRoom((prev) => (prev ? { ...prev, songs } : null));
+    // Parse both responses before updating state to avoid intermediate renders
+    // (room API and songs API sort differently — two renders causes auto-animate flicker)
+    const roomData = roomRes.ok ? await roomRes.json() : null;
+    const songsData = songsRes.ok ? await songsRes.json() : null;
+    if (roomData) {
+      setActiveRoom(songsData ? { ...roomData, songs: songsData } : roomData);
+      if (roomData.requireApproval) fetchRequests(code);
+    } else if (songsData) {
+      setActiveRoom((prev) => (prev ? { ...prev, songs: songsData } : null));
     }
     if (syncRes.ok) {
       const syncData = await syncRes.json();

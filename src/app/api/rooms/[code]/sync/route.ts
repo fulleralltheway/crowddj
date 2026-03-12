@@ -74,6 +74,7 @@ export async function POST(
       spotifyPlaying: !!playback.is_playing,
       progressMs: playback.progress_ms,
       durationMs: track.duration_ms,
+      lastPreQueuedId: room.lastPreQueuedId,
       // Always return what Spotify is actually playing
       spotifyTrack: {
         uri: track.uri,

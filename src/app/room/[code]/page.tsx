@@ -142,6 +142,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const postVoteSyncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reorderTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastScrollTime = useRef(0);
+  const lastPreQueuedRef = useRef<string | null>(null); // track pre-queue changes from sync poll
   const [songListRef] = useAutoAnimate({ duration: 300 });
   const knownApproved = useRef<Set<string>>(new Set());
   const [pullRefreshing, setPullRefreshing] = useState(false);
@@ -230,6 +231,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
 
     Promise.all([roomPromise, guestPromise]).then(([roomData, guestData]) => {
       setRoom(roomData);
+      lastPreQueuedRef.current = roomData.lastPreQueuedId ?? null;
       setSongs(
         roomData.songs.map((s: any) => ({ ...s, netScore: s.upvotes - s.downvotes, votes: s.votes || [] }))
       );
@@ -335,6 +337,14 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
               if (prev?.uri !== data.spotifyTrack.uri) fetchSongs();
               return data.spotifyTrack;
             });
+          }
+          // Detect pre-queue changes — fetch fresh songs so isLocked updates
+          // (the one-shot socket broadcast can be missed on mobile)
+          const newPreQueued = data.lastPreQueuedId ?? null;
+          if (newPreQueued !== lastPreQueuedRef.current) {
+            lastPreQueuedRef.current = newPreQueued;
+            setRoom((prev) => prev ? { ...prev, lastPreQueuedId: newPreQueued } : prev);
+            if (newPreQueued) fetchSongs();
           }
         }
       }).catch(() => {});
