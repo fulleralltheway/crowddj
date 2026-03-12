@@ -47,12 +47,22 @@ export async function POST(
   }
 
   // Check vote reset — clear old votes so guest gets a fresh slate
+  // Before deleting, accumulate current votes into lifetime counters
   const resetMs = room.voteResetMinutes * 60 * 1000;
   if (Date.now() - guest.lastVoteReset.getTime() > resetMs) {
+    const [upCount, downCount] = await Promise.all([
+      prisma.vote.count({ where: { guestId: guest.id, value: 1 } }),
+      prisma.vote.count({ where: { guestId: guest.id, value: -1 } }),
+    ]);
     await prisma.vote.deleteMany({ where: { guestId: guest.id } });
     guest = await prisma.guest.update({
       where: { id: guest.id },
-      data: { votesUsed: 0, lastVoteReset: new Date() },
+      data: {
+        votesUsed: 0,
+        lastVoteReset: new Date(),
+        totalUpvotes: { increment: upCount },
+        totalDownvotes: { increment: downCount },
+      },
     });
   }
 
@@ -105,10 +115,7 @@ export async function POST(
     });
     await prisma.guest.update({
       where: { id: guest.id },
-      data: {
-        votesUsed: { increment: 1 },
-        ...(value === 1 ? { totalUpvotes: { increment: 1 } } : { totalDownvotes: { increment: 1 } }),
-      },
+      data: { votesUsed: { increment: 1 } },
     });
     // Increment room vote stats
     await prisma.room.update({
