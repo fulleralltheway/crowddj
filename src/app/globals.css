@@ -21,24 +21,27 @@
 html {
   color-scheme: dark;
   overflow: hidden;
-  position: fixed;
-  inset: 0;
-  overscroll-behavior: none;
+  height: 100%;
 }
 
 body {
   background: var(--color-bg-primary);
   color: var(--color-text-primary);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  min-height: 100dvh;
   -webkit-font-smoothing: antialiased;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
   overscroll-behavior: none;
   -webkit-touch-callout: none;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
   margin: 0;
+}
+
+/* Prevent pull-to-refresh and rubber-band bounce in PWA */
+@media all and (display-mode: standalone) {
+  body {
+    overscroll-behavior-y: contain;
+  }
 }
 
 /* Double-tap zoom prevention on all interactive elements */
