@@ -52,7 +52,7 @@ rm .env.production.local  # Clean up secrets
 
 1. **Next.js on Vercel** — UI + API routes. All API endpoints under `src/app/api/rooms/[code]/`. The `auth()` call in API routes provides session with `(session as any).accessToken` for Spotify API calls.
 
-2. **Socket.io on Fly.io** (`socket-server.ts`, `Dockerfile.socket`) — Real-time event relay + background sync loop. Runs a 10-second interval calling the Vercel cron endpoint, then broadcasts song/room updates to connected clients. **Keeps syncing rooms even after all clients disconnect** (`backgroundRooms` set) so playback continues when everyone closes the app. Rooms are removed from background tracking when explicitly closed or when the cron reports them as inactive/expired. Key events: `songs-update`, `room-update`, `vote-update`, `songs-reordered`, `song-requested`, `room-settings-changed`.
+2. **Socket.io on Fly.io** (`socket-server.ts`, `Dockerfile.socket`) — Real-time event relay + background sync loop. Runs a 5-second interval calling the Vercel cron endpoint, then broadcasts song/room updates to connected clients. **Keeps syncing rooms even after all clients disconnect** (`backgroundRooms` set) so playback continues when everyone closes the app. Rooms are removed from background tracking when explicitly closed or when the cron reports them as inactive/expired. Key events: `songs-update`, `room-update`, `vote-update`, `songs-reordered`, `song-requested`, `room-settings-changed`.
 
 3. **Spotify Web API** (`src/lib/spotify.ts`) — Playback control, search, playlist import. Always uses `startPlayback` with explicit URI for transitions (never `skipToNext` or `addToQueue` which are unreliable). Token refresh happens in `auth.ts` (session callback), `cron/sync-rooms` (direct refresh from Account table), and `cron/fade-transition` (server-side fades).
 
@@ -69,14 +69,16 @@ Three layers handle transitions, with automatic fallback:
 ### Song Lifecycle & Queue Management
 - Songs are imported from a Spotify playlist into `RoomSong` rows with `sortOrder`
 - Guests vote; the reorder algorithm (`src/lib/reorder.ts`) sorts unplayed songs by net score
-- `getNextSong()` in `src/lib/queue.ts` — **shared helper** used by ALL playback routes to determine next song, matching exact display order (locked songs keep sortOrder positions, unlocked sorted by netScore when autoShuffle is on)
-- At ~15s before threshold, the next song is locked (`isLocked = true`, `lastPreQueuedId` set) so UI shows "Queued Next"
+- `getNextSong()` in `src/lib/queue.ts` — **shared helper** used by ALL playback routes to determine next song, matching exact display order. Returns `lastPreQueuedId` song first if set, then uses pinned/locked/unlocked merge logic
+- At ~15s before threshold, the next song is locked (`isLocked = true`, `lastPreQueuedId` set) so UI shows "Queued Next". The `lastPreQueuedId` song is always forced to position 0 in both display and playback order
 - **Manual DJ lock** (`isLocked && lastPreQueuedId !== song.id`): owner override, hides votes, yellow highlight
 - **Auto-queue lock** (`isLocked && lastPreQueuedId === song.id`): cron/client-triggered, shows votes dimmed, accent highlight with "Up Next"/"Queued Next" label
 - `lastSyncAdvance` timestamp debounces transitions — prevents cron from racing with client-side fades
+- **Position-based DJ lock** sets `isPinned: true` + `pinnedPosition` on the RoomSong. `pinnedPosition` is the authoritative queue index — songs API, `getNextSong`, and `reorderByVotes` all place pinned songs at their `pinnedPosition` regardless of `sortOrder`
+- `shiftPinnedPositions()` in `queue.ts` decrements all pinned positions by 1 on every song transition — called from all transition paths (skip, fade-skip, fade-transition, sync-rooms). This ensures pinned songs progress toward #1 as songs above them play
 
 ### Fade-out Volume Control
-- `buildFadeCurve()` generates smooth ease-out curve (6 steps/sec, power curve 1.8)
+- `buildFadeCurve()` generates smooth ease-out curve (power curve 1.8): 4 steps/sec for fades ≤3s, 2 steps/sec for longer fades, max 24 total steps (avoids Spotify API rate limits)
 - Each `setVolume` step wrapped in individual try/catch — one Spotify API error doesn't abort the fade
 - `fadeDurationSec` stored on Room model — syncs to DB when owner changes it, read by server-side fade endpoint
 - Emergency recovery: catch block pauses playback and restores volume
@@ -88,9 +90,17 @@ When Spotify plays a song not in the queue (user changed song via Spotify app, a
 2. If `maxSongDurationSec` is active and off-queue for 30s+ → force-starts the correct queue song
 3. Otherwise reports `"external"` and leaves Spotify alone
 
+### Spotify iFrame Embed API (Preview Playback)
+- Only has `togglePlay()` — NO separate `play()` or `pause()` methods
+- `addListener("ready")` and `addListener("playback_update")` are unreliable and can interfere with playback
+- The only working pattern: `setTimeout(500)` + `controller.togglePlay()`. Do NOT add event listeners that trigger additional `togglePlay()` calls — double-toggling causes play→immediate pause
+- `playback_update` is safe ONLY for end detection (detecting when preview clip finishes), wrapped in try/catch
+- When switching between previews, reuse the existing controller via `controller.loadUri(newUri)` + `togglePlay()` — do NOT destroy and recreate (destroy+create leaves the new controller in a not-ready state)
+
 ### Song Sorting
-- Songs API endpoints sort by `netScore` descending at read time when `autoShuffle` is on
-- `reorderByVotes()` updates `sortOrder` in DB after each vote, but API sort is the authoritative display order
+- Songs API display order (autoShuffle on): pinned songs at `pinnedPosition`, then `lastPreQueuedId` at position 0, then locked songs at sortOrder index, then unlocked sorted by `netScore` descending filling gaps
+- `reorderByVotes()` updates `sortOrder` in DB after each vote — respects pinned positions (pinned songs placed at `pinnedPosition`, locked songs keep index, only unlocked get new sortOrders)
+- Lock endpoint and `reorderByVotes` both use `startOrder = playingSong.sortOrder + 1` to keep sortOrder numbering consistent
 - Client-side `optimisticReorder` in guest view defers reorder by 1s after last vote to prevent UI jitter
 
 ### PWA
@@ -106,15 +116,16 @@ When Spotify plays a song not in the queue (user changed song via Spotify app, a
 - `src/lib/db.ts` — Prisma singleton with Neon Postgres adapter
 - `src/lib/auth.ts` — NextAuth config, Spotify OAuth scopes, token refresh in session callback
 - `src/lib/spotify.ts` — All Spotify API wrappers (playback, search, queue, devices)
-- `src/lib/queue.ts` — Shared `getNextSong()` helper (must match display sort order exactly)
+- `src/lib/queue.ts` — Shared `getNextSong()` + `shiftPinnedPositions()` helpers (getNextSong must match display sort order exactly)
 - `src/lib/socket.ts` — Client-side Socket.io singleton with `getSocket()` accessor and no-op stub fallback
-- `src/lib/reorder.ts` — Queue reordering algorithm
+- `src/lib/reorder.ts` — Queue reordering algorithm (only updates unlocked songs; locked songs keep exact sortOrder)
 - `src/lib/pwa.ts` — PWA detection hooks (standalone, network status, app height)
 - `src/app/dashboard/DashboardClient.tsx` — Owner dashboard (room management, queue, mini-player, fade controls)
 - `src/app/room/[code]/page.tsx` — Guest room view (voting, song requests, search)
 - `src/app/api/cron/sync-rooms/route.ts` — Background sync: detects song transitions, pre-queues, external recovery
 - `src/app/api/cron/fade-transition/route.ts` — Server-side fade endpoint (called by socket server, auth via CRON_SECRET)
 - `src/app/api/rooms/[code]/fade-skip/route.ts` — Client-side fade endpoint (auth via session, supports mode: "skip" | "pause")
+- `src/app/api/rooms/[code]/lock/route.ts` — DJ lock: simple toggle or position-based lock (atomic transaction, `maxDuration = 30`)
 - `src/app/api/rooms/[code]/lock-next/route.ts` — Locks next song and sets lastPreQueuedId for "Queued Next" UI
 - `src/app/api/rooms/[code]/sync/route.ts` — Returns current Spotify track info + room state for polling
 - `socket-server.ts` — Standalone Socket.io server with sync loop and server-side fade triggering
@@ -134,6 +145,9 @@ When Spotify plays a song not in the queue (user changed song via Spotify app, a
 - Spotify app is in "Development mode" — redirect URIs: `https://crowddj.vercel.app/api/auth/callback/spotify` and `https://www.partyqueue.com/api/auth/callback/spotify`
 - **Fly.io deploy wipes in-memory state** (`backgroundRooms`, `fadingRooms`) — rooms re-register when clients reconnect
 - **`maxDuration` on Vercel**: Any API route that runs a fade loop or long operation needs `export const maxDuration = 60` or it times out at 10s
+
+### Testing
+No test framework is configured. There are no test files in the project. Validate changes via `npm run build` + manual testing on the deployed app.
 
 ## Production URLs
 - App: https://crowddj.vercel.app

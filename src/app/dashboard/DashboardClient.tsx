@@ -2361,7 +2361,7 @@ function DashboardInner({ user }: { user: any }) {
               {/* Block List */}
               <div>
                 <label className="block text-sm font-medium text-text-secondary mb-1">Blocked Artists</label>
-                <p className="text-[11px] text-white/30 mb-1.5">Guests cannot request songs by these artists.</p>
+                <p className="text-[11px] text-white/30 mb-1.5">Songs by these artists are hidden from search and can&apos;t be requested.</p>
                 <BlockedArtistInput
                   blockedArtists={activeRoom.blockedArtists || ""}
                   onAdd={(artist: string) => {
@@ -2397,10 +2397,10 @@ function DashboardInner({ user }: { user: any }) {
               </div>
               {/* Branding */}
               <div className="border-t border-border pt-4">
-                <label className="block text-sm font-medium text-text-secondary mb-1">Branding</label>
-                <p className="text-[11px] text-white/30 mb-3">Shown on the TV Display page and guest room header.</p>
+                <label className="block text-sm font-medium text-text-secondary mb-1">Event Branding</label>
+                <p className="text-[11px] text-white/30 mb-3">Customize what guests see when they join your room.</p>
                 <div className="mb-3">
-                  <label className="block text-xs font-medium text-text-secondary mb-1">Custom Display Name</label>
+                  <label className="block text-xs font-medium text-text-secondary mb-1">Event Name</label>
                   <input
                     type="text"
                     defaultValue={activeRoom.brandName || ""}
@@ -2411,6 +2411,7 @@ function DashboardInner({ user }: { user: any }) {
                     }}
                     className="w-full px-3 py-2 bg-bg-primary border border-border rounded-lg text-sm focus:outline-none focus:border-accent"
                   />
+                  <p className="text-[10px] text-white/25 mt-1">Replaces the room name for guests (e.g. &apos;Sarah&apos;s Wedding&apos;, &apos;DJ Night&apos;). Leave empty to use room name.</p>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-text-secondary mb-1">Accent Color</label>

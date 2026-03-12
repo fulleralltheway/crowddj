@@ -90,9 +90,18 @@ export async function GET(
     }
 
     // Filter out explicit songs if explicitFilter is enabled
-    const filtered = room.explicitFilter
+    let filtered = room.explicitFilter
       ? tracks.filter((t: any) => !t.isExplicit)
       : tracks;
+
+    // Filter blocked artists
+    if (room.blockedArtists) {
+      const blocked = room.blockedArtists.split(",").map(a => a.trim().toLowerCase()).filter(Boolean);
+      filtered = filtered.filter((t: any) => {
+        const artist = (t.artistName || "").toLowerCase();
+        return !blocked.some(b => artist.includes(b) || b.includes(artist));
+      });
+    }
 
     const enriched = filtered.map((t: any) => ({
       ...t,
