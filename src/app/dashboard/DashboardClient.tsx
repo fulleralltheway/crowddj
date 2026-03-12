@@ -1583,7 +1583,7 @@ function DashboardInner({ user }: { user: any }) {
       : playlists;
 
     return (
-      <div className="flex flex-col min-h-dvh max-w-2xl lg:max-w-3xl mx-auto select-none safe-top lg:min-h-0 lg:my-6 lg:bg-white/[0.03] lg:backdrop-blur-xl lg:border lg:border-white/[0.06] lg:rounded-3xl lg:shadow-[0_8px_32px_rgba(0,0,0,0.3)] lg:max-h-[calc(100dvh-3rem)]" style={{ height: 'var(--app-height, 100dvh)' }}>
+      <div className="flex flex-col min-h-dvh max-w-2xl lg:max-w-3xl mx-auto overflow-hidden overscroll-none select-none safe-top lg:min-h-0 lg:my-6 lg:bg-white/[0.03] lg:backdrop-blur-xl lg:border lg:border-white/[0.06] lg:rounded-3xl lg:shadow-[0_8px_32px_rgba(0,0,0,0.3)] lg:max-h-[calc(100dvh-3rem)]" style={{ height: 'var(--app-height, 100dvh)' }}>
         {/* Sticky Header */}
         <div className="flex-shrink-0 bg-gradient-to-b from-bg-card/90 to-bg-primary/80 backdrop-blur-xl border-b border-white/[0.06] z-[60]">
           <div className="flex items-center justify-between px-4 pt-4 pb-3">
@@ -1865,7 +1865,7 @@ function DashboardInner({ user }: { user: any }) {
     : queuePlaying;
 
   return (
-    <div className="flex flex-col max-w-6xl xl:max-w-7xl mx-auto overflow-hidden relative select-none safe-top lg:my-6 lg:bg-white/[0.03] lg:backdrop-blur-xl lg:border lg:border-white/[0.06] lg:rounded-3xl lg:shadow-[0_8px_32px_rgba(0,0,0,0.3)] lg:max-h-[calc(100dvh-3rem)]" style={{ height: 'var(--app-height, 100dvh)' }}>
+    <div className="flex flex-col max-w-6xl xl:max-w-7xl mx-auto overflow-hidden overscroll-none relative select-none safe-top lg:my-6 lg:bg-white/[0.03] lg:backdrop-blur-xl lg:border lg:border-white/[0.06] lg:rounded-3xl lg:shadow-[0_8px_32px_rgba(0,0,0,0.3)] lg:max-h-[calc(100dvh-3rem)]" style={{ height: 'var(--app-height, 100dvh)' }}>
       {!isOnline && (
         <div className="flex-shrink-0 bg-red-600 text-white text-center text-xs py-1 font-medium z-[70]">
           No internet connection

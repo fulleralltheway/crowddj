@@ -880,7 +880,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       : { trackName: spotifyTrack.name, artistName: spotifyTrack.artist, albumArt: spotifyTrack.albumArt, spotifyUri: spotifyTrack.uri, id: '__spotify__', isPlaying: true } as any)
     : queuePlaying;
   return (
-    <div className="flex flex-col max-w-lg lg:max-w-5xl xl:max-w-6xl mx-auto overflow-hidden select-none safe-top lg:my-6 lg:bg-white/[0.03] lg:backdrop-blur-xl lg:border lg:border-white/[0.06] lg:rounded-3xl lg:shadow-[0_8px_32px_rgba(0,0,0,0.3)] lg:max-h-[calc(100dvh-3rem)]" style={{ height: 'var(--app-height, 100dvh)', ...(room.brandColor ? { '--color-accent': room.brandColor } as any : {}) }}>
+    <div className="flex flex-col max-w-lg lg:max-w-5xl xl:max-w-6xl mx-auto overflow-hidden overscroll-none select-none safe-top lg:my-6 lg:bg-white/[0.03] lg:backdrop-blur-xl lg:border lg:border-white/[0.06] lg:rounded-3xl lg:shadow-[0_8px_32px_rgba(0,0,0,0.3)] lg:max-h-[calc(100dvh-3rem)]" style={{ height: 'var(--app-height, 100dvh)', ...(room.brandColor ? { '--color-accent': room.brandColor } as any : {}) }}>
       {/* Room closing overlay */}
       {roomClosing && (
         <div className="absolute inset-0 z-[100] flex items-center justify-center bg-bg-primary/80 backdrop-blur-sm" style={{ animation: 'fadeIn 0.5s ease-out' }}>
