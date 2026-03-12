@@ -37,12 +37,12 @@ async function restoreVolume(accessToken: string, targetVolume: number, maxRetri
     try {
       await setVolume(accessToken, targetVolume);
       // Verify it took effect
-      await sleep(300);
+      await sleep(500);
       const check = await getCurrentPlayback(accessToken);
       const actual = check?.device?.volume_percent ?? 0;
       if (actual >= targetVolume - 10) return; // Close enough
     } catch {}
-    await sleep(500); // Wait before retry (rate limit cooldown)
+    await sleep(1000); // Longer cooldown between retries for rate limit recovery
   }
   // Last-resort attempt
   try { await setVolume(accessToken, targetVolume); } catch {}
@@ -181,8 +181,8 @@ export async function POST(
         data: { isPlaying: true, isLocked: false },
       });
 
-      // Wait for rate limit cooldown after fade, then restore volume
-      await sleep(800);
+      // Rate limit cooldown after rapid fade steps — 1.5s lets Spotify API recover
+      await sleep(1500);
       await restoreVolume(accessToken, originalVolume);
 
       // Start the exact song by URI — never skipToNext which plays unknown songs
@@ -197,6 +197,16 @@ export async function POST(
       // Set volume AGAIN after playback starts (some devices ignore while paused)
       await sleep(500);
       await restoreVolume(accessToken, originalVolume);
+
+      // Final safety net — verify volume after a longer delay
+      await sleep(1500);
+      try {
+        const check = await getCurrentPlayback(accessToken);
+        const actual = check?.device?.volume_percent ?? originalVolume;
+        if (actual < originalVolume - 10) {
+          await setVolume(accessToken, originalVolume);
+        }
+      } catch {}
 
       // Clear pre-queue, debounce cron, track stats
       await prisma.room.update({
