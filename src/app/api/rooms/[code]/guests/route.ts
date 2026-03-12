@@ -27,7 +27,7 @@ export async function GET(
         votes: {
           select: {
             value: true,
-            song: { select: { trackName: true, artistName: true, albumArt: true } },
+            song: { select: { trackName: true, artistName: true, albumArt: true, isPlayed: true } },
           },
         },
       },
@@ -62,6 +62,7 @@ export async function GET(
     const detailed = guests.map((g) => {
       const currentUpvotes = g.votes.filter((v) => v.value === 1);
       const currentDownvotes = g.votes.filter((v) => v.value === -1);
+      const activeOnly = g.votes.filter((v) => !v.song.isPlayed);
       const guestRequests = requestsByFp.get(g.fingerprint) || [];
       const guestAdded = addedByFp.get(g.fingerprint) || [];
       return {
@@ -72,8 +73,8 @@ export async function GET(
         totalUpvotes: g.totalUpvotes + currentUpvotes.length,
         totalDownvotes: g.totalDownvotes + currentDownvotes.length,
         totalVotes: g.totalUpvotes + g.totalDownvotes + g.votes.length,
-        // Current active votes (songs they've voted on right now)
-        activeVotes: g.votes.map((v) => ({
+        // Current active votes (only on unplayed songs still in queue)
+        activeVotes: activeOnly.map((v) => ({
           trackName: v.song.trackName,
           artistName: v.song.artistName,
           albumArt: v.song.albumArt,

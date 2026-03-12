@@ -459,6 +459,7 @@ function DashboardInner({ user }: { user: any }) {
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const prevRequestCount = useRef<number>(0);
   const [showGuests, setShowGuests] = useState(false);
+  const showGuestsRef = useRef(false);
   const [guestList, setGuestList] = useState<any[]>([]);
   const [selectedGuest, setSelectedGuest] = useState<any>(null);
   const [expandedGuestSection, setExpandedGuestSection] = useState<string | null>(null);
@@ -534,6 +535,9 @@ function DashboardInner({ user }: { user: any }) {
     }
     return [] as Room[];
   }, []);
+
+  // Keep ref in sync so polling interval can read current value
+  useEffect(() => { showGuestsRef.current = showGuests; }, [showGuests]);
 
   // On mount: if there's an active room, jump straight to managing it
   const hasAutoOpened = useRef(false);
@@ -624,6 +628,10 @@ function DashboardInner({ user }: { user: any }) {
         if (!socket.connected) {
           refreshSongs(code);
           fetchGuestCount(code);
+        }
+        // Auto-refresh guest details when panel is open (every 10s)
+        if (showGuestsRef.current && pollCount % 2 === 0) {
+          fetchGuestDetails();
         }
         if (needsApproval) fetchRequests(code);
         // Periodically fetch full room state to keep lastPreQueuedId in sync
@@ -800,7 +808,10 @@ function DashboardInner({ user }: { user: any }) {
     const res = await fetch(`/api/rooms/${activeRoom.code}/guests?detail=true`);
     if (res.ok) {
       const data = await res.json();
-      setGuestList(data.guests || []);
+      const guests = data.guests || [];
+      setGuestList(guests);
+      // Keep selected guest detail view in sync
+      setSelectedGuest((prev: any) => prev ? guests.find((g: any) => g.id === prev.id) || null : null);
     }
   };
 
