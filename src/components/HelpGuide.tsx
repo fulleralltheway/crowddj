@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 
 type HelpGuideProps = {
   variant: "host" | "guest";
@@ -8,6 +9,9 @@ type HelpGuideProps = {
 };
 
 export default function HelpGuide({ variant, onClose }: HelpGuideProps) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
   // Close on Escape key
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -17,13 +21,24 @@ export default function HelpGuide({ variant, onClose }: HelpGuideProps) {
     return () => document.removeEventListener("keydown", handleKey);
   }, [onClose]);
 
-  return (
-    <div className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center">
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+  // Block background scroll while open
+  useEffect(() => {
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = ""; };
+  }, []);
 
-      {/* Sheet */}
-      <div className="relative w-full max-w-md max-h-[85vh] bg-bg-card border border-white/[0.08] rounded-t-2xl sm:rounded-2xl overflow-hidden flex flex-col animate-in slide-in-from-bottom duration-200">
+  if (!mounted) return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center" onClick={onClose}>
+      {/* Backdrop */}
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+
+      {/* Sheet — stop click propagation so tapping content doesn't close */}
+      <div
+        className="relative w-full max-w-md max-h-[85vh] mx-4 bg-bg-card border border-white/[0.08] rounded-2xl overflow-hidden flex flex-col animate-in slide-in-from-bottom duration-200"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-white/[0.06]">
           <h2 className="text-lg font-bold tracking-tight">How It Works</h2>
@@ -38,7 +53,7 @@ export default function HelpGuide({ variant, onClose }: HelpGuideProps) {
         </div>
 
         {/* Content */}
-        <div className="overflow-y-auto px-5 py-4 space-y-5 text-sm leading-relaxed">
+        <div className="overflow-y-auto overscroll-contain px-5 py-4 space-y-5 text-sm leading-relaxed">
           {variant === "host" ? <HostContent /> : <GuestContent />}
         </div>
 
@@ -52,7 +67,8 @@ export default function HelpGuide({ variant, onClose }: HelpGuideProps) {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
