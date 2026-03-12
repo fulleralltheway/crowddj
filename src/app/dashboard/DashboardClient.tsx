@@ -1888,7 +1888,7 @@ function DashboardInner({ user }: { user: any }) {
           <div className="flex items-center gap-2">
             {guestCount > 0 && (
               <button
-                onClick={() => { setShowGuests(!showGuests); setShowQR(false); setShowSettings(false); setShowSearch(false); onSearchChange(""); if (!showGuests) fetchGuestDetails(); }}
+                onClick={() => { setShowGuests(!showGuests); setShowQR(false); setShowSettings(false); setShowSearch(false); onSearchChange(""); if (!showGuests) { fetchGuestDetails(); scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' }); } }}
                 className={`flex items-center gap-1.5 text-[13px] px-2.5 py-1.5 rounded-xl transition-colors ${
                   showGuests ? "text-accent bg-accent/10" : "text-white/40 hover:text-white/70 hover:bg-white/5"
                 }`}
@@ -1953,7 +1953,7 @@ function DashboardInner({ user }: { user: any }) {
             {!showSearch && (
               <>
                 <button
-                  onClick={() => { setShowQR(!showQR); setShowSettings(false); setShowGuests(false); setSelectedGuest(null); }}
+                  onClick={() => { setShowQR(!showQR); setShowSettings(false); setShowGuests(false); setSelectedGuest(null); if (!showQR) scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' }); }}
                   className={`p-2.5 rounded-2xl transition-colors ${
                     showQR ? "bg-accent/10 text-accent border border-accent/20" : "bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] text-white/40"
                   }`}
@@ -1964,7 +1964,7 @@ function DashboardInner({ user }: { user: any }) {
                   </svg>
                 </button>
                 <button
-                  onClick={() => { setShowSettings(!showSettings); setShowQR(false); setShowGuests(false); setSelectedGuest(null); }}
+                  onClick={() => { setShowSettings(!showSettings); setShowQR(false); setShowGuests(false); setSelectedGuest(null); if (!showSettings) scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' }); }}
                   className={`p-2.5 rounded-2xl transition-colors ${
                     showSettings ? "bg-accent/10 text-accent border border-accent/20" : "bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] text-white/40"
                   }`}

@@ -704,6 +704,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     if (searchTimer.current) clearTimeout(searchTimer.current);
     if (!value.trim()) {
       setSearchResults([]);
+      setShowSearch(false);
       return;
     }
     searchTimer.current = setTimeout(() => searchSongs(value), 300);
