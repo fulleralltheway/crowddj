@@ -5,6 +5,7 @@ import { useAutoAnimate } from "@formkit/auto-animate/react";
 import { QRCodeSVG } from "qrcode.react";
 import { getSocket } from "@/lib/socket";
 import { useAppHeight, useNetworkStatus } from "@/lib/pwa";
+import HelpGuide from "@/components/HelpGuide";
 
 class DashboardErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state = { error: null as Error | null };
@@ -421,6 +422,7 @@ function DashboardInner({ user }: { user: any }) {
   const progressSyncedAt = useRef(0); // local timestamp when progressMs was last set from server
   const [showSettings, setShowSettings] = useState(false);
   const [showQR, setShowQR] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
   const [guestCount, setGuestCount] = useState(0);
   const [spotifyTrack, setSpotifyTrack] = useState<{ uri: string; name: string; artist: string; albumArt: string | null } | null>(null);
   const prevSpotifyUri = useRef<string | null>(null);
@@ -1957,6 +1959,15 @@ function DashboardInner({ user }: { user: any }) {
             >
               {activeRoom?.code}
             </button>
+            <button
+              onClick={() => setShowHelp(true)}
+              className="p-1.5 rounded-lg text-white/30 hover:text-white/60 hover:bg-white/5 transition-colors"
+              title="How it works"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </button>
           </div>
         </div>
       </div>
@@ -2986,6 +2997,8 @@ function DashboardInner({ user }: { user: any }) {
               </div>
             </div>
           )}
+
+          {showHelp && <HelpGuide variant="host" onClose={() => setShowHelp(false)} />}
 
           {/* Close room confirmation modal */}
           {confirmClose && (

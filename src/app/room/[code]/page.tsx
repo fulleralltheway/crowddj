@@ -5,6 +5,7 @@ import { useAutoAnimate } from "@formkit/auto-animate/react";
 import { getFingerprint } from "@/lib/fingerprint";
 import { getSocket } from "@/lib/socket";
 import { useAppHeight, useNetworkStatus } from "@/lib/pwa";
+import HelpGuide from "@/components/HelpGuide";
 
 type Song = {
   id: string;
@@ -133,6 +134,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const [resetCountdown, setResetCountdown] = useState("");
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [showNotifGuide, setShowNotifGuide] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
   const [inAppNotif, setInAppNotif] = useState<{ title: string; body: string; art?: string } | null>(null);
   const lastInteraction = useRef(0); // last vote or scroll activity
   const pendingSongs = useRef<Song[] | null>(null);
@@ -902,6 +904,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
           </div>
         </div>
       )}
+      {showHelp && <HelpGuide variant="guest" onClose={() => setShowHelp(false)} />}
       {!isOnline && (
         <div className="flex-shrink-0 bg-red-600 text-white text-center text-xs py-1 font-medium z-[70]">
           No internet connection
@@ -949,6 +952,15 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
             </div>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              onClick={() => setShowHelp(true)}
+              className="p-1.5 rounded-lg text-text-secondary hover:text-white transition-colors"
+              title="How it works"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </button>
             <button
               onClick={() => {
                 if (notificationsEnabled) {
