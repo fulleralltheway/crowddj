@@ -122,6 +122,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const [error, setError] = useState("");
   const [roomClosing, setRoomClosing] = useState(false);
   const [spotifyTrack, setSpotifyTrack] = useState<{ uri: string; name: string; artist: string; albumArt: string | null } | null>(null);
+  const [spotifyPlaying, setSpotifyPlaying] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [recentlyRequested, setRecentlyRequested] = useState<Map<string, "added" | "pending">>(new Map());
@@ -325,7 +326,16 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       fetch(`/api/rooms/${code}/sync`, { method: "POST" }).then(async (res) => {
         if (res.ok) {
           const data = await res.json();
-          if (data.spotifyTrack) setSpotifyTrack(data.spotifyTrack);
+          if (data.playing === false) {
+            setSpotifyPlaying(false);
+          } else if (data.spotifyTrack) {
+            setSpotifyPlaying(data.spotifyPlaying !== false);
+            // If the track changed from what we know, refresh songs immediately
+            setSpotifyTrack((prev) => {
+              if (prev?.uri !== data.spotifyTrack.uri) fetchSongs();
+              return data.spotifyTrack;
+            });
+          }
         }
       }).catch(() => {});
       if (!socket.connected) fetchSongs(); // Only fetch songs when socket is down
@@ -1226,14 +1236,22 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
               <img src={nowPlaying.albumArt} alt="" className="w-16 h-16 rounded-xl shadow-lg flex-shrink-0 lg:w-20 lg:h-20" />
             )}
             <div className="flex-1 min-w-0">
-              <p className="text-[10px] text-accent font-semibold uppercase tracking-wider mb-0.5">Now Playing</p>
+              <p className="text-[10px] text-accent font-semibold uppercase tracking-wider mb-0.5">{spotifyPlaying ? "Now Playing" : "Paused"}</p>
               <p className="font-semibold truncate text-[15px]">{nowPlaying.trackName}</p>
               <p className="text-white/70 text-sm truncate">{nowPlaying.artistName}</p>
             </div>
             <div className="flex items-center gap-[3px] flex-shrink-0">
-              <span className="w-[3px] h-3 bg-accent rounded-full animate-pulse" />
-              <span className="w-[3px] h-5 bg-accent rounded-full animate-pulse [animation-delay:0.2s]" />
-              <span className="w-[3px] h-2.5 bg-accent rounded-full animate-pulse [animation-delay:0.4s]" />
+              {spotifyPlaying ? (
+                <>
+                  <span className="w-[3px] h-3 bg-accent rounded-full animate-pulse" />
+                  <span className="w-[3px] h-5 bg-accent rounded-full animate-pulse [animation-delay:0.2s]" />
+                  <span className="w-[3px] h-2.5 bg-accent rounded-full animate-pulse [animation-delay:0.4s]" />
+                </>
+              ) : (
+                <svg className="w-5 h-5 text-white/40" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z" />
+                </svg>
+              )}
             </div>
           </div>
         </div>
@@ -1248,7 +1266,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       </div>
       <div className="flex-1 relative overflow-hidden">
       <div ref={songListRef} className="h-full overflow-y-auto px-4 py-1 space-y-1.5 lg:grid lg:grid-cols-2 lg:gap-4 lg:space-y-0 lg:px-6 xl:grid-cols-3 pb-6">
-        {songs.filter(s => !s.isPlaying).map((song, i) => {
+        {songs.filter(s => !s.isPlaying && !(nowPlaying && s.spotifyUri === nowPlaying.spotifyUri)).map((song, i) => {
           const myVotes = song.votes?.filter((v) => v.guestId === guestId) || [];
           const myUpvotes = myVotes.filter((v) => v.value === 1).length;
           const myDownvotes = myVotes.filter((v) => v.value === -1).length;
