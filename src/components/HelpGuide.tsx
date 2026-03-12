@@ -29,7 +29,7 @@ export default function HelpGuide({ variant, onClose }: HelpGuideProps) {
           <h2 className="text-lg font-bold tracking-tight">How It Works</h2>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-white/40 hover:text-white/70 hover:bg-white/5 transition-colors"
+            className="p-2 -mr-1 rounded-lg text-white/60 hover:text-white hover:bg-white/10 active:bg-white/15 transition-colors"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -40,6 +40,16 @@ export default function HelpGuide({ variant, onClose }: HelpGuideProps) {
         {/* Content */}
         <div className="overflow-y-auto px-5 py-4 space-y-5 text-sm leading-relaxed">
           {variant === "host" ? <HostContent /> : <GuestContent />}
+        </div>
+
+        {/* Close button — always visible at bottom */}
+        <div className="shrink-0 px-5 py-4 border-t border-white/[0.06]">
+          <button
+            onClick={onClose}
+            className="w-full py-2.5 rounded-xl bg-white/10 text-white/80 font-medium text-sm active:bg-white/15 transition-colors"
+          >
+            Got it
+          </button>
         </div>
       </div>
     </div>
