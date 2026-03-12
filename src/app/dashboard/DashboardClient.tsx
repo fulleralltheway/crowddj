@@ -1847,10 +1847,10 @@ function DashboardInner({ user }: { user: any }) {
             </div>
 
             {/* Schedule start time */}
-            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl">
-              <div className="px-4 py-3 space-y-2">
-                <div className="flex items-center justify-between">
-                  <div>
+            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl overflow-hidden">
+              <div className="px-4 py-3 space-y-2 min-w-0">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
                     <p className="text-sm">Schedule start time</p>
                     <p className="text-white/30 text-xs">Show countdown until start</p>
                   </div>
@@ -1878,20 +1878,20 @@ function DashboardInner({ user }: { user: any }) {
                   </button>
                 </div>
                 {scheduleEnabled && (
-                  <>
+                  <div className="min-w-0">
                     <input
                       type="datetime-local"
                       value={scheduledStart}
                       onChange={(e) => setScheduledStart(e.target.value)}
                       min={new Date().toISOString().slice(0, 16)}
-                      className="w-full px-3 py-2.5 bg-white/[0.06] border border-white/[0.08] rounded-lg text-sm focus:outline-none focus:border-accent/40 transition-colors [color-scheme:dark]"
+                      className="w-full max-w-full box-border px-3 py-2.5 bg-white/[0.06] border border-white/[0.08] rounded-lg text-sm focus:outline-none focus:border-accent/40 transition-colors [color-scheme:dark]"
                     />
                     {scheduledStart && (
-                      <p className="text-white/30 text-xs">
+                      <p className="text-white/30 text-xs mt-2 truncate">
                         {new Date(scheduledStart).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })} at {new Date(scheduledStart).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
                       </p>
                     )}
-                  </>
+                  </div>
                 )}
               </div>
             </div>
