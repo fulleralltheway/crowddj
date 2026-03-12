@@ -494,6 +494,7 @@ function DashboardInner({ user }: { user: any }) {
   const pullDistRef = useRef(0);
   const pullRefreshRef = useRef(false);
   const isDragging = useRef(false);
+  const suppressSocketSongs = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const searchBarRef = useRef<HTMLDivElement>(null);
   const deferredSongs = useRef<any[] | null>(null);
@@ -578,6 +579,7 @@ function DashboardInner({ user }: { user: any }) {
     socket.emit("join-room", code);
 
     const handleSongsUpdate = (songs: any[]) => {
+      if (suppressSocketSongs.current) return; // Ignore stale broadcasts during lock operations
       if (showSearchRef.current) {
         deferredSongs.current = songs;
       } else {
@@ -1295,6 +1297,8 @@ function DashboardInner({ user }: { user: any }) {
     const hasPosition = position != null;
     // Save scroll position for simple lock toggle (no position change)
     const scrollPos = !hasPosition ? (scrollRef.current?.scrollTop ?? 0) : null;
+    // Suppress socket broadcasts during lock to prevent stale data from overwriting
+    suppressSocketSongs.current = true;
     // Optimistic UI
     setActiveRoom((prev) => {
       if (!prev) return null;
@@ -1324,8 +1328,11 @@ function DashboardInner({ user }: { user: any }) {
     });
     const lockResult = await res.json().catch(() => null);
     console.log("[DJ Lock] response:", res.status, lockResult);
-    getSocket().emit("songs-reordered", activeRoom.code);
     await refreshSongs(activeRoom.code);
+    // Re-enable socket broadcasts after our own refresh is complete
+    suppressSocketSongs.current = false;
+    // Now notify guests
+    getSocket().emit("songs-reordered", activeRoom.code);
     // Only restore scroll for simple toggle (position lock should show the new location)
     if (scrollPos != null) {
       requestAnimationFrame(() => {
@@ -1364,6 +1371,7 @@ function DashboardInner({ user }: { user: any }) {
 
   const commitReorder = async (songs: any[], movedSongId: string, forceLockOverride = false) => {
     if (!activeRoom) return;
+    suppressSocketSongs.current = true;
     // Optimistically mark the moved song as locked
     setActiveRoom((prev) => {
       if (!prev) return null;
@@ -1391,7 +1399,9 @@ function DashboardInner({ user }: { user: any }) {
         body: JSON.stringify({ songId: movedSongId, forceLock: true }),
       });
     }
-    refreshSongs(activeRoom.code);
+    await refreshSongs(activeRoom.code);
+    suppressSocketSongs.current = false;
+    getSocket().emit("songs-reordered", activeRoom.code);
   };
 
   const saveOrder = (songs: any[], movedSongId: string) => {

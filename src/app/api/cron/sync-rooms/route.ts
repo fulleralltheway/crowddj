@@ -111,7 +111,7 @@ export async function GET(req: NextRequest) {
             // If the lock is stale (30s+), the client abandoned it or the cron's own pre-queue
             // created it — safe to proceed with server-side transition.
             const hasLockedNext = await prisma.roomSong.findFirst({
-              where: { roomId: room.id, isPlayed: false, isPlaying: false, isLocked: true },
+              where: { roomId: room.id, isPlayed: false, isPlaying: false, isLocked: true, isPinned: false },
             });
             const clientActivelyFading = hasLockedNext && timeSinceSync < 30000;
             if (!clientActivelyFading) {
