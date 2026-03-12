@@ -1299,6 +1299,17 @@ function DashboardInner({ user }: { user: any }) {
     const scrollPos = !hasPosition ? (scrollRef.current?.scrollTop ?? 0) : null;
     // Suppress socket broadcasts during lock to prevent stale data from overwriting
     suppressSocketSongs.current = true;
+
+    // Compute the new queue order for position-based lock (same approach as drag-and-drop)
+    let orderedIds: string[] | null = null;
+    if (hasPosition) {
+      const queue = (activeRoom.songs || []).filter((s: any) => !s.isPlaying);
+      const without = queue.filter((s: any) => s.id !== songId);
+      const idx = Math.max(0, Math.min(position, without.length));
+      without.splice(idx, 0, queue.find((s: any) => s.id === songId));
+      orderedIds = without.map((s: any) => s.id);
+    }
+
     // Optimistic UI
     setActiveRoom((prev) => {
       if (!prev) return null;
@@ -1310,7 +1321,7 @@ function DashboardInner({ user }: { user: any }) {
         if (!song) return prev;
         const without = queue.filter((s: any) => s.id !== songId);
         const idx = Math.max(0, Math.min(position, without.length));
-        without.splice(idx, 0, { ...song, isLocked: true, isPinned: true, pinnedPosition: position });
+        without.splice(idx, 0, { ...song, isLocked: true, isPinned: false, pinnedPosition: null });
         return { ...prev, songs: [...playing, ...without] };
       }
       // Simple toggle
@@ -1321,13 +1332,32 @@ function DashboardInner({ user }: { user: any }) {
         ),
       };
     });
-    const res = await fetch(`/api/rooms/${activeRoom.code}/lock`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ songId, position, ...(hasPosition ? { forceLock: true } : {}) }),
-    });
-    const lockResult = await res.json().catch(() => null);
-    console.log("[DJ Lock] response:", res.status, lockResult);
+
+    if (hasPosition && orderedIds) {
+      // Position-based lock: use same path as drag-and-drop (reorder + simple lock)
+      await fetch(`/api/rooms/${activeRoom.code}/reorder`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderedIds }),
+      });
+      const res = await fetch(`/api/rooms/${activeRoom.code}/lock`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ songId, forceLock: true }),
+      });
+      const lockResult = await res.json().catch(() => null);
+      console.log("[DJ Lock] position lock response:", res.status, lockResult);
+    } else {
+      // Simple lock toggle
+      const res = await fetch(`/api/rooms/${activeRoom.code}/lock`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ songId }),
+      });
+      const lockResult = await res.json().catch(() => null);
+      console.log("[DJ Lock] toggle response:", res.status, lockResult);
+    }
+
     await refreshSongs(activeRoom.code);
     // Re-enable socket broadcasts after our own refresh is complete
     suppressSocketSongs.current = false;
