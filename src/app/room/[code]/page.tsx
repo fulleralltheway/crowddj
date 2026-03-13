@@ -160,14 +160,12 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
 
   const applySongs = useCallback((data: Song[]) => {
     setSongs(data);
-    // Derive votesUsed from actual vote data — keeps cross-session in sync
-    if (guestId) {
-      const count = data.reduce((sum, s) =>
-        sum + (s.votes?.filter((v) => v.guestId === guestId).length || 0), 0);
-      votesUsedRef.current = count;
-      setVotesUsed(count);
-    }
-  }, [guestId]);
+    // Note: votesUsed is NOT derived from visible songs here — the songs API
+    // excludes played songs and has a display limit, so counting votes from
+    // visible songs under-counts and causes "out of votes" bugs.
+    // Instead, votesUsed is synced from: (1) initial guest endpoint,
+    // (2) vote API responses, (3) periodic guest endpoint poll.
+  }, []);
 
   const isUserBusy = useCallback(() =>
     inFlightVotes.current > 0 ||
@@ -675,18 +673,29 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         body: JSON.stringify({ songId, value, fingerprint, guestId }),
       });
 
+      const data = await res.json().catch(() => null);
       if (!res.ok) {
-        // Revert the optimistic ref update
-        if (isReclaim) {
-          votesUsedRef.current = Math.min(votesUsedRef.current + 1, limit);
+        // Sync authoritative vote count from server if provided
+        if (data?.votesUsed !== undefined) {
+          votesUsedRef.current = data.votesUsed;
+          setVotesUsed(data.votesUsed);
         } else {
-          votesUsedRef.current = Math.max(0, votesUsedRef.current - 1);
+          // Fallback: revert the optimistic ref update
+          if (isReclaim) {
+            votesUsedRef.current = Math.min(votesUsedRef.current + 1, limit);
+          } else {
+            votesUsedRef.current = Math.max(0, votesUsedRef.current - 1);
+          }
+          setVotesUsed(votesUsedRef.current);
         }
-        setVotesUsed(votesUsedRef.current);
         if (res.status === 429) {
           setRequestStatus("Out of votes! They'll reset soon.");
           setTimeout(() => setRequestStatus(""), 3000);
         }
+      } else if (data?.votesUsed !== undefined) {
+        // Sync authoritative vote count from server on success
+        votesUsedRef.current = data.votesUsed;
+        setVotesUsed(data.votesUsed);
       }
     } finally {
       inFlightVotes.current--;

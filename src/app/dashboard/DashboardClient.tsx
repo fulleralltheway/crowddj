@@ -292,8 +292,8 @@ function MiniPlayer({
             <div className="flex-1 min-w-0">
               {nowPlaying ? (
                 <>
-                  <p className="text-sm font-semibold truncate">{isFading ? "Fading out..." : nowPlaying.trackName}</p>
-                  <p className="text-xs text-text-secondary truncate">{nowPlaying.artistName}</p>
+                  <p className={`text-sm font-semibold truncate ${isFading ? "text-white/40" : ""}`}>{nowPlaying.trackName}</p>
+                  <p className={`text-xs truncate ${isFading ? "text-accent/60 animate-pulse" : "text-text-secondary"}`}>{isFading ? "Fading out..." : nowPlaying.artistName}</p>
                 </>
               ) : (
                 <p className="text-sm text-text-secondary">No song playing</p>
@@ -346,7 +346,7 @@ function MiniPlayer({
                   <rect x="4" y="4" width="16" height="16" rx="2" />
                 </svg>
                 <span
-                  className="text-[8px] font-medium leading-tight mt-0.5 hover:text-accent transition-colors"
+                  className="text-[10px] font-medium leading-tight mt-0.5 px-2.5 py-1 rounded-full bg-white/[0.06] hover:text-accent transition-colors"
                   onClick={(e) => { e.stopPropagation(); e.preventDefault(); onCycleFadeDuration(); }}
                   title="Tap to change fade duration"
                 >{fadeDurationSec}s</span>
@@ -377,7 +377,7 @@ function MiniPlayer({
               <button
                 onClick={controlsLocked ? undefined : (isFading ? onHardSkipDuringFade : onFadeSkip)}
                 className={`flex flex-col items-center justify-center rounded-lg px-2 py-1 transition-colors ${
-                  controlsLocked ? "opacity-30 cursor-not-allowed" : isFading ? "text-accent bg-accent/10" : "text-white/40 hover:text-white/70 hover:bg-white/[0.04]"
+                  controlsLocked ? "opacity-30 cursor-not-allowed" : isFading ? "text-white/70 bg-white/[0.06]" : "text-white/40 hover:text-white/70 hover:bg-white/[0.04]"
                 }`}
                 disabled={controlsLocked}
                 title={isFading ? "Skip now (hard skip)" : `Fade skip (${fadeDurationSec}s fade)`}
@@ -385,11 +385,7 @@ function MiniPlayer({
                 <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
                   <path d="M5 4v16l10-8zm12 0v16h2V4z" />
                 </svg>
-                <span
-                  className={`text-[8px] font-medium leading-tight mt-0.5 ${!isFading ? "hover:text-accent transition-colors" : ""}`}
-                  onClick={isFading ? undefined : (e) => { e.stopPropagation(); e.preventDefault(); onCycleFadeDuration(); }}
-                  title={isFading ? undefined : "Tap to change fade duration"}
-                >{isFading ? "Skip!" : `${fadeDurationSec}s`}</span>
+                <span className="text-[8px] font-medium leading-tight mt-0.5">{isFading ? "Skip!" : "Skip"}</span>
               </button>
             </div>
           </div>
