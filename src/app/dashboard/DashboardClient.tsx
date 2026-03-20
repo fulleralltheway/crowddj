@@ -483,6 +483,7 @@ function DashboardInner({ user }: { user: any }) {
   }, [activeRoom?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const [previewTrackId, setPreviewTrackId] = useState<string | null>(null);
   const [previewTrackInfo, setPreviewTrackInfo] = useState<{ name: string; artist: string } | null>(null);
+  const [previewTrackData, setPreviewTrackData] = useState<any>(null);
   const [songListRef] = useAutoAnimate({ duration: 300 });
   const [pullRefreshing, setPullRefreshing] = useState(false);
   const [pullDistance, setPullDistance] = useState(0);
@@ -1161,16 +1162,19 @@ function DashboardInner({ user }: { user: any }) {
   const stopAllPreviews = useCallback(() => {
     setPreviewTrackId(null);
     setPreviewTrackInfo(null);
+    setPreviewTrackData(null);
   }, []);
 
-  const openPreview = useCallback((spotifyUri: string, name: string, artist: string) => {
+  const openPreview = useCallback((spotifyUri: string, name: string, artist: string, trackData?: any) => {
     const id = spotifyUri.replace("spotify:track:", "");
     if (previewTrackId === id) {
       setPreviewTrackId(null);
       setPreviewTrackInfo(null);
+      setPreviewTrackData(null);
     } else {
       setPreviewTrackId(id);
       setPreviewTrackInfo({ name, artist });
+      setPreviewTrackData(trackData || null);
     }
   }, [previewTrackId]);
 
@@ -1885,7 +1889,7 @@ function DashboardInner({ user }: { user: any }) {
               </button>
             )}
             <button
-              onClick={() => { setShowQR(!showQR); setShowSettings(false); setShowGuests(false); setSelectedGuest(null); setShowSearch(false); onSearchChange(""); }}
+              onClick={() => { setShowQR(!showQR); setShowSettings(false); setShowGuests(false); setSelectedGuest(null); setShowSearch(false); onSearchChange(""); if (!showQR) scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' }); }}
               className={`font-mono text-[13px] font-semibold px-3 py-1.5 rounded-xl transition-colors ${showQR ? "text-accent bg-accent/10 border border-accent/20" : "text-accent/70 bg-white/[0.04] border border-white/[0.08] hover:border-accent/20"}`}
             >
               {activeRoom?.code}
