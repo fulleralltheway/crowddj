@@ -427,7 +427,7 @@ function DashboardInner({ user }: { user: any }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [searching, setSearching] = useState(false);
-  const [confirmRemove, setConfirmRemove] = useState<{ songId: string; name: string } | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState<{ songId: string; name: string; spotifyUri?: string } | null>(null);
   const [songMenuOpen, setSongMenuOpen] = useState<string | null>(null);
   const [skipRemoveConfirm, setSkipRemoveConfirm] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -487,6 +487,7 @@ function DashboardInner({ user }: { user: any }) {
   const spotifyApiRef = useRef<any>(null);
   const embedControllerRef = useRef<any>(null);
   const embedContainerRef = useRef<HTMLDivElement>(null);
+  const previewFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [songListRef] = useAutoAnimate({ duration: 300 });
   const [pullRefreshing, setPullRefreshing] = useState(false);
   const [pullDistance, setPullDistance] = useState(0);
@@ -1141,6 +1142,7 @@ function DashboardInner({ user }: { user: any }) {
 
   const closeRoom = async () => {
     if (!activeRoom) return;
+    stopAllPreviews();
     const code = activeRoom.code;
     const res = await fetch(`/api/rooms/${code}`, { method: "DELETE" });
     if (res.ok) {
@@ -1184,36 +1186,44 @@ function DashboardInner({ user }: { user: any }) {
     }
   }, []);
 
-  // Stop any embed preview
-  const stopEmbedPreview = useCallback(() => {
+  // Stop all previews — canonical cleanup for audio, embed, timers, state
+  const stopAllPreviews = useCallback(() => {
+    // Cancel fallback timer
+    if (previewFallbackTimerRef.current) {
+      clearTimeout(previewFallbackTimerRef.current);
+      previewFallbackTimerRef.current = null;
+    }
+    // Stop HTML5 Audio — null handlers BEFORE pause to prevent stale onended
+    if (previewAudioRef.current) {
+      previewAudioRef.current.onended = null;
+      previewAudioRef.current.onerror = null;
+      previewAudioRef.current.pause();
+      previewAudioRef.current = null;
+    }
+    // Destroy embed controller
     if (embedControllerRef.current) {
       try { embedControllerRef.current.destroy(); } catch {}
       embedControllerRef.current = null;
     }
+    // Clear embed container DOM
     if (embedContainerRef.current) {
       embedContainerRef.current.innerHTML = "";
     }
+    // Clear visual state
+    setInlinePreviewId(null);
   }, []);
 
   // Inline audio preview — plays Spotify preview on album art tap
   // Uses HTML5 Audio when previewUrl exists, hidden Spotify embed otherwise
   const toggleInlinePreview = useCallback((spotifyUri: string, previewUrl: string | null | undefined, _name?: string, _artist?: string) => {
     const id = spotifyUri.replace("spotify:track:", "");
+    const wasSameTrack = inlinePreviewId === id;
 
-    if (inlinePreviewId === id) {
-      // Same track — stop
-      previewAudioRef.current?.pause();
-      previewAudioRef.current = null;
-      stopEmbedPreview();
-      setInlinePreviewId(null);
-      return;
-    }
+    // Always stop everything first
+    stopAllPreviews();
 
-    // Stop any existing HTML5 Audio preview
-    if (previewAudioRef.current) {
-      previewAudioRef.current.pause();
-      previewAudioRef.current = null;
-    }
+    // Toggle off — done
+    if (wasSameTrack) return;
 
     // Unlock audio context from user gesture (helps browsers allow iframe audio)
     try {
@@ -1222,73 +1232,79 @@ function DashboardInner({ user }: { user: any }) {
     } catch {}
 
     if (previewUrl) {
-      // Switching to Audio path — destroy any existing embed
-      stopEmbedPreview();
       // Has a direct preview URL — use HTML5 Audio (faster, no iframe)
       const audio = new Audio(previewUrl);
       audio.volume = 0.5;
-      audio.play().catch(() => {});
       audio.onended = () => {
-        setInlinePreviewId(null);
-        previewAudioRef.current = null;
+        if (previewAudioRef.current === audio) {
+          previewAudioRef.current = null;
+          setInlinePreviewId(null);
+        }
       };
+      audio.onerror = () => {
+        if (previewAudioRef.current === audio) {
+          previewAudioRef.current = null;
+          setInlinePreviewId(null);
+          setSongAddedToast("Preview unavailable");
+          setTimeout(() => setSongAddedToast(""), 2000);
+        }
+      };
+      audio.play().catch(() => {
+        if (previewAudioRef.current === audio) {
+          previewAudioRef.current = null;
+          setInlinePreviewId(null);
+        }
+      });
       previewAudioRef.current = audio;
       setInlinePreviewId(id);
-    } else if (embedControllerRef.current) {
-      // Existing embed controller — reuse it with loadUri (avoids destroy+create race)
-      try { embedControllerRef.current.loadUri(spotifyUri); } catch {}
-      setTimeout(() => {
-        try { embedControllerRef.current?.togglePlay(); } catch {}
-      }, 500);
-      setInlinePreviewId(id);
-      // Fallback: auto-clear animation after 27s
-      setTimeout(() => {
-        setInlinePreviewId((cur) => cur === id ? null : cur);
-      }, 27000);
+
     } else if (spotifyApiRef.current && embedContainerRef.current) {
-      // No existing controller — create fresh embed
+      // Spotify Embed path — always create fresh controller
       const el = document.createElement("div");
       embedContainerRef.current.appendChild(el);
       spotifyApiRef.current.createController(el, {
-        uri: spotifyUri,
-        width: 300,
-        height: 80,
+        uri: spotifyUri, width: 300, height: 80,
       }, (controller: any) => {
         embedControllerRef.current = controller;
-        // Small delay to let iframe initialize before toggling play
-        setTimeout(() => {
-          try { controller.togglePlay(); } catch {}
-        }, 500);
-        // Detect when preview clip finishes — clear equalizer animation
-        // (separate from play trigger — only used for end detection)
+        const tryPlay = (attempts: number) => {
+          try { controller.togglePlay(); } catch {
+            if (attempts > 0) setTimeout(() => tryPlay(attempts - 1), 300);
+          }
+        };
+        setTimeout(() => tryPlay(2), 500);
         let wasPlaying = false;
         try {
           controller.addListener("playback_update", (e: any) => {
             if (e?.data) {
               if (!e.data.isPaused) wasPlaying = true;
-              if (wasPlaying && e.data.isPaused) {
-                setInlinePreviewId(null);
+              if (wasPlaying && e.data.isPaused && embedControllerRef.current === controller) {
+                stopAllPreviews();
               }
             }
           });
-        } catch {} // Silently fail — 27s fallback handles it
+        } catch {}
       });
       setInlinePreviewId(id);
-      // Fallback: auto-clear animation after 27s if playback_update doesn't work
-      setTimeout(() => {
+      previewFallbackTimerRef.current = setTimeout(() => {
         setInlinePreviewId((cur) => cur === id ? null : cur);
-      }, 27000);
+        previewFallbackTimerRef.current = null;
+      }, 30000);
+
     } else {
       setSongAddedToast("Preview loading...");
       setTimeout(() => setSongAddedToast(""), 2000);
     }
-  }, [inlinePreviewId, stopEmbedPreview]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [inlinePreviewId, stopAllPreviews]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Cleanup audio + embed on unmount
   useEffect(() => {
     return () => {
-      previewAudioRef.current?.pause();
-      previewAudioRef.current = null;
+      if (previewFallbackTimerRef.current) clearTimeout(previewFallbackTimerRef.current);
+      if (previewAudioRef.current) {
+        previewAudioRef.current.onended = null;
+        previewAudioRef.current.onerror = null;
+        previewAudioRef.current.pause();
+      }
       if (embedControllerRef.current) {
         try { embedControllerRef.current.destroy(); } catch {}
       }
@@ -1376,8 +1392,12 @@ function DashboardInner({ user }: { user: any }) {
     }
   };
 
-  const removeSong = async (songId: string) => {
+  const removeSong = async (songId: string, spotifyUri?: string) => {
     if (!activeRoom) return;
+    if (spotifyUri) {
+      const trackId = spotifyUri.replace("spotify:track:", "");
+      if (inlinePreviewId === trackId) stopAllPreviews();
+    }
     await fetch(`/api/rooms/${activeRoom.code}/remove`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1387,11 +1407,11 @@ function DashboardInner({ user }: { user: any }) {
     refreshSongs(activeRoom.code);
   };
 
-  const handleRemoveClick = (songId: string, songName: string) => {
+  const handleRemoveClick = (songId: string, songName: string, spotifyUri?: string) => {
     if (skipRemoveConfirm) {
-      removeSong(songId);
+      removeSong(songId, spotifyUri);
     } else {
-      setConfirmRemove({ songId, name: songName });
+      setConfirmRemove({ songId, name: songName, spotifyUri });
     }
   };
 
@@ -2961,7 +2981,7 @@ function DashboardInner({ user }: { user: any }) {
                               )}
                             </div>
                             <button
-                              onClick={() => { handleRemoveClick(song.id, song.trackName); setSongMenuOpen(null); }}
+                              onClick={() => { handleRemoveClick(song.id, song.trackName, song.spotifyUri); setSongMenuOpen(null); }}
                               className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm hover:bg-downvote/10 transition-colors text-left text-downvote/80"
                             >
                               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
@@ -3013,7 +3033,7 @@ function DashboardInner({ user }: { user: any }) {
                   </button>
                   <button
                     onClick={() => {
-                      removeSong(confirmRemove.songId);
+                      removeSong(confirmRemove.songId, confirmRemove.spotifyUri);
                       setConfirmRemove(null);
                     }}
                     className="flex-1 py-2.5 bg-downvote text-white rounded-xl text-sm font-semibold transition-colors"
