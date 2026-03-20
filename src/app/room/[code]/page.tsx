@@ -572,6 +572,11 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       setTimeout(() => setRequestStatus(""), 3000);
       return;
     }
+    if (!room?.autoShuffle) {
+      setRequestStatus("Voting is off while the DJ controls the queue");
+      setTimeout(() => setRequestStatus(""), 3000);
+      return;
+    }
 
     lastInteraction.current = Date.now();
     // Cancel any pending post-vote sync since we're voting again
@@ -1117,6 +1122,20 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                         </div>
                         {song.isLocked ? (
                           <span className="text-[10px] text-yellow-500/50 flex-shrink-0">Locked</span>
+                        ) : !room.autoShuffle ? (
+                          <div className="flex items-center gap-1 flex-shrink-0 opacity-30 cursor-not-allowed" onClick={() => vote(song.id, 1)}>
+                            <div className="p-1.5">
+                              <svg className="w-4 h-4 text-white/20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                              </svg>
+                            </div>
+                            <span className="text-xs font-medium min-w-[1.2rem] text-center text-white/20">{"\u00B7"}</span>
+                            <div className="p-1.5">
+                              <svg className="w-4 h-4 text-white/20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                              </svg>
+                            </div>
+                          </div>
                         ) : (
                           <div className="flex items-center gap-1 flex-shrink-0">
                             <button
@@ -1351,6 +1370,20 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                   ) : (
                     <p className="text-[10px] text-yellow-500/50">Locked</p>
                   )}
+                </div>
+              ) : !room.autoShuffle ? (
+                <div className="flex items-center gap-0.5 flex-shrink-0 opacity-30 cursor-not-allowed" onClick={() => vote(song.id, 1)}>
+                  <div className="p-2.5">
+                    <svg className="w-5 h-5 text-white/20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                    </svg>
+                  </div>
+                  <span className="text-sm font-semibold min-w-[1.5rem] text-center tabular-nums text-white/20">{"\u00B7"}</span>
+                  <div className="p-2.5">
+                    <svg className="w-5 h-5 text-white/20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </div>
                 </div>
               ) : (
                 <div className="flex items-center gap-0.5 flex-shrink-0">
