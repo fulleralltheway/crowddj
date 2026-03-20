@@ -1196,8 +1196,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                         </div>
                       </button>
                       <button
-                        onClick={() => !unavailable && requestSong(track)}
-                        disabled={unavailable}
+                        onClick={() => openPreview(track.spotifyUri, track.trackName, track.artistName)}
                         className="flex-1 min-w-0 text-left"
                       >
                         <p className="text-sm font-medium truncate">
@@ -1357,13 +1356,16 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                 </div>
               </button>
 
-              <div className="flex-1 min-w-0">
+              <button
+                onClick={() => openPreview(song.spotifyUri, song.trackName, song.artistName)}
+                className="flex-1 min-w-0 text-left"
+              >
                 {isQueuedNext && (
                   <p className="text-[10px] font-semibold text-accent uppercase tracking-wider">Up Next</p>
                 )}
                 <p className="font-medium text-sm truncate">{song.trackName}</p>
                 <p className="text-white/40 text-xs truncate">{song.artistName}</p>
-              </div>
+              </button>
 
               {song.isLocked ? (
                 <div className="flex-shrink-0 text-right pr-1">
@@ -1471,7 +1473,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
               </div>
             )}
             <iframe
-              src={`https://open.spotify.com/embed/track/${previewTrackId}?utm_source=generator&theme=0`}
+              src={`https://open.spotify.com/embed/track/${previewTrackId}?utm_source=generator&theme=0&autoplay=1`}
               width="100%"
               height="152"
               frameBorder="0"

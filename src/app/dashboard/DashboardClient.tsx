@@ -481,10 +481,8 @@ function DashboardInner({ user }: { user: any }) {
       localStorage.setItem("pq_fade_duration", String(activeRoom.fadeDurationSec));
     }
   }, [activeRoom?.id]); // eslint-disable-line react-hooks/exhaustive-deps
-  const [inlinePreviewId, setInlinePreviewId] = useState<string | null>(null);
-  const previewAudioRef = useRef<HTMLAudioElement | null>(null);
-  const previewAbortRef = useRef<AbortController | null>(null);
-  const previewFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [previewTrackId, setPreviewTrackId] = useState<string | null>(null);
+  const [previewTrackInfo, setPreviewTrackInfo] = useState<{ name: string; artist: string } | null>(null);
   const [songListRef] = useAutoAnimate({ duration: 300 });
   const [pullRefreshing, setPullRefreshing] = useState(false);
   const [pullDistance, setPullDistance] = useState(0);
@@ -1160,157 +1158,21 @@ function DashboardInner({ user }: { user: any }) {
     }
   };
 
-  // Stop all previews — canonical cleanup for audio, fetch abort, timers, state
   const stopAllPreviews = useCallback(() => {
-    if (previewFallbackTimerRef.current) {
-      clearTimeout(previewFallbackTimerRef.current);
-      previewFallbackTimerRef.current = null;
-    }
-    if (previewAbortRef.current) {
-      previewAbortRef.current.abort();
-      previewAbortRef.current = null;
-    }
-    if (previewAudioRef.current) {
-      previewAudioRef.current.onended = null;
-      previewAudioRef.current.onerror = null;
-      previewAudioRef.current.pause();
-      previewAudioRef.current = null;
-    }
-    setInlinePreviewId(null);
+    setPreviewTrackId(null);
+    setPreviewTrackInfo(null);
   }, []);
 
-  // Inline audio preview — plays Spotify preview on album art tap
-  // Uses HTML5 Audio when previewUrl exists, fetches from API otherwise
-  const toggleInlinePreview = useCallback((spotifyUri: string, previewUrl: string | null | undefined, _name?: string, _artist?: string) => {
+  const openPreview = useCallback((spotifyUri: string, name: string, artist: string) => {
     const id = spotifyUri.replace("spotify:track:", "");
-    const wasSameTrack = inlinePreviewId === id;
-
-    // Always stop everything first
-    stopAllPreviews();
-
-    // Toggle off — done
-    if (wasSameTrack) return;
-
-    if (previewUrl) {
-      // Has a direct preview URL — use HTML5 Audio (works on mobile)
-      const audio = new Audio(previewUrl);
-      audio.volume = 0.5;
-      audio.onended = () => {
-        if (previewAudioRef.current === audio) {
-          previewAudioRef.current = null;
-          setInlinePreviewId(null);
-        }
-      };
-      audio.onerror = () => {
-        if (previewAudioRef.current === audio) {
-          previewAudioRef.current = null;
-          setInlinePreviewId(null);
-          setSongAddedToast("Preview unavailable");
-          setTimeout(() => setSongAddedToast(""), 2000);
-        }
-      };
-      audio.play().catch(() => {
-        if (previewAudioRef.current === audio) {
-          previewAudioRef.current = null;
-          setInlinePreviewId(null);
-        }
-      });
-      previewAudioRef.current = audio;
-      setInlinePreviewId(id);
-
-    } else if (activeRoom) {
-      // No previewUrl — fetch from API. Unlock audio on mobile first.
-      const audio = new Audio("data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=");
-      audio.play().catch(() => {});
-      previewAudioRef.current = audio;
-      setInlinePreviewId(id);
-
-      const abort = new AbortController();
-      previewAbortRef.current = abort;
-      const trackId = id;
-
-      fetch(`/api/rooms/${activeRoom.code}/preview`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ trackId }),
-        signal: abort.signal,
-      })
-        .then((res) => res.json())
-        .then((data) => {
-          if (previewAudioRef.current !== audio) return;
-          if (data.previewUrl) {
-            audio.src = data.previewUrl;
-            audio.volume = 0.5;
-            audio.onended = () => {
-              if (previewAudioRef.current === audio) {
-                previewAudioRef.current = null;
-                setInlinePreviewId(null);
-              }
-            };
-            audio.onerror = () => {
-              if (previewAudioRef.current === audio) {
-                previewAudioRef.current = null;
-                setInlinePreviewId(null);
-                setSongAddedToast("Preview unavailable");
-                setTimeout(() => setSongAddedToast(""), 2000);
-              }
-            };
-            audio.play().catch(() => {
-              if (previewAudioRef.current === audio) {
-                previewAudioRef.current = null;
-                setInlinePreviewId(null);
-              }
-            });
-          } else {
-            audio.pause();
-            if (previewAudioRef.current === audio) {
-              previewAudioRef.current = null;
-              setInlinePreviewId(null);
-            }
-            setSongAddedToast("Preview unavailable");
-            setTimeout(() => setSongAddedToast(""), 2000);
-          }
-        })
-        .catch((err) => {
-          if (err.name === "AbortError") return;
-          if (previewAudioRef.current === audio) {
-            audio.pause();
-            previewAudioRef.current = null;
-            setInlinePreviewId(null);
-          }
-          setSongAddedToast("Preview unavailable");
-          setTimeout(() => setSongAddedToast(""), 2000);
-        });
-
-      previewFallbackTimerRef.current = setTimeout(() => {
-        if (previewAudioRef.current === audio) {
-          audio.onended = null;
-          audio.onerror = null;
-          audio.pause();
-          previewAudioRef.current = null;
-          setInlinePreviewId(null);
-        }
-        previewFallbackTimerRef.current = null;
-      }, 30000);
-
+    if (previewTrackId === id) {
+      setPreviewTrackId(null);
+      setPreviewTrackInfo(null);
     } else {
-      setSongAddedToast("Preview unavailable");
-      setTimeout(() => setSongAddedToast(""), 2000);
+      setPreviewTrackId(id);
+      setPreviewTrackInfo({ name, artist });
     }
-  }, [inlinePreviewId, stopAllPreviews, activeRoom]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Cleanup audio + abort on unmount
-  useEffect(() => {
-    return () => {
-      if (previewFallbackTimerRef.current) clearTimeout(previewFallbackTimerRef.current);
-      if (previewAbortRef.current) previewAbortRef.current.abort();
-      if (previewAudioRef.current) {
-        previewAudioRef.current.onended = null;
-        previewAudioRef.current.onerror = null;
-        previewAudioRef.current.pause();
-      }
-    };
-  }, []);
+  }, [previewTrackId]);
 
   const lockSong = async (songId: string, position?: number) => {
     if (!activeRoom) return;
@@ -1397,7 +1259,7 @@ function DashboardInner({ user }: { user: any }) {
     if (!activeRoom) return;
     if (spotifyUri) {
       const trackId = spotifyUri.replace("spotify:track:", "");
-      if (inlinePreviewId === trackId) stopAllPreviews();
+      if (previewTrackId === trackId) stopAllPreviews();
     }
     await fetch(`/api/rooms/${activeRoom.code}/remove`, {
       method: "POST",
@@ -2643,24 +2505,16 @@ function DashboardInner({ user }: { user: any }) {
                   >
                     {(() => {
                       const trackId = req.spotifyUri.replace("spotify:track:", "");
-                      const isPlayingPreview = inlinePreviewId === trackId;
+                      const isPlayingPreview = previewTrackId === trackId;
                       return (
                     <button
-                      onClick={() => toggleInlinePreview(req.spotifyUri, null, req.trackName, req.artistName)}
+                      onClick={() => openPreview(req.spotifyUri, req.trackName, req.artistName)}
                       className={`relative w-10 h-10 rounded-lg flex-shrink-0 overflow-hidden group ${isPlayingPreview ? "ring-2 ring-accent" : ""}`}
                     >
                       {req.albumArt && <img src={req.albumArt} alt="" className="w-full h-full object-cover" />}
-                      {isPlayingPreview ? (
-                        <div className="absolute inset-0 bg-black/50 flex items-center justify-center gap-[3px]">
-                          <span className="w-[3px] rounded-full bg-accent eq-bar-1" style={{ height: "40%" }} />
-                          <span className="w-[3px] rounded-full bg-accent eq-bar-2" style={{ height: "60%" }} />
-                          <span className="w-[3px] rounded-full bg-accent eq-bar-3" style={{ height: "30%" }} />
-                        </div>
-                      ) : (
-                        <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                          <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-                        </div>
-                      )}
+                      <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                        <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                      </div>
                     </button>
                       );
                     })()}
@@ -2793,6 +2647,16 @@ function DashboardInner({ user }: { user: any }) {
                         try { (ev.target as HTMLElement).releasePointerCapture(ev.pointerId); } catch {}
                         window.removeEventListener("pointermove", onMove);
                         window.removeEventListener("pointerup", onUp);
+                        // Prevent browser from synthesizing a click after drag ends
+                        ev.preventDefault();
+                        // Absorb any phantom click that still fires (mobile Safari workaround).
+                        // Capture phase intercepts before React onClick handlers.
+                        const absorbClick = (e: MouseEvent) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                        };
+                        window.addEventListener("click", absorbClick, { capture: true, once: true });
+                        setTimeout(() => window.removeEventListener("click", absorbClick, { capture: true }), 400);
                         // Commit reorder
                         setDragIdx((prevDrag) => {
                           setOverIdx((prevOver) => {
@@ -2839,29 +2703,21 @@ function DashboardInner({ user }: { user: any }) {
                   </span>
                   {song.albumArt && (() => {
                     const trackId = song.spotifyUri.replace("spotify:track:", "");
-                    const isPlayingPreview = inlinePreviewId === trackId;
+                    const isPlayingPreview = previewTrackId === trackId;
                     return (
                     <button
-                      onClick={() => toggleInlinePreview(song.spotifyUri, song.previewUrl, song.trackName, song.artistName)}
+                      onClick={() => openPreview(song.spotifyUri, song.trackName, song.artistName)}
                       className={`relative w-11 h-11 rounded-lg flex-shrink-0 overflow-hidden group ${isPlayingPreview ? "ring-2 ring-accent" : ""}`}
                     >
                       <img src={song.albumArt} alt="" className="w-11 h-11 rounded-lg" />
-                      {isPlayingPreview ? (
-                        <div className="absolute inset-0 bg-black/50 flex items-center justify-center gap-[3px]">
-                          <span className="w-[3px] rounded-full bg-accent eq-bar-1" style={{ height: "40%" }} />
-                          <span className="w-[3px] rounded-full bg-accent eq-bar-2" style={{ height: "60%" }} />
-                          <span className="w-[3px] rounded-full bg-accent eq-bar-3" style={{ height: "30%" }} />
-                        </div>
-                      ) : (
-                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                          <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-                        </div>
-                      )}
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                        <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                      </div>
                     </button>
                     );
                   })()}
                   <button
-                    onClick={() => toggleInlinePreview(song.spotifyUri, song.previewUrl, song.trackName, song.artistName)}
+                    onClick={() => openPreview(song.spotifyUri, song.trackName, song.artistName)}
                     className="flex-1 min-w-0 text-left"
                   >
                     {song.isLocked && activeRoom.lastPreQueuedId === song.id && (
@@ -2893,11 +2749,11 @@ function DashboardInner({ user }: { user: any }) {
                   <div className="flex items-center gap-1">
                     {/* Preview button — desktop only */}
                     <button
-                      onClick={() => toggleInlinePreview(song.spotifyUri, song.previewUrl, song.trackName, song.artistName)}
-                      className={`hidden lg:flex w-7 h-7 rounded-lg items-center justify-center transition-colors ${inlinePreviewId === song.spotifyUri.replace("spotify:track:", "") ? "text-accent bg-accent/10" : "text-white/20 hover:text-white/40 hover:bg-white/[0.04]"}`}
+                      onClick={() => openPreview(song.spotifyUri, song.trackName, song.artistName)}
+                      className={`hidden lg:flex w-7 h-7 rounded-lg items-center justify-center transition-colors ${previewTrackId === song.spotifyUri.replace("spotify:track:", "") ? "text-accent bg-accent/10" : "text-white/20 hover:text-white/40 hover:bg-white/[0.04]"}`}
                       title="Preview"
                     >
-                      {inlinePreviewId === song.spotifyUri.replace("spotify:track:", "") ? (
+                      {previewTrackId === song.spotifyUri.replace("spotify:track:", "") ? (
                         <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
                           <rect x="6" y="4" width="4" height="16" rx="1" />
                           <rect x="14" y="4" width="4" height="16" rx="1" />
@@ -3193,31 +3049,23 @@ function DashboardInner({ user }: { user: any }) {
                         <div key={song.id} className={`flex items-center gap-3 p-2 rounded-lg ${song.isLocked ? "bg-yellow-500/5" : ""}`}>
                           {(() => {
                             const trackId = song.spotifyUri.replace("spotify:track:", "");
-                            const isPlayingPreview = inlinePreviewId === trackId;
+                            const isPlayingPreview = previewTrackId === trackId;
                             return (
                           <button
-                            onClick={() => toggleInlinePreview(song.spotifyUri, song.previewUrl, song.trackName, song.artistName)}
+                            onClick={() => openPreview(song.spotifyUri, song.trackName, song.artistName)}
                             className={`relative w-9 h-9 rounded-md flex-shrink-0 overflow-hidden group ${isPlayingPreview ? "ring-2 ring-accent" : ""}`}
                           >
                             {song.albumArt && (
                               <img src={song.albumArt} alt="" className="w-9 h-9 rounded-md" />
                             )}
-                            {isPlayingPreview ? (
-                              <div className="absolute inset-0 bg-black/50 flex items-center justify-center gap-[2px] rounded-md">
-                                <span className="w-[2px] rounded-full bg-accent eq-bar-1" style={{ height: "40%" }} />
-                                <span className="w-[2px] rounded-full bg-accent eq-bar-2" style={{ height: "60%" }} />
-                                <span className="w-[2px] rounded-full bg-accent eq-bar-3" style={{ height: "30%" }} />
-                              </div>
-                            ) : (
-                              <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-md">
-                                <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-                              </div>
-                            )}
+                            <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-md">
+                              <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                            </div>
                           </button>
                             );
                           })()}
                           <button
-                            onClick={() => toggleInlinePreview(song.spotifyUri, song.previewUrl, song.trackName, song.artistName)}
+                            onClick={() => openPreview(song.spotifyUri, song.trackName, song.artistName)}
                             className="flex-1 min-w-0 text-left"
                           >
                             <p className="text-sm font-medium truncate">{song.trackName}</p>
@@ -3296,31 +3144,23 @@ function DashboardInner({ user }: { user: any }) {
                       >
                         {(() => {
                           const trackId = track.spotifyUri.replace("spotify:track:", "");
-                          const isPlayingPreview = inlinePreviewId === trackId;
+                          const isPlayingPreview = previewTrackId === trackId;
                           return (
                         <button
-                          onClick={() => toggleInlinePreview(track.spotifyUri, track.previewUrl, track.trackName, track.artistName)}
+                          onClick={() => openPreview(track.spotifyUri, track.trackName, track.artistName)}
                           className={`relative w-9 h-9 rounded-md flex-shrink-0 overflow-hidden group ${isPlayingPreview ? "ring-2 ring-accent" : ""}`}
                         >
                           {track.albumArt && (
                             <img src={track.albumArt} alt="" className="w-9 h-9 rounded-md" />
                           )}
-                          {isPlayingPreview ? (
-                            <div className="absolute inset-0 bg-black/50 flex items-center justify-center gap-[2px] rounded-md">
-                              <span className="w-[2px] rounded-full bg-accent eq-bar-1" style={{ height: "40%" }} />
-                              <span className="w-[2px] rounded-full bg-accent eq-bar-2" style={{ height: "60%" }} />
-                              <span className="w-[2px] rounded-full bg-accent eq-bar-3" style={{ height: "30%" }} />
-                            </div>
-                          ) : (
-                            <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-md">
-                              <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-                            </div>
-                          )}
+                          <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-md">
+                            <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                          </div>
                         </button>
                           );
                         })()}
                         <button
-                          onClick={() => toggleInlinePreview(track.spotifyUri, track.previewUrl, track.trackName, track.artistName)}
+                          onClick={() => openPreview(track.spotifyUri, track.trackName, track.artistName)}
                           className="flex-1 min-w-0 text-left"
                         >
                           <p className="text-sm font-medium truncate">
@@ -3358,6 +3198,42 @@ function DashboardInner({ user }: { user: any }) {
         );
       })()}
 
+      {/* Spotify Embed Preview Popup */}
+      {previewTrackId && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center" onClick={() => { setPreviewTrackId(null); setPreviewTrackInfo(null); }}>
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+          <div
+            className="relative w-full max-w-sm mx-4 rounded-2xl overflow-hidden shadow-2xl bg-[#181818] border border-white/[0.08]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {previewTrackInfo && (
+              <div className="flex items-center justify-between px-4 pt-3 pb-2">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-white truncate">{previewTrackInfo.name}</p>
+                  <p className="text-xs text-white/50 truncate">{previewTrackInfo.artist}</p>
+                </div>
+                <button
+                  onClick={() => { setPreviewTrackId(null); setPreviewTrackInfo(null); }}
+                  className="ml-3 w-7 h-7 flex items-center justify-center rounded-full bg-white/[0.08] hover:bg-white/[0.15] text-white/60 hover:text-white transition-colors flex-shrink-0"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            )}
+            <iframe
+              src={`https://open.spotify.com/embed/track/${previewTrackId}?utm_source=generator&theme=0&autoplay=1`}
+              width="100%"
+              height="152"
+              frameBorder="0"
+              allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+              loading="lazy"
+              className="rounded-b-2xl"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
