@@ -3291,10 +3291,18 @@ function DashboardInner({ user }: { user: any }) {
                   <svg className="w-16 h-16 text-white/20" fill="currentColor" viewBox="0 0 24 24"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55C7.79 13 6 14.79 6 17s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
                 </div>
               )}
+            </div>
+
+            {/* Song info + play button row */}
+            <div className="flex items-center gap-3 px-4 pt-3 pb-2">
+              <div className="flex-1 min-w-0">
+                <p className="text-base font-semibold text-white truncate">{previewTrackInfo.name}</p>
+                <p className="text-sm text-white/50 truncate">{previewTrackInfo.artist}</p>
+              </div>
               {/* Play button — hidden iframe behind, visual button on top */}
               <div
-                className="absolute overflow-hidden rounded-full"
-                style={{ bottom: 12, right: 12, width: 56, height: 56 }}
+                className="relative flex-shrink-0 overflow-hidden rounded-full"
+                style={{ width: 48, height: 48 }}
               >
                 <iframe
                   src={`https://open.spotify.com/embed/track/${previewTrackId}?utm_source=generator&theme=0`}
@@ -3304,18 +3312,12 @@ function DashboardInner({ user }: { user: any }) {
                   allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
                   style={{ position: "absolute", bottom: 0, right: 0, opacity: 0.01 }}
                 />
-                <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-md pointer-events-none">
-                  <svg className="w-7 h-7 text-white ml-0.5" fill="currentColor" viewBox="0 0 24 24">
+                <div className="absolute inset-0 flex items-center justify-center bg-accent rounded-full pointer-events-none">
+                  <svg className="w-5 h-5 text-black ml-0.5" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M8 5v14l11-7z"/>
                   </svg>
                 </div>
               </div>
-            </div>
-
-            {/* Song info */}
-            <div className="px-4 pt-3 pb-2">
-              <p className="text-base font-semibold text-white truncate">{previewTrackInfo.name}</p>
-              <p className="text-sm text-white/50 truncate">{previewTrackInfo.artist}</p>
             </div>
 
             {/* Action buttons */}
