@@ -153,6 +153,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const [previewTrackId, setPreviewTrackId] = useState<string | null>(null);
   const [previewTrackInfo, setPreviewTrackInfo] = useState<{ name: string; artist: string; albumArt?: string } | null>(null);
   const [previewTrackData, setPreviewTrackData] = useState<any>(null);
+  const [previewPlaying, setPreviewPlaying] = useState(false);
   const pullStartY = useRef(0);
   const pullDistRef = useRef(0);
   const pullRefreshRef = useRef(false);
@@ -743,10 +744,12 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       setPreviewTrackId(null);
       setPreviewTrackInfo(null);
       setPreviewTrackData(null);
+      setPreviewPlaying(false);
     } else {
       setPreviewTrackId(id);
       setPreviewTrackInfo({ name, artist, albumArt });
       setPreviewTrackData(trackData || null);
+      setPreviewPlaying(false);
     }
   };
 
@@ -1453,7 +1456,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
 
       {/* Spotify Embed Preview */}
       {previewTrackId && previewTrackInfo && (
-        <div className="fixed inset-0 flex items-center justify-center" style={{ zIndex: 10001 }} onClick={() => { setPreviewTrackId(null); setPreviewTrackInfo(null); setPreviewTrackData(null); }}>
+        <div className="fixed inset-0 flex items-center justify-center" style={{ zIndex: 10001 }} onClick={() => { setPreviewTrackId(null); setPreviewTrackInfo(null); setPreviewTrackData(null); setPreviewPlaying(false); }}>
           <div className="absolute inset-0 bg-black/70 backdrop-blur-md" />
           <div
             className="relative w-full max-w-[320px] mx-4 rounded-2xl overflow-hidden shadow-2xl bg-[#181818] border border-white/[0.06]"
@@ -1461,7 +1464,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
           >
             {/* Close button */}
             <button
-              onClick={() => { setPreviewTrackId(null); setPreviewTrackInfo(null); setPreviewTrackData(null); }}
+              onClick={() => { setPreviewTrackId(null); setPreviewTrackInfo(null); setPreviewTrackData(null); setPreviewPlaying(false); }}
               className="absolute top-3 right-3 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-black/50 backdrop-blur-sm text-white/70 hover:text-white hover:bg-black/70 transition-colors"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
@@ -1486,25 +1489,33 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                 <p className="text-base font-semibold text-white truncate">{previewTrackInfo.name}</p>
                 <p className="text-sm text-white/50 truncate">{previewTrackInfo.artist}</p>
               </div>
-              {/* Play button — hidden iframe behind, visual button on top */}
-              <div
-                className="relative flex-shrink-0 overflow-hidden rounded-full"
-                style={{ width: 48, height: 48 }}
-              >
-                <iframe
-                  src={`https://open.spotify.com/embed/track/${previewTrackId}?utm_source=generator&theme=0`}
-                  width="320"
-                  height="152"
-                  frameBorder="0"
-                  allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
-                  style={{ position: "absolute", bottom: 0, right: 0, opacity: 0.01 }}
-                />
-                <div className="absolute inset-0 flex items-center justify-center bg-accent rounded-full pointer-events-none">
-                  <svg className="w-5 h-5 text-black ml-0.5" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M8 5v14l11-7z"/>
-                  </svg>
+              {/* Play button / playing indicator */}
+              {previewPlaying ? (
+                <div className="flex items-center gap-1.5 flex-shrink-0 text-accent">
+                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55C7.79 13 6 14.79 6 17s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
+                  <span className="text-xs font-medium">Playing</span>
                 </div>
-              </div>
+              ) : (
+                <div
+                  className="relative flex-shrink-0 overflow-hidden rounded-full"
+                  style={{ width: 48, height: 48 }}
+                  onClick={() => setPreviewPlaying(true)}
+                >
+                  <iframe
+                    src={`https://open.spotify.com/embed/track/${previewTrackId}?utm_source=generator&theme=0`}
+                    width="320"
+                    height="152"
+                    frameBorder="0"
+                    allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+                    style={{ position: "absolute", bottom: 0, right: 0, opacity: 0.01 }}
+                  />
+                  <div className="absolute inset-0 flex items-center justify-center bg-accent rounded-full pointer-events-none">
+                    <svg className="w-5 h-5 text-black ml-0.5" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M8 5v14l11-7z"/>
+                    </svg>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Action buttons */}
@@ -1523,7 +1534,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                 </button>
               )}
               <button
-                onClick={() => { setPreviewTrackId(null); setPreviewTrackInfo(null); setPreviewTrackData(null); }}
+                onClick={() => { setPreviewTrackId(null); setPreviewTrackInfo(null); setPreviewTrackData(null); setPreviewPlaying(false); }}
                 className="w-full py-2 text-white/50 text-sm font-medium hover:text-white/70 transition-colors"
               >
                 Close

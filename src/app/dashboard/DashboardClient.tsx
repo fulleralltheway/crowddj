@@ -485,6 +485,7 @@ function DashboardInner({ user }: { user: any }) {
   const [previewTrackId, setPreviewTrackId] = useState<string | null>(null);
   const [previewTrackInfo, setPreviewTrackInfo] = useState<{ name: string; artist: string; albumArt?: string } | null>(null);
   const [previewTrackData, setPreviewTrackData] = useState<any>(null);
+  const [previewPlaying, setPreviewPlaying] = useState(false);
   const [songListRef] = useAutoAnimate({ duration: 300 });
   const [pullRefreshing, setPullRefreshing] = useState(false);
   const [pullDistance, setPullDistance] = useState(0);
@@ -1205,6 +1206,7 @@ function DashboardInner({ user }: { user: any }) {
     setPreviewTrackId(null);
     setPreviewTrackInfo(null);
     setPreviewTrackData(null);
+    setPreviewPlaying(false);
   }, []);
 
   const openPreview = useCallback((spotifyUri: string, name: string, artist: string, albumArt?: string, trackData?: any) => {
@@ -3299,25 +3301,33 @@ function DashboardInner({ user }: { user: any }) {
                 <p className="text-base font-semibold text-white truncate">{previewTrackInfo.name}</p>
                 <p className="text-sm text-white/50 truncate">{previewTrackInfo.artist}</p>
               </div>
-              {/* Play button — hidden iframe behind, visual button on top */}
-              <div
-                className="relative flex-shrink-0 overflow-hidden rounded-full"
-                style={{ width: 48, height: 48 }}
-              >
-                <iframe
-                  src={`https://open.spotify.com/embed/track/${previewTrackId}?utm_source=generator&theme=0`}
-                  width="320"
-                  height="152"
-                  frameBorder="0"
-                  allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
-                  style={{ position: "absolute", bottom: 0, right: 0, opacity: 0.01 }}
-                />
-                <div className="absolute inset-0 flex items-center justify-center bg-accent rounded-full pointer-events-none">
-                  <svg className="w-5 h-5 text-black ml-0.5" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M8 5v14l11-7z"/>
-                  </svg>
+              {/* Play button / playing indicator */}
+              {previewPlaying ? (
+                <div className="flex items-center gap-1.5 flex-shrink-0 text-accent">
+                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55C7.79 13 6 14.79 6 17s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
+                  <span className="text-xs font-medium">Playing</span>
                 </div>
-              </div>
+              ) : (
+                <div
+                  className="relative flex-shrink-0 overflow-hidden rounded-full"
+                  style={{ width: 48, height: 48 }}
+                  onClick={() => setPreviewPlaying(true)}
+                >
+                  <iframe
+                    src={`https://open.spotify.com/embed/track/${previewTrackId}?utm_source=generator&theme=0`}
+                    width="320"
+                    height="152"
+                    frameBorder="0"
+                    allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+                    style={{ position: "absolute", bottom: 0, right: 0, opacity: 0.01 }}
+                  />
+                  <div className="absolute inset-0 flex items-center justify-center bg-accent rounded-full pointer-events-none">
+                    <svg className="w-5 h-5 text-black ml-0.5" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M8 5v14l11-7z"/>
+                    </svg>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Action buttons */}
