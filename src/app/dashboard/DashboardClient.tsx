@@ -3152,7 +3152,7 @@ function DashboardInner({ user }: { user: any }) {
                           const isPlayingPreview = previewTrackId === trackId;
                           return (
                         <button
-                          onClick={() => openPreview(track.spotifyUri, track.trackName, track.artistName)}
+                          onClick={() => openPreview(track.spotifyUri, track.trackName, track.artistName, unavailable ? undefined : track)}
                           className={`relative w-9 h-9 rounded-md flex-shrink-0 overflow-hidden group ${isPlayingPreview ? "ring-2 ring-accent" : ""}`}
                         >
                           {track.albumArt && (
@@ -3165,7 +3165,7 @@ function DashboardInner({ user }: { user: any }) {
                           );
                         })()}
                         <button
-                          onClick={() => openPreview(track.spotifyUri, track.trackName, track.artistName)}
+                          onClick={() => openPreview(track.spotifyUri, track.trackName, track.artistName, unavailable ? undefined : track)}
                           className="flex-1 min-w-0 text-left"
                         >
                           <p className="text-sm font-medium truncate">
@@ -3205,7 +3205,7 @@ function DashboardInner({ user }: { user: any }) {
 
       {/* Spotify Embed Preview Popup */}
       {previewTrackId && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center" onClick={() => { setPreviewTrackId(null); setPreviewTrackInfo(null); }}>
+        <div className="fixed inset-0 flex items-center justify-center" style={{ zIndex: 10001 }} onClick={() => stopAllPreviews()}>
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
           <div
             className="relative w-full max-w-sm mx-4 rounded-2xl overflow-hidden shadow-2xl bg-[#181818] border border-white/[0.08]"
@@ -3218,7 +3218,7 @@ function DashboardInner({ user }: { user: any }) {
                   <p className="text-xs text-white/50 truncate">{previewTrackInfo.artist}</p>
                 </div>
                 <button
-                  onClick={() => { setPreviewTrackId(null); setPreviewTrackInfo(null); }}
+                  onClick={() => stopAllPreviews()}
                   className="ml-3 w-7 h-7 flex items-center justify-center rounded-full bg-white/[0.08] hover:bg-white/[0.15] text-white/60 hover:text-white transition-colors flex-shrink-0"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
@@ -3233,9 +3233,21 @@ function DashboardInner({ user }: { user: any }) {
               height="152"
               frameBorder="0"
               allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
-              loading="lazy"
-              className="rounded-b-2xl"
+              className={previewTrackData ? "" : "rounded-b-2xl"}
             />
+            {previewTrackData && (
+              <div className="px-4 pb-3 pt-1">
+                <button
+                  onClick={() => {
+                    addSongToQueue(previewTrackData);
+                    stopAllPreviews();
+                  }}
+                  className="w-full py-2.5 bg-accent text-black font-semibold text-sm rounded-xl hover:bg-accent/90 transition-colors"
+                >
+                  + Add to Queue
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

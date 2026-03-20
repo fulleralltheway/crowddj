@@ -152,6 +152,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const [scheduledCountdown, setScheduledCountdown] = useState("");
   const [previewTrackId, setPreviewTrackId] = useState<string | null>(null);
   const [previewTrackInfo, setPreviewTrackInfo] = useState<{ name: string; artist: string } | null>(null);
+  const [previewTrackData, setPreviewTrackData] = useState<any>(null);
   const pullStartY = useRef(0);
   const pullDistRef = useRef(0);
   const pullRefreshRef = useRef(false);
@@ -736,14 +737,16 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     searchTimer.current = setTimeout(() => searchSongs(value), 300);
   };
 
-  const openPreview = (spotifyUri: string, name: string, artist: string) => {
+  const openPreview = (spotifyUri: string, name: string, artist: string, trackData?: any) => {
     const id = spotifyUri.replace("spotify:track:", "");
     if (previewTrackId === id) {
       setPreviewTrackId(null);
       setPreviewTrackInfo(null);
+      setPreviewTrackData(null);
     } else {
       setPreviewTrackId(id);
       setPreviewTrackInfo({ name, artist });
+      setPreviewTrackData(trackData || null);
     }
   };
 
@@ -1187,7 +1190,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                       }`}
                     >
                       <button
-                        onClick={(e) => { e.stopPropagation(); openPreview(track.spotifyUri, track.trackName, track.artistName); }}
+                        onClick={(e) => { e.stopPropagation(); openPreview(track.spotifyUri, track.trackName, track.artistName, unavailable ? undefined : track); }}
                         className={`relative flex-shrink-0 w-9 h-9 rounded-md overflow-hidden group ${previewTrackId === track.spotifyUri.replace("spotify:track:", "") ? "ring-2 ring-accent" : ""}`}
                       >
                         {track.albumArt && <img src={track.albumArt} alt="" className="w-full h-full object-cover" />}
@@ -1196,7 +1199,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                         </div>
                       </button>
                       <button
-                        onClick={() => openPreview(track.spotifyUri, track.trackName, track.artistName)}
+                        onClick={() => openPreview(track.spotifyUri, track.trackName, track.artistName, unavailable ? undefined : track)}
                         className="flex-1 min-w-0 text-left"
                       >
                         <p className="text-sm font-medium truncate">
@@ -1450,7 +1453,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
 
       {/* Spotify Embed Preview */}
       {previewTrackId && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center" onClick={() => { setPreviewTrackId(null); setPreviewTrackInfo(null); }}>
+        <div className="fixed inset-0 flex items-center justify-center" style={{ zIndex: 10001 }} onClick={() => { setPreviewTrackId(null); setPreviewTrackInfo(null); setPreviewTrackData(null); }}>
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
           <div
             className="relative w-full max-w-sm mx-4 rounded-2xl overflow-hidden shadow-2xl bg-[#181818] border border-white/[0.08]"
@@ -1463,7 +1466,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                   <p className="text-xs text-white/50 truncate">{previewTrackInfo.artist}</p>
                 </div>
                 <button
-                  onClick={() => { setPreviewTrackId(null); setPreviewTrackInfo(null); }}
+                  onClick={() => { setPreviewTrackId(null); setPreviewTrackInfo(null); setPreviewTrackData(null); }}
                   className="ml-3 w-7 h-7 flex items-center justify-center rounded-full bg-white/[0.08] hover:bg-white/[0.15] text-white/60 hover:text-white transition-colors flex-shrink-0"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
@@ -1478,9 +1481,23 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
               height="152"
               frameBorder="0"
               allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
-              loading="lazy"
-              className="rounded-b-2xl"
+              className={previewTrackData ? "" : "rounded-b-2xl"}
             />
+            {previewTrackData && (
+              <div className="px-4 pb-3 pt-1">
+                <button
+                  onClick={() => {
+                    requestSong(previewTrackData);
+                    setPreviewTrackId(null);
+                    setPreviewTrackInfo(null);
+                    setPreviewTrackData(null);
+                  }}
+                  className="w-full py-2.5 bg-accent text-black font-semibold text-sm rounded-xl hover:bg-accent/90 transition-colors"
+                >
+                  {room.requireApproval ? "Request Song" : "+ Add to Queue"}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
