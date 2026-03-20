@@ -317,8 +317,37 @@ function broadcastServerTime() {
   }
 }
 
+// Playlist sync loop — checks for new songs added to Spotify playlists (every 60s)
+const PLAYLIST_SYNC_INTERVAL = 60_000;
+
+async function syncPlaylists() {
+  if (!CRON_SECRET) return;
+
+  const allRooms = getAllSyncRooms();
+  if (allRooms.length === 0) return;
+
+  for (const roomCode of allRooms) {
+    try {
+      const url = `${VERCEL_URL}/api/rooms/${roomCode}/sync-playlist?secret=${encodeURIComponent(CRON_SECRET)}`;
+      const res = await fetch(url, { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.added > 0) {
+          console.log(`[${roomCode}] Playlist sync: added ${data.added} new song(s)`);
+          if (activeRooms.has(roomCode)) {
+            await broadcastSongs(roomCode);
+          }
+        }
+      }
+    } catch (err) {
+      console.error(`[${roomCode}] Playlist sync error:`, err);
+    }
+  }
+}
+
 // Start background loops
 setInterval(syncAllRooms, SYNC_INTERVAL);
+setInterval(syncPlaylists, PLAYLIST_SYNC_INTERVAL);
 setInterval(broadcastServerTime, 30_000); // Sync clocks every 30s
 
 const PORT = parseInt(process.env.PORT || "3001", 10);

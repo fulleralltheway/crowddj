@@ -64,6 +64,7 @@ type Room = {
   totalSongsPlayed: number;
   totalVotesCast: number;
   peakGuestCount: number;
+  lastPlaylistSync: string | null;
   createdAt: string;
   songs: any[];
 };
@@ -453,6 +454,7 @@ function DashboardInner({ user }: { user: any }) {
   const [searchStatus, setSearchStatus] = useState("");
   const [recentlyAdded, setRecentlyAdded] = useState<Set<string>>(new Set());
   const [songAddedToast, setSongAddedToast] = useState("");
+  const [syncingPlaylist, setSyncingPlaylist] = useState(false);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const prevRequestCount = useRef<number>(0);
@@ -1975,7 +1977,43 @@ function DashboardInner({ user }: { user: any }) {
           {/* Room name */}
           <div className="mb-3">
             <h2 className="text-xl font-bold tracking-tight leading-tight lg:text-2xl">{activeRoom.name}</h2>
-            <p className="text-white/30 text-[11px] mt-0.5">{activeRoom.playlistName}</p>
+            <p className="text-white/30 text-[11px] mt-0.5 flex items-center gap-1.5">
+              {activeRoom.playlistName}
+              <button
+                onClick={async () => {
+                  if (syncingPlaylist) return;
+                  setSyncingPlaylist(true);
+                  try {
+                    const res = await fetch(`/api/rooms/${activeRoom.code}/sync-playlist`, { method: "POST" });
+                    if (res.ok) {
+                      const data = await res.json();
+                      if (data.added > 0) {
+                        setSongAddedToast(`Added ${data.added} new song${data.added > 1 ? "s" : ""} from playlist`);
+                        getSocket().emit("songs-reordered", activeRoom.code);
+                      } else {
+                        setSongAddedToast("Playlist is up to date");
+                      }
+                      setTimeout(() => setSongAddedToast(""), 3000);
+                    } else {
+                      setSongAddedToast("Couldn't sync playlist");
+                      setTimeout(() => setSongAddedToast(""), 3000);
+                    }
+                  } catch {
+                    setSongAddedToast("Couldn't sync playlist");
+                    setTimeout(() => setSongAddedToast(""), 3000);
+                  } finally {
+                    setSyncingPlaylist(false);
+                  }
+                }}
+                disabled={syncingPlaylist}
+                title="Sync new songs from Spotify playlist"
+                className="text-white/20 hover:text-accent transition-colors disabled:opacity-30"
+              >
+                <svg className={`w-3 h-3 ${syncingPlaylist ? "animate-spin" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+              </button>
+            </p>
           </div>
 
           {/* Search bar + action buttons */}
