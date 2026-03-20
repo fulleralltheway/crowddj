@@ -28,7 +28,7 @@ export async function POST(
   if (playing) {
     await prisma.roomSong.update({
       where: { id: playing.id },
-      data: { isPlaying: false, isPlayed: true },
+      data: { isPlaying: false, isPlayed: true, playedAt: new Date() },
     });
   }
 

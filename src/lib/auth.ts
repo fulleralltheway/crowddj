@@ -11,6 +11,7 @@ const scopes = [
   "user-modify-playback-state",
   "user-read-currently-playing",
   "streaming",
+  "playlist-modify-private",
 ].join(" ");
 
 export const { handlers, signIn, signOut, auth } = NextAuth({

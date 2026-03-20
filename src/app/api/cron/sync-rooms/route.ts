@@ -127,7 +127,7 @@ export async function GET(req: NextRequest) {
                 // No client or socket server handling it — cron does a hard skip
                 await prisma.roomSong.update({
                   where: { id: currentSong.id },
-                  data: { isPlaying: false, isPlayed: true },
+                  data: { isPlaying: false, isPlayed: true, playedAt: new Date() },
                 });
                 const nextSong = await getNextSong(room.id, room.autoShuffle);
                 if (nextSong) {
@@ -199,7 +199,7 @@ export async function GET(req: NextRequest) {
         });
         await prisma.roomSong.update({
           where: { id: currentSong.id },
-          data: { isPlaying: false, isPlayed: true },
+          data: { isPlaying: false, isPlayed: true, playedAt: new Date() },
         });
         await prisma.roomSong.update({
           where: { id: nextSong.id },
@@ -229,7 +229,7 @@ export async function GET(req: NextRequest) {
           });
           await prisma.roomSong.update({
             where: { id: currentSong.id },
-            data: { isPlaying: false, isPlayed: true },
+            data: { isPlaying: false, isPlayed: true, playedAt: new Date() },
           });
           await prisma.roomSong.update({
             where: { id: preQueued.id },
@@ -253,7 +253,7 @@ export async function GET(req: NextRequest) {
           // Mark old song as played, make the matched song current
           await prisma.roomSong.update({
             where: { id: currentSong.id },
-            data: { isPlaying: false, isPlayed: true },
+            data: { isPlaying: false, isPlayed: true, playedAt: new Date() },
           });
           await prisma.roomSong.update({
             where: { id: matchInQueue.id },

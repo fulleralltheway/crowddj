@@ -182,6 +182,53 @@ export async function getCurrentPlayback(accessToken: string) {
   return res.json();
 }
 
+export async function createPlaylist(
+  accessToken: string,
+  userId: string,
+  name: string,
+  description?: string
+): Promise<{ id: string; external_urls: { spotify: string } }> {
+  const res = await fetch(`${SPOTIFY_API}/users/${encodeURIComponent(userId)}/playlists`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      name,
+      description: description || "",
+      public: false,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error?.message || "Failed to create playlist");
+  }
+  return res.json();
+}
+
+export async function addTracksToPlaylist(
+  accessToken: string,
+  playlistId: string,
+  uris: string[]
+): Promise<void> {
+  for (let i = 0; i < uris.length; i += 100) {
+    const batch = uris.slice(i, i + 100);
+    const res = await fetch(`${SPOTIFY_API}/playlists/${playlistId}/tracks`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ uris: batch }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error?.message || "Failed to add tracks to playlist");
+    }
+  }
+}
+
 export async function getAudioFeatures(
   accessToken: string,
   trackIds: string[]

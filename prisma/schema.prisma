@@ -97,6 +97,7 @@ model RoomSong {
   downvotes     Int    @default(0)
   isPlaying     Boolean @default(false)
   isPlayed      Boolean @default(false)
+  playedAt      DateTime?
   isLocked      Boolean @default(false)
   isRequested   Boolean @default(false) // true if guest-requested (always shown in display)
   isPinned      Boolean @default(false) // set list planner: pinned to position
