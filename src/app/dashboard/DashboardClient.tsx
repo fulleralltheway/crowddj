@@ -1288,27 +1288,28 @@ function DashboardInner({ user }: { user: any }) {
   const commitReorder = async (songs: any[], movedSongId: string, forceLockOverride = false) => {
     if (!activeRoom) return;
     suppressSocketSongs.current = true;
-    // Optimistically mark the moved song as locked
-    setActiveRoom((prev) => {
-      if (!prev) return null;
-      return {
-        ...prev,
-        songs: prev.songs.map((s: any) =>
-          s.id === movedSongId ? { ...s, isLocked: true } : s
-        ),
-      };
-    });
+    const movedSong = songs.find((s: any) => s.id === movedSongId);
+    const hasVotes = movedSong && (movedSong.upvotes - movedSong.downvotes) !== 0;
+    const willLock = forceLockOverride || hasVotes || movedSong?.isLocked;
+    // Optimistically mark the moved song as locked (only if it will actually be locked)
+    if (willLock) {
+      setActiveRoom((prev) => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          songs: prev.songs.map((s: any) =>
+            s.id === movedSongId ? { ...s, isLocked: true } : s
+          ),
+        };
+      });
+    }
     const orderedIds = songs.filter((s: any) => !s.isPlaying).map((s: any) => s.id);
     await fetch(`/api/rooms/${activeRoom.code}/reorder`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ orderedIds }),
     });
-    // Lock the song: always lock if user confirmed "Move & Lock" (forceLockOverride),
-    // otherwise only auto-lock songs with votes
-    const movedSong = songs.find((s: any) => s.id === movedSongId);
-    const hasVotes = movedSong && (movedSong.upvotes - movedSong.downvotes) !== 0;
-    if (forceLockOverride || hasVotes || movedSong?.isLocked) {
+    if (willLock) {
       await fetch(`/api/rooms/${activeRoom.code}/lock`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
