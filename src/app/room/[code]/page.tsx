@@ -824,6 +824,8 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         const data = await res.json();
         setGuestId(data.guestId);
         saveGuestId(code, data.guestId);
+        // Notify socket so host sees updated guest count immediately
+        getSocket().emit("guest-named", code);
       }
     }
   };

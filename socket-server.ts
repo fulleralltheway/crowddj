@@ -49,6 +49,26 @@ function getRoomCount(roomCode: string): number {
   return activeRooms.get(roomCode)?.size || 0;
 }
 
+// Debounced DB-backed guest count broadcast — fetches named guests from the API
+// so the count only reflects real guests (not the host's socket connection)
+const guestCountTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+async function broadcastGuestCount(roomCode: string, delayMs = 1000) {
+  if (guestCountTimers.has(roomCode)) clearTimeout(guestCountTimers.get(roomCode)!);
+  guestCountTimers.set(roomCode, setTimeout(async () => {
+    guestCountTimers.delete(roomCode);
+    try {
+      const res = await fetch(`${VERCEL_URL}/api/rooms/${roomCode}/guests`);
+      if (res.ok) {
+        const data = await res.json();
+        io.to(roomCode).emit("guest-count", data.count);
+      }
+    } catch (err) {
+      console.error(`[${roomCode}] Failed to broadcast guest count:`, err);
+    }
+  }, delayMs));
+}
+
 // Get all rooms that need syncing — connected clients + background rooms
 function getAllSyncRooms(): string[] {
   const rooms = new Set<string>();
@@ -65,7 +85,7 @@ io.on("connection", (socket) => {
       socket.leave(currentRoom);
       activeRooms.get(currentRoom)?.delete(socket.id);
       if (activeRooms.get(currentRoom)?.size === 0) activeRooms.delete(currentRoom);
-      io.to(currentRoom).emit("guest-count", getRoomCount(currentRoom));
+      broadcastGuestCount(currentRoom);
     }
 
     socket.join(roomCode);
@@ -77,8 +97,8 @@ io.on("connection", (socket) => {
     // Room is known — keep syncing it even if everyone leaves later
     backgroundRooms.add(roomCode);
 
-    // Send guest count to everyone in the room
-    io.to(roomCode).emit("guest-count", getRoomCount(roomCode));
+    // Send DB-backed guest count to everyone in the room
+    broadcastGuestCount(roomCode);
 
     console.log(`[${roomCode}] Client joined (${getRoomCount(roomCode)} connected)`);
   });
@@ -88,7 +108,7 @@ io.on("connection", (socket) => {
     activeRooms.get(roomCode)?.delete(socket.id);
     if (activeRooms.get(roomCode)?.size === 0) activeRooms.delete(roomCode);
     if (currentRoom === roomCode) currentRoom = null;
-    io.to(roomCode).emit("guest-count", getRoomCount(roomCode));
+    broadcastGuestCount(roomCode);
     // Note: room stays in backgroundRooms so sync continues
   });
 
@@ -120,6 +140,11 @@ io.on("connection", (socket) => {
     await broadcastRoomState(roomCode);
   });
 
+  // Guest submitted their name — refresh DB-backed count quickly
+  socket.on("guest-named", (roomCode: string) => {
+    broadcastGuestCount(roomCode, 500);
+  });
+
   socket.on("room-settings-changed", async (roomCode: string) => {
     await broadcastRoomState(roomCode); // Immediate — settings are infrequent
   });
@@ -140,7 +165,7 @@ io.on("connection", (socket) => {
     if (currentRoom) {
       activeRooms.get(currentRoom)?.delete(socket.id);
       if (activeRooms.get(currentRoom)?.size === 0) activeRooms.delete(currentRoom);
-      io.to(currentRoom).emit("guest-count", getRoomCount(currentRoom));
+      broadcastGuestCount(currentRoom);
       console.log(`[${currentRoom}] Client left (${getRoomCount(currentRoom)} connected)`);
       // Note: room stays in backgroundRooms so sync continues
     }

@@ -51,8 +51,8 @@ export default function DisplayPage() {
       setError(null);
 
       if (guestRes?.ok) {
-        const guests = await guestRes.json();
-        setGuestCount(Array.isArray(guests) ? guests.length : 0);
+        const data = await guestRes.json();
+        setGuestCount(data.count || 0);
       }
     } catch {
       setError("Failed to connect");
