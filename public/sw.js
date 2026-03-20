@@ -1,4 +1,4 @@
-const CACHE_NAME = 'partyqueue-v23';
+const CACHE_NAME = 'partyqueue-v24';
 const PRECACHE_URLS = [
   '/',
   '/manifest.json',
@@ -57,5 +57,31 @@ self.addEventListener('fetch', (event) => {
           return new Response('Offline', { status: 503 });
         })
       )
+  );
+});
+
+// Web Push notifications (works even when tab is closed)
+self.addEventListener('push', (event) => {
+  const data = event.data?.json() || {};
+  event.waitUntil(
+    self.registration.showNotification(data.title || 'PartyQueue', {
+      body: data.body || '',
+      icon: data.icon || '/icon-192.png',
+      badge: '/icon-192.png',
+      data: { url: data.url || '/dashboard' },
+    })
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = event.notification.data?.url || '/dashboard';
+  event.waitUntil(
+    clients.matchAll({ type: 'window' }).then((windowClients) => {
+      for (const client of windowClients) {
+        if (client.url.includes('/dashboard') && 'focus' in client) return client.focus();
+      }
+      return clients.openWindow(url);
+    })
   );
 });

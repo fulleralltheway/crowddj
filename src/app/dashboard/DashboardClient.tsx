@@ -457,6 +457,7 @@ function DashboardInner({ user }: { user: any }) {
   const [syncingPlaylist, setSyncingPlaylist] = useState(false);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  const notificationsEnabledRef = useRef(false);
   const prevRequestCount = useRef<number>(0);
   const [showGuests, setShowGuests] = useState(false);
   const showGuestsRef = useRef(false);
@@ -535,8 +536,9 @@ function DashboardInner({ user }: { user: any }) {
     return [] as Room[];
   }, []);
 
-  // Keep ref in sync so polling interval can read current value
+  // Keep refs in sync so polling/socket handlers can read current values
   useEffect(() => { showGuestsRef.current = showGuests; }, [showGuests]);
+  useEffect(() => { notificationsEnabledRef.current = notificationsEnabled; }, [notificationsEnabled]);
 
   // On mount: if there's an active room, jump straight to managing it
   const hasAutoOpened = useRef(false);
@@ -555,6 +557,7 @@ function DashboardInner({ user }: { user: any }) {
           if (res.ok) {
             const data = await res.json();
             setActiveRoom(data);
+            if (data.songs) prevSongCount.current = data.songs.length;
             setView("manage");
           } else {
             setView("rooms");
@@ -578,6 +581,23 @@ function DashboardInner({ user }: { user: any }) {
 
     const handleSongsUpdate = (songs: any[]) => {
       if (suppressSocketSongs.current) return; // Ignore stale broadcasts during lock operations
+      // Instant notification for new songs added by guests
+      if (notificationsEnabledRef.current && prevSongCount.current > 0 && songs.length > prevSongCount.current) {
+        try {
+          const withRequester = songs.filter((s: any) => !s.isPlaying && s.addedByName);
+          const latest = withRequester[withRequester.length - 1];
+          const diff = songs.length - prevSongCount.current;
+          if (latest) {
+            new Notification("New Song Added", {
+              body: diff === 1
+                ? `${latest.addedByName} added "${latest.trackName}"`
+                : `${diff} new songs added to queue`,
+              icon: latest.albumArt || undefined,
+            });
+          }
+        } catch {}
+      }
+      prevSongCount.current = songs.length;
       if (showSearchRef.current) {
         deferredSongs.current = songs;
       } else {
@@ -598,6 +618,26 @@ function DashboardInner({ user }: { user: any }) {
     socket.on("guest-count", handleGuestCount);
     socket.on("request-received", handleRequestReceived);
     socket.on("room-update", handleRoomUpdate);
+
+    // Register Web Push subscription for closed-tab notifications
+    if ("PushManager" in window && Notification.permission === "granted") {
+      navigator.serviceWorker.ready.then(async (reg) => {
+        try {
+          let sub = await reg.pushManager.getSubscription();
+          if (!sub) {
+            sub = await reg.pushManager.subscribe({
+              userVisibleOnly: true,
+              applicationServerKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
+            });
+          }
+          fetch(`/api/rooms/${code}/push-subscribe`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ subscription: JSON.stringify(sub) }),
+          });
+        } catch {}
+      }).catch(() => {});
+    }
 
     // Fallback polling (slower when socket is connected, full speed when not)
     let pollCount = 0;
@@ -723,6 +763,7 @@ function DashboardInner({ user }: { user: any }) {
     if (res.ok) {
       const data = await res.json();
       setActiveRoom(data);
+      if (data.songs) prevSongCount.current = data.songs.length;
       setView("manage");
       if (data.requireApproval) fetchRequests(room.code);
       fetchGuestCount(room.code);
@@ -833,6 +874,7 @@ function DashboardInner({ user }: { user: any }) {
     } else if (songsData) {
       setActiveRoom((prev) => (prev ? { ...prev, songs: songsData } : null));
     }
+    if (songsData) prevSongCount.current = songsData.length;
     if (syncRes.ok) {
       const syncData = await syncRes.json();
       setIsPlaying(!!syncData.spotifyPlaying);
@@ -2386,7 +2428,26 @@ function DashboardInner({ user }: { user: any }) {
                     setNotificationsEnabled(false);
                   } else if ("Notification" in window) {
                     const perm = await Notification.requestPermission();
-                    setNotificationsEnabled(perm === "granted");
+                    const granted = perm === "granted";
+                    setNotificationsEnabled(granted);
+                    // Subscribe to Web Push for closed-tab notifications
+                    if (granted && activeRoom && "PushManager" in window) {
+                      try {
+                        const reg = await navigator.serviceWorker.ready;
+                        let sub = await reg.pushManager.getSubscription();
+                        if (!sub) {
+                          sub = await reg.pushManager.subscribe({
+                            userVisibleOnly: true,
+                            applicationServerKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
+                          });
+                        }
+                        fetch(`/api/rooms/${activeRoom.code}/push-subscribe`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ subscription: JSON.stringify(sub) }),
+                        });
+                      } catch {}
+                    }
                   }
                 }}
                 label="Notifications"

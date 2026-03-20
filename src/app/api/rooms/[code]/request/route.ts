@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { sendPushToHost } from "@/lib/push";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(
@@ -108,6 +109,7 @@ export async function POST(
         requestedByName: guestName,
       },
     });
+    if (!isHost) sendPushToHost(room.id, { title: "New Song Request", body: `${guestName || "Someone"} requested "${trackName}"`, icon: albumArt || undefined }).catch(() => {});
     return NextResponse.json({ status: "pending", request });
   }
 
@@ -117,6 +119,7 @@ export async function POST(
       where: { id: existingBeyond.id },
       data: { isRequested: true, addedBy: fingerprint, addedByName: guestName },
     });
+    if (!isHost) sendPushToHost(room.id, { title: "Song Added", body: `${guestName || "Someone"} added "${trackName}"`, icon: albumArt || undefined }).catch(() => {});
     return NextResponse.json({ status: "added", song: existingBeyond, bumped: true });
   }
 
@@ -141,5 +144,6 @@ export async function POST(
       addedByName: guestName,
     },
   });
+  if (!isHost) sendPushToHost(room.id, { title: "Song Added", body: `${guestName || "Someone"} added "${trackName}"`, icon: albumArt || undefined }).catch(() => {});
   return NextResponse.json({ status: "added", song });
 }
