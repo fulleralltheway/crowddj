@@ -482,7 +482,7 @@ function DashboardInner({ user }: { user: any }) {
     }
   }, [activeRoom?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const [previewTrackId, setPreviewTrackId] = useState<string | null>(null);
-  const [previewTrackInfo, setPreviewTrackInfo] = useState<{ name: string; artist: string } | null>(null);
+  const [previewTrackInfo, setPreviewTrackInfo] = useState<{ name: string; artist: string; albumArt?: string } | null>(null);
   const [previewTrackData, setPreviewTrackData] = useState<any>(null);
   const [songListRef] = useAutoAnimate({ duration: 300 });
   const [pullRefreshing, setPullRefreshing] = useState(false);
@@ -1165,7 +1165,7 @@ function DashboardInner({ user }: { user: any }) {
     setPreviewTrackData(null);
   }, []);
 
-  const openPreview = useCallback((spotifyUri: string, name: string, artist: string, trackData?: any) => {
+  const openPreview = useCallback((spotifyUri: string, name: string, artist: string, albumArt?: string, trackData?: any) => {
     const id = spotifyUri.replace("spotify:track:", "");
     if (previewTrackId === id) {
       setPreviewTrackId(null);
@@ -1173,7 +1173,7 @@ function DashboardInner({ user }: { user: any }) {
       setPreviewTrackData(null);
     } else {
       setPreviewTrackId(id);
-      setPreviewTrackInfo({ name, artist });
+      setPreviewTrackInfo({ name, artist, albumArt });
       setPreviewTrackData(trackData || null);
     }
   }, [previewTrackId]);
@@ -2513,7 +2513,7 @@ function DashboardInner({ user }: { user: any }) {
                       const isPlayingPreview = previewTrackId === trackId;
                       return (
                     <button
-                      onClick={() => openPreview(req.spotifyUri, req.trackName, req.artistName)}
+                      onClick={() => openPreview(req.spotifyUri, req.trackName, req.artistName, req.albumArt || undefined)}
                       className={`relative w-10 h-10 rounded-lg flex-shrink-0 overflow-hidden group ${isPlayingPreview ? "ring-2 ring-accent" : ""}`}
                     >
                       {req.albumArt && <img src={req.albumArt} alt="" className="w-full h-full object-cover" />}
@@ -2711,7 +2711,7 @@ function DashboardInner({ user }: { user: any }) {
                     const isPlayingPreview = previewTrackId === trackId;
                     return (
                     <button
-                      onClick={() => openPreview(song.spotifyUri, song.trackName, song.artistName)}
+                      onClick={() => openPreview(song.spotifyUri, song.trackName, song.artistName, song.albumArt || undefined)}
                       className={`relative w-11 h-11 rounded-lg flex-shrink-0 overflow-hidden group ${isPlayingPreview ? "ring-2 ring-accent" : ""}`}
                     >
                       <img src={song.albumArt} alt="" className="w-11 h-11 rounded-lg" />
@@ -2722,7 +2722,7 @@ function DashboardInner({ user }: { user: any }) {
                     );
                   })()}
                   <button
-                    onClick={() => openPreview(song.spotifyUri, song.trackName, song.artistName)}
+                    onClick={() => openPreview(song.spotifyUri, song.trackName, song.artistName, song.albumArt || undefined)}
                     className="flex-1 min-w-0 text-left"
                   >
                     {song.isLocked && activeRoom.lastPreQueuedId === song.id && (
@@ -2754,7 +2754,7 @@ function DashboardInner({ user }: { user: any }) {
                   <div className="flex items-center gap-1">
                     {/* Preview button — desktop only */}
                     <button
-                      onClick={() => openPreview(song.spotifyUri, song.trackName, song.artistName)}
+                      onClick={() => openPreview(song.spotifyUri, song.trackName, song.artistName, song.albumArt || undefined)}
                       className={`hidden lg:flex w-7 h-7 rounded-lg items-center justify-center transition-colors ${previewTrackId === song.spotifyUri.replace("spotify:track:", "") ? "text-accent bg-accent/10" : "text-white/20 hover:text-white/40 hover:bg-white/[0.04]"}`}
                       title="Preview"
                     >
@@ -3057,7 +3057,7 @@ function DashboardInner({ user }: { user: any }) {
                             const isPlayingPreview = previewTrackId === trackId;
                             return (
                           <button
-                            onClick={() => openPreview(song.spotifyUri, song.trackName, song.artistName)}
+                            onClick={() => openPreview(song.spotifyUri, song.trackName, song.artistName, song.albumArt || undefined)}
                             className={`relative w-9 h-9 rounded-md flex-shrink-0 overflow-hidden group ${isPlayingPreview ? "ring-2 ring-accent" : ""}`}
                           >
                             {song.albumArt && (
@@ -3070,7 +3070,7 @@ function DashboardInner({ user }: { user: any }) {
                             );
                           })()}
                           <button
-                            onClick={() => openPreview(song.spotifyUri, song.trackName, song.artistName)}
+                            onClick={() => openPreview(song.spotifyUri, song.trackName, song.artistName, song.albumArt || undefined)}
                             className="flex-1 min-w-0 text-left"
                           >
                             <p className="text-sm font-medium truncate">{song.trackName}</p>
@@ -3152,7 +3152,7 @@ function DashboardInner({ user }: { user: any }) {
                           const isPlayingPreview = previewTrackId === trackId;
                           return (
                         <button
-                          onClick={() => openPreview(track.spotifyUri, track.trackName, track.artistName, unavailable ? undefined : track)}
+                          onClick={() => openPreview(track.spotifyUri, track.trackName, track.artistName, track.albumArt, unavailable ? undefined : track)}
                           className={`relative w-9 h-9 rounded-md flex-shrink-0 overflow-hidden group ${isPlayingPreview ? "ring-2 ring-accent" : ""}`}
                         >
                           {track.albumArt && (
@@ -3165,7 +3165,7 @@ function DashboardInner({ user }: { user: any }) {
                           );
                         })()}
                         <button
-                          onClick={() => openPreview(track.spotifyUri, track.trackName, track.artistName, unavailable ? undefined : track)}
+                          onClick={() => openPreview(track.spotifyUri, track.trackName, track.artistName, track.albumArt, unavailable ? undefined : track)}
                           className="flex-1 min-w-0 text-left"
                         >
                           <p className="text-sm font-medium truncate">
@@ -3204,39 +3204,55 @@ function DashboardInner({ user }: { user: any }) {
       })()}
 
       {/* Spotify Embed Preview Popup */}
-      {previewTrackId && (
+      {previewTrackId && previewTrackInfo && (
         <div className="fixed inset-0 flex items-center justify-center" style={{ zIndex: 10001 }} onClick={() => stopAllPreviews()}>
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-md" />
           <div
-            className="relative w-full max-w-sm mx-4 rounded-2xl overflow-hidden shadow-2xl bg-[#181818] border border-white/[0.08]"
+            className="relative w-full max-w-[320px] mx-4 rounded-2xl overflow-hidden shadow-2xl bg-[#181818] border border-white/[0.06]"
             onClick={(e) => e.stopPropagation()}
           >
-            {previewTrackInfo && (
-              <div className="flex items-center justify-between px-4 pt-3 pb-2">
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-white truncate">{previewTrackInfo.name}</p>
-                  <p className="text-xs text-white/50 truncate">{previewTrackInfo.artist}</p>
+            {/* Close button */}
+            <button
+              onClick={() => stopAllPreviews()}
+              className="absolute top-3 right-3 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-black/50 backdrop-blur-sm text-white/70 hover:text-white hover:bg-black/70 transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+
+            {/* Album art */}
+            <div className="relative aspect-square bg-black/40">
+              {previewTrackInfo.albumArt ? (
+                <img src={previewTrackInfo.albumArt} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center">
+                  <svg className="w-16 h-16 text-white/20" fill="currentColor" viewBox="0 0 24 24"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55C7.79 13 6 14.79 6 17s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
                 </div>
-                <button
-                  onClick={() => stopAllPreviews()}
-                  className="ml-3 w-7 h-7 flex items-center justify-center rounded-full bg-white/[0.08] hover:bg-white/[0.15] text-white/60 hover:text-white transition-colors flex-shrink-0"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-            )}
-            <iframe
-              src={`https://open.spotify.com/embed/track/${previewTrackId}?utm_source=generator&theme=0&autoplay=1`}
-              width="100%"
-              height="152"
-              frameBorder="0"
-              allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
-              className={previewTrackData ? "" : "rounded-b-2xl"}
-            />
-            {previewTrackData && (
-              <div className="px-4 pb-3 pt-1">
+              )}
+            </div>
+
+            {/* Song info */}
+            <div className="px-4 pt-3 pb-2">
+              <p className="text-base font-semibold text-white truncate">{previewTrackInfo.name}</p>
+              <p className="text-sm text-white/50 truncate">{previewTrackInfo.artist}</p>
+            </div>
+
+            {/* Spotify embed — clipped to controls only */}
+            <div className="mx-3 mb-2 rounded-lg overflow-hidden" style={{ height: 80 }}>
+              <iframe
+                src={`https://open.spotify.com/embed/track/${previewTrackId}?utm_source=generator&theme=0`}
+                width="100%"
+                height="152"
+                frameBorder="0"
+                allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+                style={{ marginTop: -72 }}
+              />
+            </div>
+
+            {/* Action buttons */}
+            <div className="px-4 pb-4 space-y-2">
+              {previewTrackData && (
                 <button
                   onClick={() => {
                     addSongToQueue(previewTrackData);
@@ -3246,8 +3262,14 @@ function DashboardInner({ user }: { user: any }) {
                 >
                   + Add to Queue
                 </button>
-              </div>
-            )}
+              )}
+              <button
+                onClick={() => stopAllPreviews()}
+                className="w-full py-2 text-white/50 text-sm font-medium hover:text-white/70 transition-colors"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}
