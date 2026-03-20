@@ -1469,7 +1469,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
               </svg>
             </button>
 
-            {/* Album art */}
+            {/* Album art with play button */}
             <div className="relative aspect-square bg-black/40">
               {previewTrackInfo.albumArt ? (
                 <img src={previewTrackInfo.albumArt} alt="" className="w-full h-full object-cover" />
@@ -1478,24 +1478,31 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                   <svg className="w-16 h-16 text-white/20" fill="currentColor" viewBox="0 0 24 24"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55C7.79 13 6 14.79 6 17s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
                 </div>
               )}
+              {/* Play button — hidden iframe behind, visual button on top */}
+              <div
+                className="absolute overflow-hidden rounded-full"
+                style={{ bottom: 12, right: 12, width: 56, height: 56 }}
+              >
+                <iframe
+                  src={`https://open.spotify.com/embed/track/${previewTrackId}?utm_source=generator&theme=0`}
+                  width="320"
+                  height="152"
+                  frameBorder="0"
+                  allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+                  style={{ position: "absolute", bottom: 0, right: 0, opacity: 0.01 }}
+                />
+                <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-md pointer-events-none">
+                  <svg className="w-7 h-7 text-white ml-0.5" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M8 5v14l11-7z"/>
+                  </svg>
+                </div>
+              </div>
             </div>
 
             {/* Song info */}
             <div className="px-4 pt-3 pb-2">
               <p className="text-base font-semibold text-white truncate">{previewTrackInfo.name}</p>
               <p className="text-sm text-white/50 truncate">{previewTrackInfo.artist}</p>
-            </div>
-
-            {/* Spotify embed — clipped to controls only */}
-            <div className="mx-3 mb-2 rounded-lg overflow-hidden" style={{ height: 80 }}>
-              <iframe
-                src={`https://open.spotify.com/embed/track/${previewTrackId}?utm_source=generator&theme=0`}
-                width="100%"
-                height="152"
-                frameBorder="0"
-                allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
-                style={{ marginTop: -72 }}
-              />
             </div>
 
             {/* Action buttons */}
