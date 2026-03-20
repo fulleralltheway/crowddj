@@ -483,10 +483,7 @@ function DashboardInner({ user }: { user: any }) {
   }, [activeRoom?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const [inlinePreviewId, setInlinePreviewId] = useState<string | null>(null);
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
-  // Spotify iFrame API refs for hidden embed playback
-  const spotifyApiRef = useRef<any>(null);
-  const embedControllerRef = useRef<any>(null);
-  const embedContainerRef = useRef<HTMLDivElement>(null);
+  const previewAbortRef = useRef<AbortController | null>(null);
   const previewFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [songListRef] = useAutoAnimate({ duration: 300 });
   const [pullRefreshing, setPullRefreshing] = useState(false);
@@ -1163,58 +1160,27 @@ function DashboardInner({ user }: { user: any }) {
     }
   };
 
-  // Load Spotify iFrame API once for hidden embed playback
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (spotifyApiRef.current) return;
-    // Check if already loaded
-    if ((window as any).__spotifyIframeAPI) {
-      spotifyApiRef.current = (window as any).__spotifyIframeAPI;
-      return;
-    }
-    const prevCallback = (window as any).onSpotifyIframeApiReady;
-    (window as any).onSpotifyIframeApiReady = (IFrameAPI: any) => {
-      spotifyApiRef.current = IFrameAPI;
-      (window as any).__spotifyIframeAPI = IFrameAPI;
-      if (prevCallback) prevCallback(IFrameAPI);
-    };
-    if (!document.querySelector('script[src*="iframe-api/v1"]')) {
-      const script = document.createElement("script");
-      script.src = "https://open.spotify.com/embed/iframe-api/v1";
-      script.async = true;
-      document.body.appendChild(script);
-    }
-  }, []);
-
-  // Stop all previews — canonical cleanup for audio, embed, timers, state
+  // Stop all previews — canonical cleanup for audio, fetch abort, timers, state
   const stopAllPreviews = useCallback(() => {
-    // Cancel fallback timer
     if (previewFallbackTimerRef.current) {
       clearTimeout(previewFallbackTimerRef.current);
       previewFallbackTimerRef.current = null;
     }
-    // Stop HTML5 Audio — null handlers BEFORE pause to prevent stale onended
+    if (previewAbortRef.current) {
+      previewAbortRef.current.abort();
+      previewAbortRef.current = null;
+    }
     if (previewAudioRef.current) {
       previewAudioRef.current.onended = null;
       previewAudioRef.current.onerror = null;
       previewAudioRef.current.pause();
       previewAudioRef.current = null;
     }
-    // Destroy embed controller
-    if (embedControllerRef.current) {
-      try { embedControllerRef.current.destroy(); } catch {}
-      embedControllerRef.current = null;
-    }
-    // Clear embed container DOM
-    if (embedContainerRef.current) {
-      embedContainerRef.current.innerHTML = "";
-    }
-    // Clear visual state
     setInlinePreviewId(null);
   }, []);
 
   // Inline audio preview — plays Spotify preview on album art tap
-  // Uses HTML5 Audio when previewUrl exists, hidden Spotify embed otherwise
+  // Uses HTML5 Audio when previewUrl exists, fetches from API otherwise
   const toggleInlinePreview = useCallback((spotifyUri: string, previewUrl: string | null | undefined, _name?: string, _artist?: string) => {
     const id = spotifyUri.replace("spotify:track:", "");
     const wasSameTrack = inlinePreviewId === id;
@@ -1225,14 +1191,8 @@ function DashboardInner({ user }: { user: any }) {
     // Toggle off — done
     if (wasSameTrack) return;
 
-    // Unlock audio context from user gesture (helps browsers allow iframe audio)
-    try {
-      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      ctx.resume().then(() => ctx.close()).catch(() => {});
-    } catch {}
-
     if (previewUrl) {
-      // Has a direct preview URL — use HTML5 Audio (faster, no iframe)
+      // Has a direct preview URL — use HTML5 Audio (works on mobile)
       const audio = new Audio(previewUrl);
       audio.volume = 0.5;
       audio.onended = () => {
@@ -1258,55 +1218,96 @@ function DashboardInner({ user }: { user: any }) {
       previewAudioRef.current = audio;
       setInlinePreviewId(id);
 
-    } else if (spotifyApiRef.current && embedContainerRef.current) {
-      // Spotify Embed path — always create fresh controller
-      const el = document.createElement("div");
-      embedContainerRef.current.appendChild(el);
-      spotifyApiRef.current.createController(el, {
-        uri: spotifyUri, width: 300, height: 80,
-      }, (controller: any) => {
-        embedControllerRef.current = controller;
-        const tryPlay = (attempts: number) => {
-          try { controller.togglePlay(); } catch {
-            if (attempts > 0) setTimeout(() => tryPlay(attempts - 1), 300);
-          }
-        };
-        setTimeout(() => tryPlay(2), 500);
-        let wasPlaying = false;
-        try {
-          controller.addListener("playback_update", (e: any) => {
-            if (e?.data) {
-              if (!e.data.isPaused) wasPlaying = true;
-              if (wasPlaying && e.data.isPaused && embedControllerRef.current === controller) {
-                stopAllPreviews();
-              }
-            }
-          });
-        } catch {}
-      });
+    } else if (activeRoom) {
+      // No previewUrl — fetch from API. Unlock audio on mobile first.
+      const audio = new Audio("data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=");
+      audio.play().catch(() => {});
+      previewAudioRef.current = audio;
       setInlinePreviewId(id);
+
+      const abort = new AbortController();
+      previewAbortRef.current = abort;
+      const trackId = id;
+
+      fetch(`/api/rooms/${activeRoom.code}/preview`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ trackId }),
+        signal: abort.signal,
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (previewAudioRef.current !== audio) return;
+          if (data.previewUrl) {
+            audio.src = data.previewUrl;
+            audio.volume = 0.5;
+            audio.onended = () => {
+              if (previewAudioRef.current === audio) {
+                previewAudioRef.current = null;
+                setInlinePreviewId(null);
+              }
+            };
+            audio.onerror = () => {
+              if (previewAudioRef.current === audio) {
+                previewAudioRef.current = null;
+                setInlinePreviewId(null);
+                setSongAddedToast("Preview unavailable");
+                setTimeout(() => setSongAddedToast(""), 2000);
+              }
+            };
+            audio.play().catch(() => {
+              if (previewAudioRef.current === audio) {
+                previewAudioRef.current = null;
+                setInlinePreviewId(null);
+              }
+            });
+          } else {
+            audio.pause();
+            if (previewAudioRef.current === audio) {
+              previewAudioRef.current = null;
+              setInlinePreviewId(null);
+            }
+            setSongAddedToast("Preview unavailable");
+            setTimeout(() => setSongAddedToast(""), 2000);
+          }
+        })
+        .catch((err) => {
+          if (err.name === "AbortError") return;
+          if (previewAudioRef.current === audio) {
+            audio.pause();
+            previewAudioRef.current = null;
+            setInlinePreviewId(null);
+          }
+          setSongAddedToast("Preview unavailable");
+          setTimeout(() => setSongAddedToast(""), 2000);
+        });
+
       previewFallbackTimerRef.current = setTimeout(() => {
-        setInlinePreviewId((cur) => cur === id ? null : cur);
+        if (previewAudioRef.current === audio) {
+          audio.onended = null;
+          audio.onerror = null;
+          audio.pause();
+          previewAudioRef.current = null;
+          setInlinePreviewId(null);
+        }
         previewFallbackTimerRef.current = null;
       }, 30000);
 
     } else {
-      setSongAddedToast("Preview loading...");
+      setSongAddedToast("Preview unavailable");
       setTimeout(() => setSongAddedToast(""), 2000);
     }
-  }, [inlinePreviewId, stopAllPreviews]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [inlinePreviewId, stopAllPreviews, activeRoom]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Cleanup audio + embed on unmount
+  // Cleanup audio + abort on unmount
   useEffect(() => {
     return () => {
       if (previewFallbackTimerRef.current) clearTimeout(previewFallbackTimerRef.current);
+      if (previewAbortRef.current) previewAbortRef.current.abort();
       if (previewAudioRef.current) {
         previewAudioRef.current.onended = null;
         previewAudioRef.current.onerror = null;
         previewAudioRef.current.pause();
-      }
-      if (embedControllerRef.current) {
-        try { embedControllerRef.current.destroy(); } catch {}
       }
     };
   }, []);
@@ -3357,23 +3358,6 @@ function DashboardInner({ user }: { user: any }) {
         );
       })()}
 
-      {/* Hidden container for Spotify iFrame API embed playback (audio only) */}
-      {/* In-viewport with near-zero opacity so browser initializes audio */}
-      <div
-        ref={embedContainerRef}
-        style={{
-          position: "fixed",
-          bottom: 0,
-          left: 0,
-          width: 300,
-          height: 80,
-          opacity: 0.01,
-          pointerEvents: "none",
-          zIndex: -1,
-          overflow: "hidden",
-        }}
-        aria-hidden="true"
-      />
     </div>
   );
 }
