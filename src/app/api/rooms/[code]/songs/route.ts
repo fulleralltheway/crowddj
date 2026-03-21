@@ -1,4 +1,6 @@
+import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getAudioFeatures } from "@/lib/spotify";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function GET(
@@ -123,15 +125,34 @@ export async function GET(
     }
   }
 
-  // Lazy backfill: if any songs missing tempo and GetSongBPM API key is configured
-  const apiKey = process.env.GETSONGBPM_API_KEY;
-  if (apiKey) {
-    const needsBackfill = sorted.filter((s) => s.tempo == null);
-    if (needsBackfill.length > 0) {
-      const updated = await backfillBPM(apiKey, needsBackfill);
+  // Lazy backfill BPM for songs missing tempo
+  const needsBackfill = sorted.filter((s) => s.tempo == null);
+  if (needsBackfill.length > 0) {
+    // Tier 1: GetSongBPM (free API, covers most mainstream songs)
+    const apiKey = process.env.GETSONGBPM_API_KEY;
+    if (apiKey) {
+      const updated = await backfillFromGetSongBPM(apiKey, needsBackfill);
       for (const song of sorted) {
         const tempo = updated.get(song.id);
         if (tempo != null) (song as any).tempo = tempo;
+      }
+    }
+
+    // Tier 2: Spotify Audio Features fallback (catches niche songs)
+    const stillMissing = sorted.filter((s) => s.tempo == null);
+    if (stillMissing.length > 0) {
+      const session = await auth();
+      const accessToken = (session as any)?.accessToken;
+      if (accessToken) {
+        const updated = await backfillFromSpotify(accessToken, stillMissing);
+        for (const song of sorted) {
+          const data = updated.get(song.id);
+          if (data) {
+            (song as any).tempo = data.tempo;
+            (song as any).energy = data.energy;
+            (song as any).danceability = data.danceability;
+          }
+        }
       }
     }
   }
@@ -139,7 +160,12 @@ export async function GET(
   return NextResponse.json(sorted);
 }
 
-async function backfillBPM(
+/** Strip parenthetical suffixes like (feat. X), [Remix], (Deluxe), etc. */
+function cleanTrackName(name: string): string {
+  return name.replace(/\s*[\(\[].*?[\)\]]\s*/g, "").trim();
+}
+
+async function backfillFromGetSongBPM(
   apiKey: string,
   songs: { id: string; trackName: string; artistName: string }[]
 ): Promise<Map<string, number>> {
@@ -151,7 +177,7 @@ async function backfillBPM(
   await Promise.all(
     batch.map(async (song) => {
       try {
-        const query = song.trackName;
+        const query = cleanTrackName(song.trackName);
         const res = await fetch(
           `https://api.getsong.co/search/?api_key=${apiKey}&type=song&lookup=${encodeURIComponent(query)}`,
         );
@@ -178,6 +204,45 @@ async function backfillBPM(
       }
     })
   );
+
+  return result;
+}
+
+async function backfillFromSpotify(
+  accessToken: string,
+  songs: { id: string; spotifyUri: string }[]
+): Promise<Map<string, { tempo: number; energy: number; danceability: number }>> {
+  const result = new Map<string, { tempo: number; energy: number; danceability: number }>();
+
+  // Extract Spotify track IDs
+  const songsByTrackId = new Map<string, string>();
+  for (const song of songs.slice(0, 50)) {
+    const match = song.spotifyUri.match(/spotify:track:(.+)/);
+    if (match) songsByTrackId.set(match[1], song.id);
+  }
+
+  if (songsByTrackId.size === 0) return result;
+
+  try {
+    const features = await getAudioFeatures(accessToken, [...songsByTrackId.keys()]);
+    const updates: Promise<any>[] = [];
+
+    for (const f of features) {
+      if (!f || !f.tempo) continue;
+      const songId = songsByTrackId.get(f.id);
+      if (!songId) continue;
+
+      const data = { tempo: f.tempo, energy: f.energy, danceability: f.danceability };
+      result.set(songId, data);
+      updates.push(
+        prisma.roomSong.update({ where: { id: songId }, data })
+      );
+    }
+
+    await Promise.all(updates);
+  } catch {
+    // Spotify API may be deprecated / fail — non-critical
+  }
 
   return result;
 }
