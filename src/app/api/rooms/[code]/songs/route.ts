@@ -126,31 +126,38 @@ export async function GET(
 
   // Lazy backfill: if any songs missing tempo, fetch audio features and update before returning
   const needsBackfill = sorted.some((s) => s.tempo == null);
+  let backfillError: string | null = null;
   if (needsBackfill) {
-    const updated = await backfillAudioFeatures(room.hostId, sorted.filter((s) => s.tempo == null));
-    if (updated) {
+    const result = await backfillAudioFeatures(room.hostId, sorted.filter((s) => s.tempo == null));
+    if (result.error) {
+      backfillError = result.error;
+    } else if (result.data) {
       for (const song of sorted) {
-        const feat = updated.get(song.id);
+        const feat = result.data.get(song.id);
         if (feat) Object.assign(song, feat);
       }
     }
   }
 
-  return NextResponse.json(sorted);
+  const response = sorted as any[];
+  if (backfillError) {
+    return NextResponse.json({ songs: response, _backfillError: backfillError });
+  }
+  return NextResponse.json(response);
 }
 
-async function backfillAudioFeatures(hostId: string, songs: { id: string; spotifyUri: string }[]) {
+async function backfillAudioFeatures(hostId: string, songs: { id: string; spotifyUri: string }[]): Promise<{ data?: Map<string, { tempo: number; energy: number; danceability: number }>; error?: string }> {
   try {
     const account = await prisma.account.findFirst({
       where: { userId: hostId, provider: "spotify" },
     });
-    if (!account?.refresh_token) return null;
+    if (!account?.refresh_token) return { error: "no_refresh_token" };
 
     const accessToken = await getSpotifyToken(account.refresh_token);
     const trackIds = songs
       .map((s) => s.spotifyUri.match(/spotify:track:(.+)/)?.[1])
       .filter((id): id is string => !!id);
-    if (trackIds.length === 0) return null;
+    if (trackIds.length === 0) return { error: "no_track_ids" };
 
     const features = await getAudioFeatures(accessToken, trackIds);
     const spotifyMap = new Map<string, { tempo: number; energy: number; danceability: number }>();
@@ -158,7 +165,8 @@ async function backfillAudioFeatures(hostId: string, songs: { id: string; spotif
       if (f) spotifyMap.set(f.id, { tempo: f.tempo, energy: f.energy, danceability: f.danceability });
     }
 
-    // Map song IDs to their features for merging into response
+    if (spotifyMap.size === 0) return { error: `no_features_returned_for_${trackIds.length}_tracks` };
+
     const songFeatures = new Map<string, { tempo: number; energy: number; danceability: number }>();
 
     await Promise.all(
@@ -176,8 +184,8 @@ async function backfillAudioFeatures(hostId: string, songs: { id: string; spotif
         .filter(Boolean)
     );
 
-    return songFeatures;
-  } catch {
-    return null;
+    return { data: songFeatures };
+  } catch (e: any) {
+    return { error: e?.message || "unknown_error" };
   }
 }
