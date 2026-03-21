@@ -23,6 +23,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       clientId: process.env.SPOTIFY_CLIENT_ID!,
       clientSecret: process.env.SPOTIFY_CLIENT_SECRET!,
       authorization: `https://accounts.spotify.com/authorize?scope=${encodeURIComponent(scopes)}`,
+      allowDangerousEmailAccountLinking: true,
     }),
   ],
   callbacks: {
@@ -64,9 +65,14 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
                 },
               });
               (session as any).accessToken = tokens.access_token;
+            } else {
+              console.error("[auth] Spotify token refresh failed:", res.status, JSON.stringify(tokens));
+              if (tokens.error === "invalid_grant") {
+                (session as any).tokenError = "RefreshTokenRevoked";
+              }
             }
-          } catch {
-            // Token refresh failed
+          } catch (err) {
+            console.error("[auth] Spotify token refresh error:", err);
           }
         } else {
           (session as any).accessToken = account.access_token;

@@ -6,6 +6,10 @@ export async function GET() {
   const session = await auth();
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  if ((session as any).tokenError === "RefreshTokenRevoked") {
+    return NextResponse.json({ error: "TokenRevoked" }, { status: 401 });
+  }
+
   const accessToken = (session as any).accessToken;
   if (!accessToken) return NextResponse.json({ error: "No Spotify token" }, { status: 401 });
 
