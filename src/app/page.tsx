@@ -173,7 +173,9 @@ export default function Home() {
           </>
         )}
       </div>
-      <p className="hidden lg:block fixed bottom-6 left-1/2 -translate-x-1/2 text-white/15 text-xs tracking-wide">partyqueue.com</p>
+      <p className="fixed bottom-6 left-1/2 -translate-x-1/2 text-white/15 text-[10px] tracking-wide">
+        BPM data by <a href="https://getsongbpm.com" target="_blank" rel="noopener" className="underline">GetSongBPM</a>
+      </p>
     </div>
   );
 }
