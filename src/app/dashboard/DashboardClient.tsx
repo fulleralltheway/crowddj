@@ -3017,7 +3017,7 @@ function DashboardInner({ user }: { user: any }) {
                     )}
                     {/* BPM / Energy badges */}
                     {(song.tempo || song.energy !== null) && (
-                      <div className="hidden items-center gap-1.5 mt-0.5">
+                      <div className="flex items-center gap-1.5 mt-0.5">
                         {song.tempo != null && (
                           <span className="text-[10px] text-white/30 font-medium tabular-nums">{Math.round(song.tempo)} BPM</span>
                         )}
