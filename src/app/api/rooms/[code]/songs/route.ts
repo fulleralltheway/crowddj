@@ -182,13 +182,24 @@ async function backfillAudioFeatures(hostId: string, songs: { id: string; spotif
       .filter((id): id is string => !!id);
     if (trackIds.length === 0) return { error: "no_track_ids" };
 
+    // Direct API check for debugging
+    const testIds = trackIds.slice(0, 5).join(",");
+    const testRes = await fetch(`https://api.spotify.com/v1/audio-features?ids=${testIds}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const testBody = await testRes.text();
+    if (!testRes.ok) return { error: `spotify_api_${testRes.status}: ${testBody.slice(0, 200)}` };
+
+    const testData = JSON.parse(testBody);
+    const nullCount = testData.audio_features?.filter((f: any) => f === null).length ?? 'no_array';
+
     const features = await getAudioFeatures(accessToken, trackIds);
     const spotifyMap = new Map<string, { tempo: number; energy: number; danceability: number }>();
     for (const f of features) {
       if (f) spotifyMap.set(f.id, { tempo: f.tempo, energy: f.energy, danceability: f.danceability });
     }
 
-    if (spotifyMap.size === 0) return { error: `no_features_returned_for_${trackIds.length}_tracks` };
+    if (spotifyMap.size === 0) return { error: `no_features: status=${testRes.status}, nulls=${nullCount}/${testData.audio_features?.length}, ids=${testIds}` };
 
     const songFeatures = new Map<string, { tempo: number; energy: number; danceability: number }>();
 
