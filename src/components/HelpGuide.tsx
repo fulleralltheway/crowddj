@@ -65,6 +65,9 @@ export default function HelpGuide({ variant, onClose }: HelpGuideProps) {
           >
             Got it
           </button>
+          <p className="text-[10px] text-white/20 text-center mt-2">
+            BPM data by <a href="https://getsongbpm.com" target="_blank" rel="noopener noreferrer" className="underline hover:text-white/30">GetSongBPM</a>
+          </p>
         </div>
       </div>
     </div>,
