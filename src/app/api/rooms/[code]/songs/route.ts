@@ -43,7 +43,8 @@ export async function GET(
   const nonPlaying = withScore.filter((s) => !s.isPlaying);
 
   let sorted: typeof withScore;
-  if (room.autoShuffle) {
+  const sortMode = room.sortMode || (room.autoShuffle ? "votes" : "manual");
+  if (sortMode === "votes") {
     // Pinned songs (DJ position lock) use pinnedPosition as authoritative index.
     // Other locked songs (auto-queue) keep their sortOrder-based positions.
     // Unlocked songs sort by netScore and fill the remaining gaps.
@@ -94,6 +95,9 @@ export async function GET(
     }
 
     sorted = [...playing, ...result.filter((s): s is typeof withScore[0] => s !== null)];
+  } else if (sortMode === "playlist") {
+    nonPlaying.sort((a, b) => (a.playlistPosition ?? a.sortOrder) - (b.playlistPosition ?? b.sortOrder));
+    sorted = [...playing, ...nonPlaying];
   } else {
     nonPlaying.sort((a, b) => a.sortOrder - b.sortOrder);
     sorted = [...playing, ...nonPlaying];

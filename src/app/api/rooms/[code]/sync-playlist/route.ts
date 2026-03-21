@@ -119,6 +119,21 @@ export async function POST(
     }
   }
 
+  // Update playlistPosition for existing unplayed songs based on current Spotify order
+  const uriToPosition = new Map<string, number>();
+  playlistTracks.forEach((t: any, i: number) => uriToPosition.set(t.spotifyUri, i));
+  const existingSongsForPos = await prisma.roomSong.findMany({
+    where: { roomId: room.id, isPlayed: false },
+    select: { id: true, spotifyUri: true, playlistPosition: true },
+  });
+  const positionUpdates = existingSongsForPos
+    .filter(s => uriToPosition.has(s.spotifyUri) && uriToPosition.get(s.spotifyUri) !== s.playlistPosition)
+    .map(s => prisma.roomSong.update({
+      where: { id: s.id },
+      data: { playlistPosition: uriToPosition.get(s.spotifyUri)! },
+    }));
+  if (positionUpdates.length > 0) await Promise.all(positionUpdates);
+
   // Filter to only new songs
   const newTracks = playlistTracks.filter((track: any) => {
     // Skip if an unplayed copy already exists in the queue
@@ -175,6 +190,7 @@ export async function POST(
       durationMs: track.durationMs,
       previewUrl: track.previewUrl,
       sortOrder: nextOrder++,
+      playlistPosition: uriToPosition.get(track.spotifyUri) ?? nextOrder - 1,
       isRequested: !!pendingReq,
       addedBy: pendingReq?.requestedBy ?? null,
       addedByName: pendingReq?.requestedByName ?? null,

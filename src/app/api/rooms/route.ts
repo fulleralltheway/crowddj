@@ -62,6 +62,7 @@ export async function POST(req: NextRequest) {
           durationMs: track.durationMs,
           previewUrl: track.previewUrl,
           sortOrder: index,
+          playlistPosition: index,
         })),
       },
     },

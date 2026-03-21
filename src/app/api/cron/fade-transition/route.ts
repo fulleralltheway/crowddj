@@ -122,7 +122,7 @@ export async function POST(req: NextRequest) {
     originalVolume = playback?.device?.volume_percent ?? 80;
 
     // Lock the next song
-    const nextUp = await getNextSong(room.id, room.autoShuffle);
+    const nextUp = await getNextSong(room.id, room.sortMode || (room.autoShuffle ? "votes" : "manual"));
     if (nextUp && !nextUp.isLocked) {
       await prisma.roomSong.update({
         where: { id: nextUp.id },
@@ -160,7 +160,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Start next song
-    const nextSong = nextUp ?? await getNextSong(room.id, room.autoShuffle);
+    const nextSong = nextUp ?? await getNextSong(room.id, room.sortMode || (room.autoShuffle ? "votes" : "manual"));
     if (nextSong) {
       await prisma.roomSong.update({
         where: { id: nextSong.id },

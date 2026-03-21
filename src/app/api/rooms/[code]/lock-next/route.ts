@@ -20,7 +20,7 @@ export async function POST(
     return NextResponse.json({ error: "Not authorized" }, { status: 403 });
   }
 
-  const nextSong = await getNextSong(room.id, room.autoShuffle);
+  const nextSong = await getNextSong(room.id, room.sortMode || (room.autoShuffle ? "votes" : "manual"));
 
   if (!nextSong) {
     return NextResponse.json({ success: true, song: null });

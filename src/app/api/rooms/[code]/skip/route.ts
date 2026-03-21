@@ -33,7 +33,7 @@ export async function POST(
   }
 
   // Set next song as playing (respects autoShuffle vote-based ordering)
-  const nextSong = await getNextSong(room.id, room.autoShuffle);
+  const nextSong = await getNextSong(room.id, room.sortMode || (room.autoShuffle ? "votes" : "manual"));
 
   if (nextSong) {
     // Unlock it (may have been locked as "queued next") and set as playing

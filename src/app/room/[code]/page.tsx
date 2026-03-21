@@ -33,6 +33,7 @@ type Room = {
   voteResetMinutes: number;
   votingPaused: boolean;
   autoShuffle: boolean;
+  sortMode: string;
   explicitFilter: boolean;
   requireApproval: boolean;
   maxSongsPerGuest: number;
@@ -574,7 +575,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       setTimeout(() => setRequestStatus(""), 3000);
       return;
     }
-    if (!room?.autoShuffle) {
+    if ((room?.sortMode || (room?.autoShuffle ? "votes" : "manual")) !== "votes") {
       setRequestStatus("Voting is off while the DJ controls the queue");
       setTimeout(() => setRequestStatus(""), 3000);
       return;
@@ -1130,7 +1131,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                         </div>
                         {song.isLocked ? (
                           <span className="text-[10px] text-yellow-500/50 flex-shrink-0">Locked</span>
-                        ) : !room.autoShuffle ? (
+                        ) : (room.sortMode || (room.autoShuffle ? "votes" : "manual")) !== "votes" ? (
                           <div className="flex items-center gap-1 flex-shrink-0 opacity-30 cursor-not-allowed" onClick={() => vote(song.id, 1)}>
                             <div className="p-1.5">
                               <svg className="w-4 h-4 text-white/20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1319,7 +1320,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       <div className="flex items-center justify-between px-4 pt-4 pb-2 lg:px-6 lg:pt-5 lg:pb-3">
         <p className="text-white/50 text-xs font-semibold tracking-wide">Up Next</p>
         <p className="text-white/25 text-[10px]">
-          {room.autoShuffle ? "Sorted by votes" : "DJ-ordered"}
+          {(room.sortMode || (room.autoShuffle ? "votes" : "manual")) === "votes" ? "Sorted by votes" : (room.sortMode === "playlist" ? "Playlist order" : "DJ-ordered")}
         </p>
       </div>
       <div className="flex-1 relative overflow-hidden">
@@ -1381,7 +1382,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                     <p className="text-[10px] text-yellow-500/50">Locked</p>
                   )}
                 </div>
-              ) : !room.autoShuffle ? (
+              ) : (room.sortMode || (room.autoShuffle ? "votes" : "manual")) !== "votes" ? (
                 <div className="flex items-center gap-0.5 flex-shrink-0 opacity-30 cursor-not-allowed" onClick={() => vote(song.id, 1)}>
                   <div className="p-2.5">
                     <svg className="w-5 h-5 text-white/20" fill="none" stroke="currentColor" viewBox="0 0 24 24">

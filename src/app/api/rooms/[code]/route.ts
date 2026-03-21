@@ -101,6 +101,10 @@ export async function PATCH(
   if (body.maxSongsPerGuest !== undefined) updates.maxSongsPerGuest = Number(body.maxSongsPerGuest);
   if (body.explicitFilter !== undefined) updates.explicitFilter = Boolean(body.explicitFilter);
   if (body.autoShuffle !== undefined) updates.autoShuffle = Boolean(body.autoShuffle);
+  if (body.sortMode !== undefined) {
+    updates.sortMode = String(body.sortMode);
+    updates.autoShuffle = body.sortMode === "votes"; // backward compat
+  }
   if (body.queueDisplaySize !== undefined) updates.queueDisplaySize = Number(body.queueDisplaySize);
   if (body.allowDuplicates !== undefined) updates.allowDuplicates = Boolean(body.allowDuplicates);
   if (body.maxSongDurationSec !== undefined) {
@@ -121,8 +125,8 @@ export async function PATCH(
     data: updates,
   });
 
-  // If autoShuffle was just turned ON, immediately re-sort the queue
-  if (body.autoShuffle === true && !room.autoShuffle) {
+  // If switching to votes mode, immediately re-sort the queue
+  if ((body.sortMode === "votes" || (body.autoShuffle === true && !room.autoShuffle)) && !room.autoShuffle) {
     await reorderByVotes(room.id, updated.queueDisplaySize || 50);
   }
 

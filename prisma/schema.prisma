@@ -61,6 +61,7 @@ model Room {
   maxSongsPerGuest Int      @default(0) // 0 = unlimited
   explicitFilter   Boolean  @default(false)
   autoShuffle      Boolean  @default(true)
+  sortMode         String   @default("votes") // "votes" | "playlist" | "manual"
   queueDisplaySize Int      @default(50)
   allowDuplicates  Boolean  @default(false) // allow songs to be replayed after being played
   maxSongDurationSec Int    @default(0) // 0 = full length, otherwise max seconds per song before auto-transition
@@ -103,6 +104,7 @@ model RoomSong {
   isRequested   Boolean @default(false) // true if guest-requested (always shown in display)
   isPinned      Boolean @default(false) // set list planner: pinned to position
   pinnedPosition Int?   // target position in set list
+  playlistPosition Int @default(0) // position in original Spotify playlist (updated on sync)
   previewUrl    String? // Spotify 30s preview MP3 URL
   tempo         Float?  // BPM from Spotify audio features
   energy        Float?  // 0.0-1.0 energy level

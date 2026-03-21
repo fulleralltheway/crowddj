@@ -51,6 +51,7 @@ type Room = {
   maxSongsPerGuest: number;
   explicitFilter: boolean;
   autoShuffle: boolean;
+  sortMode: string;
   queueDisplaySize: number;
   allowDuplicates: boolean;
   lastPreQueuedId: string | null;
@@ -1371,13 +1372,16 @@ function DashboardInner({ user }: { user: any }) {
 
   const saveOrder = (songs: any[], movedSongId: string) => {
     if (!activeRoom) return;
-    const isAutoShuffle = activeRoom.autoShuffle ?? true;
-    // Check if the moved song is already locked — if so, no warning needed
+    const mode = activeRoom.sortMode || (activeRoom.autoShuffle ? "votes" : "manual");
     const movedSong = songs.find((s: any) => s.id === movedSongId);
-    if (isAutoShuffle && !movedSong?.isLocked && !skipReorderConfirm) {
+    if (mode === "votes" && !movedSong?.isLocked && !skipReorderConfirm) {
+      // Dragging in votes mode overrides auto-shuffle — confirm with user
+      setConfirmReorder({ songs, movedSongId });
+    } else if (mode === "playlist" && !movedSong?.isLocked && !skipReorderConfirm) {
+      // Dragging in playlist mode overrides playlist order — confirm with user
       setConfirmReorder({ songs, movedSongId });
     } else {
-      commitReorder(songs, movedSongId, isAutoShuffle && skipReorderConfirm);
+      commitReorder(songs, movedSongId, mode !== "manual" && skipReorderConfirm);
     }
   };
 
@@ -2411,12 +2415,25 @@ function DashboardInner({ user }: { user: any }) {
                 label="Explicit Filter"
                 description="Block explicit songs from being added"
               />
-              <ToggleSwitch
-                enabled={activeRoom.autoShuffle ?? true}
-                onToggle={() => saveSettings({ autoShuffle: !(activeRoom.autoShuffle ?? true) } as any)}
-                label="Auto-Shuffle by Votes"
-                description="Reorder queue based on vote scores"
-              />
+              <div>
+                <p className="text-sm font-medium">Queue Order</p>
+                <p className="text-[11px] text-white/30 mb-2">How songs are sorted in the queue</p>
+                <div className="flex gap-1 bg-white/[0.04] rounded-xl p-1">
+                  {[
+                    { value: "votes", label: "By Votes" },
+                    { value: "playlist", label: "Playlist" },
+                    { value: "manual", label: "Manual" },
+                  ].map(opt => (
+                    <button key={opt.value}
+                      onClick={() => saveSettings({ sortMode: opt.value } as any)}
+                      className={`flex-1 py-2 text-xs font-medium rounded-lg transition-colors ${
+                        (activeRoom.sortMode || (activeRoom.autoShuffle ? "votes" : "manual")) === opt.value
+                          ? "bg-accent text-black" : "text-white/50 hover:text-white/70"
+                      }`}
+                    >{opt.label}</button>
+                  ))}
+                </div>
+              </div>
               <ToggleSwitch
                 enabled={activeRoom.allowDuplicates ?? false}
                 onToggle={() => saveSettings({ allowDuplicates: !(activeRoom.allowDuplicates ?? false) } as any)}

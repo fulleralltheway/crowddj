@@ -83,7 +83,7 @@ export async function POST(
     originalVolume = playback?.device?.volume_percent ?? 80;
 
     // Lock the next song in DB so UI shows it as "up next"
-    const nextUp = await getNextSong(room.id, room.autoShuffle);
+    const nextUp = await getNextSong(room.id, room.sortMode || (room.autoShuffle ? "votes" : "manual"));
     if (nextUp) {
       lockedNextSong = nextUp;
       if (!nextUp.isLocked) {
@@ -126,7 +126,7 @@ export async function POST(
         });
       }
 
-      const nextSong = lockedNextSong ?? await getNextSong(room.id, room.autoShuffle);
+      const nextSong = lockedNextSong ?? await getNextSong(room.id, room.sortMode || (room.autoShuffle ? "votes" : "manual"));
       if (nextSong) {
         await prisma.roomSong.update({
           where: { id: nextSong.id },
@@ -173,7 +173,7 @@ export async function POST(
       });
     }
 
-    const nextSong = lockedNextSong ?? await getNextSong(room.id, room.autoShuffle);
+    const nextSong = lockedNextSong ?? await getNextSong(room.id, room.sortMode || (room.autoShuffle ? "votes" : "manual"));
 
     if (nextSong) {
       await prisma.roomSong.update({
@@ -241,7 +241,7 @@ export async function POST(
           data: { isPlaying: false, isPlayed: true, playedAt: new Date() },
         });
       }
-      const nextSong = lockedNextSong ?? await getNextSong(room.id, room.autoShuffle);
+      const nextSong = lockedNextSong ?? await getNextSong(room.id, room.sortMode || (room.autoShuffle ? "votes" : "manual"));
       if (nextSong) {
         await prisma.roomSong.update({
           where: { id: nextSong.id },

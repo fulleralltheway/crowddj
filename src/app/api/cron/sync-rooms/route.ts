@@ -90,7 +90,7 @@ export async function GET(req: NextRequest) {
           // Pre-queue: 15s before threshold, lock the next song so UI shows "Queued Next"
           const preQueueMs = maxMs - 15000;
           if (playback.progress_ms >= preQueueMs && playback.progress_ms < maxMs && !room.lastPreQueuedId) {
-            const nextUp = await getNextSong(room.id, room.autoShuffle);
+            const nextUp = await getNextSong(room.id, room.sortMode || (room.autoShuffle ? "votes" : "manual"));
             if (nextUp && !nextUp.isLocked) {
               await prisma.roomSong.update({
                 where: { id: nextUp.id },
@@ -129,7 +129,7 @@ export async function GET(req: NextRequest) {
                   where: { id: currentSong.id },
                   data: { isPlaying: false, isPlayed: true, playedAt: new Date() },
                 });
-                const nextSong = await getNextSong(room.id, room.autoShuffle);
+                const nextSong = await getNextSong(room.id, room.sortMode || (room.autoShuffle ? "votes" : "manual"));
                 if (nextSong) {
                   await prisma.roomSong.update({
                     where: { id: nextSong.id },
@@ -156,7 +156,7 @@ export async function GET(req: NextRequest) {
         // At 15 seconds remaining, queue the next song and lock it in
         // Skip pre-queue when maxSongDurationSec is active (auto-transition handles it)
         if (remaining <= 15000 && playback.is_playing && !room.lastPreQueuedId && !(room.maxSongDurationSec >= 30)) {
-          const nextSong = await getNextSong(room.id, room.autoShuffle);
+          const nextSong = await getNextSong(room.id, room.sortMode || (room.autoShuffle ? "votes" : "manual"));
 
           if (nextSong) {
             try {
@@ -183,7 +183,7 @@ export async function GET(req: NextRequest) {
       }
 
       // CASE 2: Spotify moved to a different song
-      const nextSong = await getNextSong(room.id, room.autoShuffle);
+      const nextSong = await getNextSong(room.id, room.sortMode || (room.autoShuffle ? "votes" : "manual"));
 
       // Check if Spotify advanced to our next queue song
       if (nextSong && playback.item.uri === nextSong.spotifyUri) {

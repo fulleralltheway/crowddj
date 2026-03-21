@@ -56,7 +56,7 @@ export async function POST(
     // Otherwise, start the current queue song
     let song = currentSong;
     if (!song) {
-      song = await getNextSong(room.id, room.autoShuffle);
+      song = await getNextSong(room.id, room.sortMode || (room.autoShuffle ? "votes" : "manual"));
       if (song) {
         await prisma.roomSong.update({
           where: { id: song.id },

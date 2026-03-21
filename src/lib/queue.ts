@@ -16,7 +16,7 @@ export async function shiftPinnedPositions(roomId: string) {
  * Get the next song to play — uses the EXACT same ordering as the
  * songs display API so what the user sees at #1 is what plays next.
  */
-export async function getNextSong(roomId: string, autoShuffle: boolean) {
+export async function getNextSong(roomId: string, sortMode: string) {
   const [candidates, room] = await Promise.all([
     prisma.roomSong.findMany({
       where: { roomId, isPlayed: false, isPlaying: false },
@@ -33,8 +33,14 @@ export async function getNextSong(roomId: string, autoShuffle: boolean) {
     if (queued) return queued;
   }
 
-  if (!autoShuffle) {
-    // Simple sortOrder — first candidate is next
+  if (sortMode === "playlist") {
+    // Sort by Spotify playlist position
+    candidates.sort((a, b) => (a.playlistPosition ?? a.sortOrder) - (b.playlistPosition ?? b.sortOrder));
+    return candidates[0];
+  }
+
+  if (sortMode !== "votes") {
+    // Manual mode: first candidate by sortOrder (already sorted)
     return candidates[0];
   }
 
