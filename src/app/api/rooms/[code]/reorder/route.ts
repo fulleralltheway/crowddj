@@ -1,9 +1,40 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { reorderPlaylist } from "@/lib/spotify";
+import { getPlaylistTracks, reorderPlaylist } from "@/lib/spotify";
 import { NextRequest, NextResponse } from "next/server";
 
 export const maxDuration = 15;
+
+async function getAccessToken(account: any) {
+  let accessToken = account.access_token;
+  if (account.expires_at && account.expires_at * 1000 < Date.now()) {
+    const res = await fetch("https://accounts.spotify.com/api/token", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Authorization: `Basic ${Buffer.from(
+          `${process.env.SPOTIFY_CLIENT_ID}:${process.env.SPOTIFY_CLIENT_SECRET}`
+        ).toString("base64")}`,
+      },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: account.refresh_token!,
+      }),
+    });
+    const tokens = await res.json();
+    if (!res.ok) return null;
+    accessToken = tokens.access_token;
+    await prisma.account.update({
+      where: { id: account.id },
+      data: {
+        access_token: tokens.access_token,
+        expires_at: Math.floor(Date.now() / 1000 + tokens.expires_in),
+        ...(tokens.refresh_token ? { refresh_token: tokens.refresh_token } : {}),
+      },
+    });
+  }
+  return accessToken;
+}
 
 export async function POST(
   req: NextRequest,
@@ -56,16 +87,32 @@ export async function POST(
         prisma.roomSong.update({ where: { id: s.id }, data: { playlistPosition: (playingSong ? i + 1 : i) } })
       )
     );
-    // Push to Spotify (fire-and-forget)
-    const account = await prisma.account.findFirst({
-      where: { userId: session.user.id, provider: "spotify" },
-    });
-    if (account?.access_token) {
-      const uris = [
-        ...(playingSong ? [playingSong.spotifyUri] : []),
-        ...orderedSongs.map(s => s.spotifyUri),
-      ];
-      reorderPlaylist(account.access_token, room.playlistId, uris).catch(() => {});
+    // Push to Spotify with fresh token and full playlist preservation
+    try {
+      const account = await prisma.account.findFirst({
+        where: { userId: session.user.id, provider: "spotify" },
+      });
+      if (account?.access_token) {
+        const accessToken = await getAccessToken(account);
+        if (accessToken) {
+          // Fetch full playlist from Spotify so we don't lose songs outside the queue
+          const playlistTracks = await getPlaylistTracks(accessToken, room.playlistId);
+          const spotifyUris = playlistTracks.map((t: any) => t.spotifyUri);
+          const queueUriSet = new Set(orderedSongs.map(s => s.spotifyUri));
+          if (playingSong) queueUriSet.add(playingSong.spotifyUri);
+          // Remove queue songs from Spotify list, then reinsert in new order
+          const nonQueueUris = spotifyUris.filter((uri: string) => !queueUriSet.has(uri));
+          const fullUris = [
+            ...(playingSong ? [playingSong.spotifyUri] : []),
+            ...orderedSongs.map(s => s.spotifyUri),
+            ...nonQueueUris,
+          ];
+          const ok = await reorderPlaylist(accessToken, room.playlistId, fullUris);
+          if (!ok) console.log("[Reorder] Failed to push to Spotify playlist");
+        }
+      }
+    } catch (err) {
+      console.log("[Reorder] Spotify push error:", err);
     }
   }
 
