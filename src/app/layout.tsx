@@ -43,7 +43,13 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" style={{ background: "#0a0a0a" }}>
-      <body className="antialiased">{children}<ServiceWorker /></body>
+      <body className="antialiased">
+        {children}
+        <ServiceWorker />
+        <p className="fixed bottom-2 left-1/2 -translate-x-1/2 text-[10px] text-white/10 z-0">
+          BPM data by <a href="https://getsongbpm.com" target="_blank" rel="noopener">GetSongBPM</a>
+        </p>
+      </body>
     </html>
   );
 }
