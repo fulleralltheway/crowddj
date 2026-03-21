@@ -124,45 +124,60 @@ export async function GET(
     }
   }
 
-  // Lazy backfill: if any songs missing tempo, fetch audio features once
+  // Lazy backfill: if any songs missing tempo, fetch audio features and update before returning
   const needsBackfill = sorted.some((s) => s.tempo == null);
   if (needsBackfill) {
-    // Fire-and-forget: don't block the response
-    backfillAudioFeatures(room.id, room.hostId, sorted.filter((s) => s.tempo == null)).catch(() => {});
+    const updated = await backfillAudioFeatures(room.hostId, sorted.filter((s) => s.tempo == null));
+    if (updated) {
+      for (const song of sorted) {
+        const feat = updated.get(song.id);
+        if (feat) Object.assign(song, feat);
+      }
+    }
   }
 
   return NextResponse.json(sorted);
 }
 
-async function backfillAudioFeatures(roomId: string, hostId: string, songs: { id: string; spotifyUri: string }[]) {
-  const account = await prisma.account.findFirst({
-    where: { userId: hostId, provider: "spotify" },
-  });
-  if (!account?.refresh_token) return;
+async function backfillAudioFeatures(hostId: string, songs: { id: string; spotifyUri: string }[]) {
+  try {
+    const account = await prisma.account.findFirst({
+      where: { userId: hostId, provider: "spotify" },
+    });
+    if (!account?.refresh_token) return null;
 
-  const accessToken = await getSpotifyToken(account.refresh_token);
-  const trackIds = songs
-    .map((s) => s.spotifyUri.match(/spotify:track:(.+)/)?.[1])
-    .filter((id): id is string => !!id);
-  if (trackIds.length === 0) return;
+    const accessToken = await getSpotifyToken(account.refresh_token);
+    const trackIds = songs
+      .map((s) => s.spotifyUri.match(/spotify:track:(.+)/)?.[1])
+      .filter((id): id is string => !!id);
+    if (trackIds.length === 0) return null;
 
-  const features = await getAudioFeatures(accessToken, trackIds);
-  const featureMap = new Map<string, { tempo: number; energy: number; danceability: number }>();
-  for (const f of features) {
-    if (f) featureMap.set(f.id, { tempo: f.tempo, energy: f.energy, danceability: f.danceability });
+    const features = await getAudioFeatures(accessToken, trackIds);
+    const spotifyMap = new Map<string, { tempo: number; energy: number; danceability: number }>();
+    for (const f of features) {
+      if (f) spotifyMap.set(f.id, { tempo: f.tempo, energy: f.energy, danceability: f.danceability });
+    }
+
+    // Map song IDs to their features for merging into response
+    const songFeatures = new Map<string, { tempo: number; energy: number; danceability: number }>();
+
+    await Promise.all(
+      songs
+        .map((song) => {
+          const trackId = song.spotifyUri.match(/spotify:track:(.+)/)?.[1];
+          const feat = trackId ? spotifyMap.get(trackId) : null;
+          if (!feat) return null;
+          songFeatures.set(song.id, feat);
+          return prisma.roomSong.update({
+            where: { id: song.id },
+            data: { tempo: feat.tempo, energy: feat.energy, danceability: feat.danceability },
+          });
+        })
+        .filter(Boolean)
+    );
+
+    return songFeatures;
+  } catch {
+    return null;
   }
-
-  await Promise.all(
-    songs
-      .map((song) => {
-        const id = song.spotifyUri.match(/spotify:track:(.+)/)?.[1];
-        const feat = id ? featureMap.get(id) : null;
-        if (!feat) return null;
-        return prisma.roomSong.update({
-          where: { id: song.id },
-          data: { tempo: feat.tempo, energy: feat.energy, danceability: feat.danceability },
-        });
-      })
-      .filter(Boolean)
-  );
 }
