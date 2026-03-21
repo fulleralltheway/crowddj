@@ -2,13 +2,23 @@ import { prisma } from "@/lib/db";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ code: string }> }
 ) {
   const { code } = await params;
 
   const room = await prisma.room.findUnique({ where: { code } });
   if (!room) return NextResponse.json({ error: "Room not found" }, { status: 404 });
+
+  // Return played songs if requested (for "Recently Played" section)
+  if (req.nextUrl.searchParams.get("played") === "true") {
+    const played = await prisma.roomSong.findMany({
+      where: { roomId: room.id, isPlayed: true, trackName: { not: "" } },
+      orderBy: { playedAt: "desc" },
+      take: 20,
+    });
+    return NextResponse.json(played);
+  }
 
   const limit = room.queueDisplaySize || 50;
 

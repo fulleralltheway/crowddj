@@ -213,6 +213,12 @@ function formatTime(ms: number) {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
+function formatDuration(ms: number) {
+  const min = Math.floor(ms / 60000);
+  const sec = Math.floor((ms % 60000) / 1000);
+  return `${min}:${sec.toString().padStart(2, "0")}`;
+}
+
 function MiniPlayer({
   nowPlaying,
   isPlaying,
@@ -496,10 +502,19 @@ function DashboardInner({ user }: { user: any }) {
   const isDragging = useRef(false);
   const suppressSocketSongs = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const desktopScrollRef = useRef<HTMLDivElement>(null);
   const searchBarRef = useRef<HTMLDivElement>(null);
   const deferredSongs = useRef<any[] | null>(null);
   const showSearchRef = useRef(false);
   const PULL_THRESHOLD = 50;
+
+  // Desktop layout state
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [showPlayed, setShowPlayed] = useState(false);
+  const [playedSongs, setPlayedSongs] = useState<any[]>([]);
+  const nowPlayingRef = useRef<HTMLDivElement>(null);
+  const autoScrollTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const [sidebarSection, setSidebarSection] = useState<string | null>("share");
 
   // Create room form state
   const [roomName, setRoomName] = useState("");
@@ -580,6 +595,10 @@ function DashboardInner({ user }: { user: any }) {
     // Socket.io: join room and listen for real-time updates
     const socket = getSocket();
     socket.emit("join-room", code);
+
+    // Fetch played songs for desktop "Recently Played" section
+    fetchPlayedSongs(code);
+    const playedInterval = setInterval(() => fetchPlayedSongs(code), 30000);
 
     const handleSongsUpdate = (songs: any[]) => {
       if (suppressSocketSongs.current) return; // Ignore stale broadcasts during lock operations
@@ -707,6 +726,7 @@ function DashboardInner({ user }: { user: any }) {
       socket.off("room-update", handleRoomUpdate);
       document.removeEventListener("visibilitychange", onVisChange);
       clearInterval(interval);
+      clearInterval(playedInterval);
     };
   }, [view, activeRoom?.code, activeRoom?.requireApproval]);
 
@@ -825,6 +845,13 @@ function DashboardInner({ user }: { user: any }) {
         setActiveRoom((prev) => (prev ? { ...prev, songs } : null));
       }
     }
+  };
+
+  const fetchPlayedSongs = async (code: string) => {
+    try {
+      const res = await fetch(`/api/rooms/${code}/songs?played=true`);
+      if (res.ok) setPlayedSongs(await res.json());
+    } catch {}
   };
 
   const fetchRequests = async (code: string) => {
@@ -1925,20 +1952,32 @@ function DashboardInner({ user }: { user: any }) {
       <div className="px-4 pt-4 pb-3 lg:px-6 lg:pt-5">
         {/* Top bar: back + room code */}
         <div className="flex items-center justify-between mb-3">
-          <button
-            onClick={() => setConfirmClose(true)}
-            className="text-downvote/60 hover:text-downvote flex items-center gap-1.5 transition-colors text-[13px]"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-            End Session
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Sidebar toggle — desktop only */}
+            <button
+              onClick={() => setSidebarOpen((p) => !p)}
+              className="hidden lg:inline-flex p-1.5 rounded-lg text-white/40 hover:text-white/70 hover:bg-white/5 transition-colors"
+              title={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
+            <button
+              onClick={() => setConfirmClose(true)}
+              className="text-downvote/60 hover:text-downvote flex items-center gap-1.5 transition-colors text-[13px]"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+              End Session
+            </button>
+          </div>
           <div className="flex items-center gap-2">
             {guestCount > 0 && (
               <button
                 onClick={() => { setShowGuests(!showGuests); setShowQR(false); setShowSettings(false); setShowSearch(false); onSearchChange(""); if (!showGuests) { fetchGuestDetails(); scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' }); } }}
-                className={`flex items-center gap-1.5 text-[13px] px-2.5 py-1.5 rounded-xl transition-colors ${
+                className={`lg:hidden flex items-center gap-1.5 text-[13px] px-2.5 py-1.5 rounded-xl transition-colors ${
                   showGuests ? "text-accent bg-accent/10" : "text-white/40 hover:text-white/70 hover:bg-white/5"
                 }`}
               >
@@ -2013,8 +2052,8 @@ function DashboardInner({ user }: { user: any }) {
             </p>
           </div>
 
-          {/* Search bar + action buttons */}
-          <div className="relative">
+          {/* Search bar + action buttons — mobile only */}
+          <div className="relative lg:hidden">
           <div className="flex gap-2">
             <div className="flex-1 relative" ref={searchBarRef}>
               <svg className="w-4 h-4 text-white/30 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2081,10 +2120,10 @@ function DashboardInner({ user }: { user: any }) {
 
       {activeRoom && (
         <>
-          {/* Scrollable content area */}
+          {/* Scrollable content area — MOBILE */}
           <div
             ref={scrollRef}
-            className={`flex-1 overflow-y-auto overscroll-none px-4 pt-4 pb-20 lg:px-6 relative z-10 transition-opacity duration-200 ${showSearch ? "opacity-30 pointer-events-none" : ""}`}
+            className={`flex-1 overflow-y-auto overscroll-none px-4 pt-4 pb-20 relative z-10 transition-opacity duration-200 lg:hidden ${showSearch ? "opacity-30 pointer-events-none" : ""}`}
           >
           {/* Pull-to-refresh indicator */}
           {pullDistance > 0 && (
@@ -2101,9 +2140,9 @@ function DashboardInner({ user }: { user: any }) {
             </div>
           )}
 
-          <div className={`${(showQR || showSettings || showGuests) ? "lg:grid lg:grid-cols-[1fr_1.5fr] lg:gap-6 xl:gap-8" : ""}`}>
+          <div>
           {/* Left column: Now Playing, Controls, Panels */}
-          <div className={`${!(showQR || showSettings || showGuests) ? "lg:hidden" : ""}`}>
+          <div>
 
           {/* Song added toast */}
           {songAddedToast && (
@@ -2651,7 +2690,7 @@ function DashboardInner({ user }: { user: any }) {
             <h3 className="text-lg font-semibold">Queue</h3>
             <span className="text-white/25 text-xs">{(activeRoom.songs?.filter((s: any) => !s.isPlaying) || []).length} songs</span>
           </div>
-          <div ref={dragIdx === null ? songListRef : undefined} className={`space-y-1.5 pb-8 ${!(showQR || showSettings || showGuests) ? "lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0" : ""}`}>
+          <div ref={dragIdx === null ? songListRef : undefined} className="space-y-1.5 pb-8">
             {(() => {
               const queueSongs = activeRoom.songs?.filter((s: any) => !s.isPlaying) || [];
               // Build display order: if dragging, show reordered preview
@@ -2828,9 +2867,9 @@ function DashboardInner({ user }: { user: any }) {
                     {song.addedByName && (
                       <p className="text-accent text-xs truncate">Req&apos;d by {song.addedByName?.split(" ")[0] || song.addedByName}</p>
                     )}
-                    {/* BPM / Energy badges — desktop only */}
+                    {/* BPM / Energy badges */}
                     {(song.tempo || song.energy !== null) && (
-                      <div className="hidden lg:flex items-center gap-1.5 mt-0.5">
+                      <div className="hidden items-center gap-1.5 mt-0.5">
                         {song.tempo != null && (
                           <span className="text-[10px] text-white/30 font-medium tabular-nums">{Math.round(song.tempo)} BPM</span>
                         )}
@@ -2844,10 +2883,10 @@ function DashboardInner({ user }: { user: any }) {
                     )}
                   </button>
                   <div className="flex items-center gap-1">
-                    {/* Preview button — desktop only */}
+                    {/* Preview button */}
                     <button
                       onClick={() => openPreview(song.spotifyUri, song.trackName, song.artistName, song.albumArt || undefined)}
-                      className={`hidden lg:flex w-7 h-7 rounded-lg items-center justify-center transition-colors ${previewTrackId === song.spotifyUri.replace("spotify:track:", "") ? "text-accent bg-accent/10" : "text-white/20 hover:text-white/40 hover:bg-white/[0.04]"}`}
+                      className={`hidden w-7 h-7 rounded-lg items-center justify-center transition-colors ${previewTrackId === song.spotifyUri.replace("spotify:track:", "") ? "text-accent bg-accent/10" : "text-white/20 hover:text-white/40 hover:bg-white/[0.04]"}`}
                       title="Preview"
                     >
                       {previewTrackId === song.spotifyUri.replace("spotify:track:", "") ? (
@@ -2970,7 +3009,506 @@ function DashboardInner({ user }: { user: any }) {
             })()}
           </div>
 
-          {/* Remove confirmation modal */}
+          </div>
+          </div>
+          </div>
+
+          {/* ═══════════════════════════════════════════════════════════════
+              DESKTOP LAYOUT — hidden on mobile, flex on lg+
+              ═══════════════════════════════════════════════════════════════ */}
+          <div className={`hidden lg:flex flex-1 overflow-hidden relative z-10 transition-opacity duration-200 ${showSearch ? "opacity-30 pointer-events-none" : ""}`}>
+            {/* Desktop Sidebar */}
+            <aside className={`flex-shrink-0 border-r border-white/[0.06] overflow-y-auto transition-all duration-200 ${sidebarOpen ? "w-[280px]" : "w-0 overflow-hidden border-r-0"}`}>
+              <div className="p-4 space-y-1 w-[280px]">
+                {/* Sidebar: Search */}
+                <button
+                  onClick={() => setSidebarSection(sidebarSection === "search" ? null : "search")}
+                  className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition-colors hover:bg-white/[0.04] text-white/70"
+                >
+                  <span className="flex items-center gap-2">
+                    <svg className="w-4 h-4 text-white/40" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                    Search
+                  </span>
+                  <svg className={`w-3.5 h-3.5 text-white/30 transition-transform ${sidebarSection === "search" ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                </button>
+                {sidebarSection === "search" && (
+                  <div className="px-2 pb-3">
+                    <div className="relative" ref={searchBarRef}>
+                      <svg className="w-4 h-4 text-white/30 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                      <input
+                        type="text"
+                        value={searchQuery}
+                        onChange={(e) => onSearchChange(e.target.value)}
+                        onFocus={() => { setShowSearch(true); }}
+                        placeholder="Add songs..."
+                        className="w-full pl-9 pr-8 py-2 bg-white/[0.06] border border-white/[0.08] rounded-xl text-sm placeholder:text-white/25 focus:outline-none focus:border-accent/40 focus:bg-white/[0.08] transition-colors"
+                      />
+                      {searchQuery && (
+                        <button onClick={() => { onSearchChange(""); setShowSearch(false); }} className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-white/30 hover:text-white/60">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Sidebar: Share */}
+                <button
+                  onClick={() => setSidebarSection(sidebarSection === "share" ? null : "share")}
+                  className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition-colors hover:bg-white/[0.04] text-white/70"
+                >
+                  <span className="flex items-center gap-2">
+                    <svg className="w-4 h-4 text-white/40" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg>
+                    Share
+                  </span>
+                  <svg className={`w-3.5 h-3.5 text-white/30 transition-transform ${sidebarSection === "share" ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                </button>
+                {sidebarSection === "share" && (
+                  <div className="px-2 pb-3 flex flex-col items-center">
+                    <QRCodeSVG value={roomUrl} size={140} bgColor="transparent" fgColor="#ffffff" level="M" />
+                    <p className="text-text-secondary text-xs mt-2">Scan to join</p>
+                    <p className="font-mono text-xl text-accent font-bold mt-1 select-text">{activeRoom.code}</p>
+                    <div className="flex items-center gap-2 mt-2 w-full">
+                      <button
+                        onClick={() => { navigator.clipboard.writeText(roomUrl); setLinkCopied(true); setTimeout(() => setLinkCopied(false), 2000); }}
+                        className="flex-1 px-3 py-1.5 bg-accent/15 text-accent text-xs font-medium rounded-lg hover:bg-accent/25 transition-colors"
+                      >
+                        {linkCopied ? "Copied!" : "Copy Link"}
+                      </button>
+                      {typeof navigator !== "undefined" && "share" in navigator && (
+                        <button
+                          onClick={() => navigator.share({ title: `Join ${activeRoom?.name}`, text: `Vote on songs at ${activeRoom?.name}!`, url: roomUrl })}
+                          className="flex-1 px-3 py-1.5 bg-bg-card-hover text-white text-xs font-medium rounded-lg hover:bg-border transition-colors"
+                        >
+                          Share
+                        </button>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => window.open(`/room/${activeRoom.code}/display`, '_blank')}
+                      className="mt-2 flex items-center justify-center gap-1.5 px-3 py-1.5 w-full bg-bg-card-hover text-text-secondary text-xs font-medium rounded-lg hover:bg-border hover:text-white transition-colors"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                      TV Display
+                    </button>
+                  </div>
+                )}
+
+                {/* Sidebar: Guests */}
+                <button
+                  onClick={() => { setSidebarSection(sidebarSection === "guests" ? null : "guests"); if (sidebarSection !== "guests") fetchGuestDetails(); }}
+                  className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition-colors hover:bg-white/[0.04] text-white/70"
+                >
+                  <span className="flex items-center gap-2">
+                    <svg className="w-4 h-4 text-white/40" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                    Guests ({guestCount})
+                  </span>
+                  <svg className={`w-3.5 h-3.5 text-white/30 transition-transform ${sidebarSection === "guests" ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                </button>
+                {sidebarSection === "guests" && (
+                  <div className="pb-3">
+                    {selectedGuest ? (
+                      <div className="px-2">
+                        <button onClick={() => { setSelectedGuest(null); setExpandedGuestSection(null); }} className="text-accent text-xs mb-2 hover:text-accent-hover">&larr; Back</button>
+                        <p className="font-semibold">{selectedGuest.name}</p>
+                        <p className="text-text-secondary text-[10px] mb-2">Joined {new Date(selectedGuest.joinedAt).toLocaleTimeString()}</p>
+                        <div className="grid grid-cols-3 gap-1.5 mb-3">
+                          {[
+                            { key: "totalVotes", label: "Votes", value: selectedGuest.totalVotes, color: "text-accent" },
+                            { key: "upvotes", label: "Up", value: selectedGuest.totalUpvotes, color: "text-upvote" },
+                            { key: "downvotes", label: "Down", value: selectedGuest.totalDownvotes, color: "text-downvote" },
+                            { key: "activeVotes", label: "Active", value: selectedGuest.activeVotes?.length || 0, color: "text-blue-400" },
+                            { key: "songsAdded", label: "Added", value: selectedGuest.songsAdded?.length || 0, color: "text-purple-400" },
+                            { key: "requests", label: "Reqs", value: selectedGuest.requests?.length || 0, color: "text-yellow-500" },
+                          ].map((sec) => (
+                            <button key={sec.key} onClick={() => setExpandedGuestSection((prev: string | null) => prev === sec.key ? null : sec.key)} className={`bg-bg-primary rounded-lg p-1.5 text-center border ${expandedGuestSection === sec.key ? "border-white/20" : "border-transparent"}`}>
+                              <p className={`text-sm font-bold ${sec.color}`}>{sec.value}</p>
+                              <p className="text-[9px] text-text-secondary">{sec.label}</p>
+                            </button>
+                          ))}
+                        </div>
+                        {expandedGuestSection === "activeVotes" && selectedGuest.activeVotes?.length > 0 && (
+                          <div className="space-y-1 max-h-32 overflow-y-auto">
+                            {selectedGuest.activeVotes.map((v: any, i: number) => (
+                              <div key={i} className="flex items-center gap-2 py-1 px-2 rounded-lg bg-bg-primary text-xs">
+                                <span className={v.value === 1 ? "text-upvote" : "text-downvote"}>{v.value === 1 ? "\u25B2" : "\u25BC"}</span>
+                                <span className="truncate">{v.trackName}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {expandedGuestSection === "songsAdded" && selectedGuest.songsAdded?.length > 0 && (
+                          <div className="space-y-1 max-h-32 overflow-y-auto">
+                            {selectedGuest.songsAdded.map((s: any, i: number) => (
+                              <div key={i} className="flex items-center gap-2 py-1 px-2 rounded-lg bg-bg-primary text-xs truncate">{s.trackName}</div>
+                            ))}
+                          </div>
+                        )}
+                        {expandedGuestSection === "requests" && selectedGuest.requests?.length > 0 && (
+                          <div className="space-y-1 max-h-32 overflow-y-auto">
+                            {selectedGuest.requests.map((r: any, i: number) => (
+                              <div key={i} className="flex items-center justify-between py-1 px-2 rounded-lg bg-bg-primary text-xs">
+                                <span className="truncate">{r.trackName}</span>
+                                <span className={`flex-shrink-0 ${r.status === "approved" ? "text-upvote" : r.status === "rejected" ? "text-downvote" : "text-yellow-500"}`}>{r.status}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="max-h-48 overflow-y-auto divide-y divide-border/50">
+                        {guestList.length === 0 ? (
+                          <p className="px-3 py-3 text-text-secondary text-xs text-center">No guests yet</p>
+                        ) : (
+                          guestList.map((g: any) => (
+                            <button key={g.id} onClick={() => { setSelectedGuest(g); setExpandedGuestSection(null); }} className="w-full flex items-center justify-between px-3 py-2 hover:bg-bg-card-hover transition-colors text-left">
+                              <div className="min-w-0">
+                                <p className="text-xs font-medium truncate">{g.name || "Anonymous"}</p>
+                                <p className="text-text-secondary text-[10px]">{g.totalVotes} vote{g.totalVotes !== 1 ? "s" : ""}{g.songsAdded?.length > 0 && ` \u00B7 ${g.songsAdded.length} added`}</p>
+                              </div>
+                              <svg className="w-3.5 h-3.5 text-text-secondary flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Sidebar: Settings */}
+                <button
+                  onClick={() => setSidebarSection(sidebarSection === "settings" ? null : "settings")}
+                  className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition-colors hover:bg-white/[0.04] text-white/70"
+                >
+                  <span className="flex items-center gap-2">
+                    <svg className="w-4 h-4 text-white/40" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                    Settings
+                  </span>
+                  <svg className={`w-3.5 h-3.5 text-white/30 transition-transform ${sidebarSection === "settings" ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                </button>
+                {sidebarSection === "settings" && (
+                  <div className="px-2 pb-3 space-y-3">
+                    <div>
+                      <label className="block text-xs font-medium text-text-secondary mb-1">Room Name</label>
+                      <input type="text" defaultValue={activeRoom.name} onBlur={(e) => { const val = e.target.value.trim(); if (val && val !== activeRoom.name) saveSettings({ name: val } as any); }} className="w-full px-3 py-1.5 bg-bg-primary border border-border rounded-lg text-xs focus:outline-none focus:border-accent" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <NumInput label="Votes/User" value={activeRoom.votesPerUser} min={1} max={50} onSave={(v) => saveSettings({ votesPerUser: v } as any)} />
+                      <NumInput label="Reset (min)" value={activeRoom.voteResetMinutes} min={1} max={1440} onSave={(v) => saveSettings({ voteResetMinutes: v } as any)} />
+                    </div>
+                    <NumInput label="Songs/Guest (0=unlimited)" value={activeRoom.maxSongsPerGuest ?? 0} min={0} max={50} onSave={(v) => saveSettings({ maxSongsPerGuest: v } as any)} />
+                    <NumInput label="Queue Display Size" value={activeRoom.queueDisplaySize ?? 50} min={10} max={500} onSave={(v) => saveSettings({ queueDisplaySize: v } as any)} />
+                    <div>
+                      <label className="block text-xs font-medium text-text-secondary mb-1">Max Song Duration (s)</label>
+                      <div className="flex gap-1">
+                        {[0, 30, 60, 90, 120].map((sec) => (
+                          <button key={sec} onClick={() => saveSettings({ maxSongDurationSec: sec } as any)} className={`flex-1 py-1.5 rounded-lg text-[10px] font-medium transition-colors ${(activeRoom.maxSongDurationSec ?? 0) === sec ? "bg-accent/20 text-accent border border-accent/30" : "bg-bg-primary border border-border text-text-secondary hover:bg-bg-card-hover"}`}>{sec === 0 ? "Full" : `${sec}s`}</button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-text-secondary mb-1">Queue Order</label>
+                      <div className="flex gap-1 bg-white/[0.04] rounded-lg p-0.5">
+                        {[{ value: "votes", label: "Votes" }, { value: "playlist", label: "Playlist" }, { value: "manual", label: "Manual" }].map(opt => (
+                          <button key={opt.value} onClick={() => saveSettings({ sortMode: opt.value } as any)} className={`flex-1 py-1.5 text-[10px] font-medium rounded-md transition-colors ${(activeRoom.sortMode || (activeRoom.autoShuffle ? "votes" : "manual")) === opt.value ? "bg-accent text-black" : "text-white/50 hover:text-white/70"}`}>{opt.label}</button>
+                        ))}
+                      </div>
+                    </div>
+                    <ToggleSwitch enabled={activeRoom.requireApproval} onToggle={() => saveSettings({ requireApproval: !activeRoom.requireApproval } as any)} label="Require Approval" />
+                    <ToggleSwitch enabled={activeRoom.votingPaused ?? false} onToggle={() => saveSettings({ votingPaused: !(activeRoom.votingPaused ?? false) } as any)} label="Pause Voting" />
+                    <ToggleSwitch enabled={activeRoom.explicitFilter ?? false} onToggle={() => saveSettings({ explicitFilter: !(activeRoom.explicitFilter ?? false) } as any)} label="Explicit Filter" />
+                    <ToggleSwitch enabled={activeRoom.allowDuplicates ?? false} onToggle={() => saveSettings({ allowDuplicates: !(activeRoom.allowDuplicates ?? false) } as any)} label="Allow Replays" />
+                    <ToggleSwitch
+                      enabled={notificationsEnabled}
+                      onToggle={async () => {
+                        if (notificationsEnabled) { setNotificationsEnabled(false); } else if ("Notification" in window) {
+                          const perm = await Notification.requestPermission();
+                          setNotificationsEnabled(perm === "granted");
+                        }
+                      }}
+                      label="Notifications"
+                    />
+                    <div>
+                      <label className="block text-xs font-medium text-text-secondary mb-1">Blocked Artists</label>
+                      <BlockedArtistInput blockedArtists={activeRoom.blockedArtists || ""} onAdd={(artist: string) => { const current = (activeRoom.blockedArtists || "").split(",").map((s) => s.trim()).filter(Boolean); if (current.some((a) => a.toLowerCase() === artist.toLowerCase())) return; saveSettings({ blockedArtists: [...current, artist].join(",") } as any); }} />
+                      {(activeRoom.blockedArtists || "").split(",").filter((a) => a.trim()).length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1.5">
+                          {(activeRoom.blockedArtists || "").split(",").map((a) => a.trim()).filter(Boolean).map((artist) => (
+                            <span key={artist} className="inline-flex items-center gap-0.5 px-2 py-0.5 bg-downvote/10 text-downvote/80 border border-downvote/20 rounded-full text-[10px]">
+                              {artist}
+                              <button onClick={() => { const current = (activeRoom.blockedArtists || "").split(",").map((s) => s.trim()).filter(Boolean); saveSettings({ blockedArtists: current.filter((a) => a.toLowerCase() !== artist.toLowerCase()).join(",") } as any); }} className="ml-0.5 hover:text-downvote"><svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </aside>
+
+            {/* Desktop Main Queue Area */}
+            <div ref={desktopScrollRef} className="flex-1 overflow-y-auto px-6 pt-4 pb-20" onScroll={() => {
+              if (autoScrollTimer.current) clearTimeout(autoScrollTimer.current);
+              autoScrollTimer.current = setTimeout(() => {
+                if (nowPlayingRef.current) nowPlayingRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+              }, 10000);
+            }}>
+              {/* Song added toast */}
+              {songAddedToast && (
+                <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[200] px-4 py-2 bg-bg-card border border-accent/30 rounded-xl text-sm text-center text-accent shadow-lg animate-pulse">
+                  {songAddedToast}
+                </div>
+              )}
+
+              {/* Play error */}
+              {playError && (
+                <div className="mb-3 px-4 py-2 bg-downvote/10 border border-downvote/20 rounded-xl text-sm text-center text-downvote">{playError}</div>
+              )}
+
+              {/* Now Playing Card — desktop */}
+              {nowPlaying && (
+                <div ref={nowPlayingRef} className="mb-6 p-4 bg-gradient-to-r from-accent/10 to-transparent border border-accent/20 rounded-2xl flex items-center gap-4">
+                  {nowPlaying.albumArt ? (
+                    <img src={nowPlaying.albumArt} alt="" className={`w-16 h-16 rounded-xl shadow-lg flex-shrink-0 ${isFading ? "opacity-50" : ""}`} />
+                  ) : (
+                    <div className="w-16 h-16 rounded-xl bg-bg-card-hover flex items-center justify-center flex-shrink-0">
+                      <svg className="w-6 h-6 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" /></svg>
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] font-semibold text-accent uppercase tracking-wider mb-0.5">Now Playing</p>
+                    <p className={`text-lg font-bold truncate ${isFading ? "text-white/40" : ""}`}>{nowPlaying.trackName}</p>
+                    <p className={`text-sm truncate ${isFading ? "text-accent/60 animate-pulse" : "text-text-secondary"}`}>{isFading ? "Fading out..." : nowPlaying.artistName}</p>
+                  </div>
+                  {durationMs > 0 && (
+                    <div className="text-right flex-shrink-0">
+                      <p className="text-xs text-text-secondary tabular-nums">{formatDuration(durationMs)}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Pending Requests — desktop */}
+              {activeRoom.requireApproval && requests.length > 0 && (
+                <div className="mb-6">
+                  <h3 className="text-base font-semibold mb-3">Pending Requests ({requests.length})</h3>
+                  <div className="space-y-2">
+                    {requests.map((req) => (
+                      <div key={req.id} className="flex items-center gap-3 p-3 bg-bg-card border border-border rounded-xl">
+                        <button onClick={() => openPreview(req.spotifyUri, req.trackName, req.artistName, req.albumArt || undefined)} className={`relative w-10 h-10 rounded-lg flex-shrink-0 overflow-hidden group ${previewTrackId === req.spotifyUri.replace("spotify:track:", "") ? "ring-2 ring-accent" : ""}`}>
+                          {req.albumArt && <img src={req.albumArt} alt="" className="w-full h-full object-cover" />}
+                          <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"><svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div>
+                        </button>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-sm truncate">{req.trackName}</p>
+                          <p className="text-text-secondary text-xs truncate">{req.artistName}</p>
+                          {req.requestedByName && <p className="text-accent text-xs truncate">{req.requestedByName}</p>}
+                        </div>
+                        <div className="flex gap-2">
+                          <button onClick={() => handleRequest(req.id, "approve")} className="p-2 bg-upvote/20 text-upvote rounded-lg hover:bg-upvote/30 transition-colors"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg></button>
+                          <button onClick={() => handleRequest(req.id, "reject")} className="p-2 bg-downvote/20 text-downvote rounded-lg hover:bg-downvote/30 transition-colors"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Queue header — desktop */}
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-base font-semibold">Queue</h3>
+                <span className="text-white/25 text-xs">{(activeRoom.songs?.filter((s: any) => !s.isPlaying) || []).length} songs</span>
+              </div>
+
+              {/* Column headers — desktop table */}
+              <div className="flex items-center gap-3 px-3 py-2 text-[10px] font-semibold text-white/30 uppercase tracking-wider border-b border-white/[0.06] mb-1">
+                <span className="w-8 text-center">#</span>
+                <span className="flex-1">Title</span>
+                <span className="w-32">Artist</span>
+                <span className="w-12 text-right">Time</span>
+                <span className="w-16 text-center">Votes</span>
+                <span className="w-8"></span>
+              </div>
+
+              {/* Song rows — desktop table */}
+              <div>
+                {(() => {
+                  const queueSongs = activeRoom.songs?.filter((s: any) => !s.isPlaying) || [];
+                  const displaySongs = dragIdx !== null && overIdx !== null && dragIdx !== overIdx
+                    ? (() => { const arr = [...queueSongs]; const [moved] = arr.splice(dragIdx, 1); arr.splice(overIdx, 0, moved); return arr; })()
+                    : queueSongs;
+
+                  return displaySongs.map((song: any, i: number) => (
+                    <div
+                      key={song.id}
+                      className={`group flex items-center gap-3 px-3 py-2 rounded-lg transition-colors hover:bg-white/[0.03] ${
+                        song.isLocked && activeRoom.lastPreQueuedId === song.id ? "bg-accent/8" : song.isLocked ? "bg-yellow-500/5" : ""
+                      } ${dragIdx !== null && overIdx === i ? "ring-1 ring-accent/40" : ""}`}
+                    >
+                      {/* Drag handle — visible on hover */}
+                      <div
+                        className="w-8 flex items-center justify-center flex-shrink-0 cursor-grab active:cursor-grabbing touch-none select-none"
+                        onPointerDown={(e) => {
+                          e.preventDefault();
+                          isDragging.current = true;
+                          (e.target as HTMLElement).setPointerCapture(e.pointerId);
+                          const card = e.currentTarget.parentElement as HTMLElement;
+                          const rect = card?.getBoundingClientRect();
+                          dragItemHeight.current = rect?.height ?? 44;
+                          dragStartY.current = e.clientY;
+                          dragSongs.current = [...queueSongs];
+                          setDragIdx(i);
+                          setOverIdx(i);
+                          let scrollRAF = 0;
+                          let lastPointerY = e.clientY;
+                          const EDGE_ZONE = 80;
+                          const MAX_SCROLL_SPEED = 2;
+                          const scrollEl = desktopScrollRef.current;
+                          const autoScroll = () => {
+                            if (!scrollEl) { scrollRAF = requestAnimationFrame(autoScroll); return; }
+                            const rect = scrollEl.getBoundingClientRect();
+                            const distFromTop = lastPointerY - rect.top;
+                            const distFromBottom = rect.bottom - lastPointerY;
+                            let scrollDelta = 0;
+                            if (distFromTop < EDGE_ZONE && distFromTop >= 0) scrollDelta = -Math.ceil(MAX_SCROLL_SPEED * (1 - distFromTop / EDGE_ZONE));
+                            else if (distFromBottom < EDGE_ZONE && distFromBottom >= 0) scrollDelta = Math.ceil(MAX_SCROLL_SPEED * (1 - distFromBottom / EDGE_ZONE));
+                            if (scrollDelta !== 0) { const before = scrollEl.scrollTop; scrollEl.scrollBy(0, scrollDelta); dragStartY.current -= (scrollEl.scrollTop - before); const delta = lastPointerY - dragStartY.current; const off = Math.round(delta / (dragItemHeight.current + 4)); setOverIdx(Math.max(0, Math.min(queueSongs.length - 1, i + off))); }
+                            scrollRAF = requestAnimationFrame(autoScroll);
+                          };
+                          scrollRAF = requestAnimationFrame(autoScroll);
+                          const onMove = (ev: PointerEvent) => { lastPointerY = ev.clientY; const delta = ev.clientY - dragStartY.current; const offset = Math.round(delta / (dragItemHeight.current + 4)); setOverIdx(Math.max(0, Math.min(queueSongs.length - 1, i + offset))); };
+                          const onUp = (ev: PointerEvent) => {
+                            isDragging.current = false;
+                            cancelAnimationFrame(scrollRAF);
+                            try { (ev.target as HTMLElement).releasePointerCapture(ev.pointerId); } catch {}
+                            window.removeEventListener("pointermove", onMove);
+                            window.removeEventListener("pointerup", onUp);
+                            ev.preventDefault();
+                            const absorbClick = (e: MouseEvent) => { e.stopPropagation(); e.preventDefault(); };
+                            window.addEventListener("click", absorbClick, { capture: true, once: true });
+                            setTimeout(() => window.removeEventListener("click", absorbClick, { capture: true }), 400);
+                            setDragIdx((prevDrag) => { setOverIdx((prevOver) => { if (prevDrag !== null && prevOver !== null && prevDrag !== prevOver) { const arr = [...dragSongs.current]; const movedSong = arr[prevDrag]; const [moved] = arr.splice(prevDrag, 1); arr.splice(prevOver, 0, moved); setActiveRoom((prev) => { if (!prev) return null; const playing = prev.songs?.filter((s: any) => s.isPlaying) || []; return { ...prev, songs: [...playing, ...arr] }; }); saveOrder(arr, movedSong.id); } return null; }); return null; });
+                          };
+                          window.addEventListener("pointermove", onMove);
+                          window.addEventListener("pointerup", onUp);
+                        }}
+                      >
+                        <svg className="w-3 h-3 text-white/0 group-hover:text-white/20 transition-colors" viewBox="0 0 24 24" fill="currentColor">
+                          <circle cx="9" cy="7" r="1.5" /><circle cx="15" cy="7" r="1.5" /><circle cx="9" cy="12" r="1.5" /><circle cx="15" cy="12" r="1.5" /><circle cx="9" cy="17" r="1.5" /><circle cx="15" cy="17" r="1.5" />
+                        </svg>
+                        <span className="text-white/30 text-xs font-medium group-hover:hidden">
+                          {song.isLocked && activeRoom.lastPreQueuedId !== song.id ? (
+                            <svg className="w-3.5 h-3.5 text-yellow-500 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                          ) : i + 1}
+                        </span>
+                      </div>
+
+                      {/* Album art + Title + Requester */}
+                      <div className="flex-1 flex items-center gap-3 min-w-0">
+                        <button onClick={() => openPreview(song.spotifyUri, song.trackName, song.artistName, song.albumArt || undefined)} className={`relative w-9 h-9 rounded-md flex-shrink-0 overflow-hidden group/art ${previewTrackId === song.spotifyUri.replace("spotify:track:", "") ? "ring-2 ring-accent" : ""}`}>
+                          {song.albumArt ? <img src={song.albumArt} alt="" className="w-9 h-9 rounded-md" /> : <div className="w-9 h-9 rounded-md bg-bg-card-hover" />}
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/art:opacity-100 transition-opacity flex items-center justify-center"><svg className="w-3.5 h-3.5 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div>
+                        </button>
+                        <div className="min-w-0">
+                          {song.isLocked && activeRoom.lastPreQueuedId === song.id && <p className="text-[9px] font-semibold text-accent uppercase tracking-wider">Queued Next</p>}
+                          {song.isLocked && activeRoom.lastPreQueuedId !== song.id && (activeRoom.sortMode || (activeRoom.autoShuffle ? "votes" : "manual")) !== "playlist" && <p className="text-[9px] font-semibold text-yellow-500 uppercase tracking-wider">DJ Locked</p>}
+                          <p className="text-sm font-medium truncate">{song.trackName}</p>
+                          {song.addedByName && <p className="text-accent text-[10px] truncate">by {song.addedByName?.split(" ")[0] || song.addedByName}</p>}
+                        </div>
+                      </div>
+
+                      {/* Artist */}
+                      <span className="w-32 text-xs text-text-secondary truncate">{song.artistName}</span>
+
+                      {/* Duration */}
+                      <span className="w-12 text-right text-xs text-white/30 tabular-nums">{song.durationMs ? formatDuration(song.durationMs) : "--:--"}</span>
+
+                      {/* Votes */}
+                      <div className="w-16 text-center">
+                        {!song.isLocked && (() => {
+                          const net = song.upvotes - song.downvotes;
+                          const hasVotes = song.upvotes > 0 || song.downvotes > 0;
+                          return (
+                            <span className={`text-xs font-semibold tabular-nums ${net > 0 ? "text-upvote" : net < 0 ? "text-downvote" : "text-white/20"}`}>
+                              {hasVotes ? (net > 0 ? `+${net}` : net) : "\u00B7"}
+                            </span>
+                          );
+                        })()}
+                      </div>
+
+                      {/* Overflow menu */}
+                      <div className="w-8 relative">
+                        <button onClick={() => setSongMenuOpen(songMenuOpen === song.id ? null : song.id)} className={`p-1 rounded-lg transition-colors ${songMenuOpen === song.id ? "text-white/60 bg-white/[0.08]" : "text-white/0 group-hover:text-white/30 hover:text-white/50 hover:bg-white/[0.04]"}`}>
+                          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="6" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="12" cy="18" r="1.5" /></svg>
+                        </button>
+                        {songMenuOpen === song.id && (
+                          <>
+                            <div className="fixed inset-0 z-40" onClick={() => setSongMenuOpen(null)} />
+                            <div className="absolute right-0 top-full mt-1 z-50 bg-bg-card border border-white/[0.1] rounded-xl shadow-2xl overflow-hidden min-w-[160px]">
+                              <div className="flex items-center">
+                                <button onClick={() => { lockSong(song.id); setSongMenuOpen(null); }} className="flex-1 flex items-center gap-2.5 px-3.5 py-2.5 text-sm hover:bg-white/[0.06] transition-colors text-left">
+                                  <svg className={`w-4 h-4 ${song.isLocked ? "text-yellow-500" : "text-white/40"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>{song.isLocked ? <path strokeLinecap="round" strokeLinejoin="round" d="M8 11V7a4 4 0 118 0m-4 8v2m-2 4h4a2 2 0 002-2v-6a2 2 0 00-2-2H10a2 2 0 00-2 2v6a2 2 0 002 2z" /> : <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />}</svg>
+                                  <span className={song.isLocked ? "text-yellow-500" : ""}>{song.isLocked ? "Unlock" : "DJ Lock"}</span>
+                                </button>
+                                {!song.isLocked && (
+                                  <select className="mr-2 bg-bg-primary border border-border rounded-lg text-[11px] px-1 py-1 focus:outline-none focus:border-accent text-text-secondary" value="" onChange={(e) => { const pos = Number(e.target.value); if (!pos) return; lockSong(song.id, pos - 1); setSongMenuOpen(null); setSongAddedToast(`"${song.trackName}" locked at #${pos}`); setTimeout(() => setSongAddedToast(""), 3000); }}>
+                                    <option value="">at #</option>
+                                    {queueSongs.map((_: any, idx: number) => <option key={idx} value={idx + 1}>#{idx + 1}</option>)}
+                                  </select>
+                                )}
+                              </div>
+                              <button onClick={() => { handleRemoveClick(song.id, song.trackName, song.spotifyUri); setSongMenuOpen(null); }} className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm hover:bg-downvote/10 transition-colors text-left text-downvote/80">
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                Remove
+                              </button>
+                              <button onClick={() => { const artist = song.artistName?.trim(); if (!artist) { setSongMenuOpen(null); return; } const current = (activeRoom.blockedArtists || "").split(",").map((s: string) => s.trim()).filter(Boolean); if (!current.some((a: string) => a.toLowerCase() === artist.toLowerCase())) { saveSettings({ blockedArtists: [...current, artist].join(",") } as any); } setSongMenuOpen(null); }} className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm hover:bg-downvote/10 transition-colors text-left text-downvote/80">
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>
+                                Block Artist
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  ));
+                })()}
+              </div>
+
+              {/* Recently Played — desktop */}
+              {playedSongs.length > 0 && (
+                <div className="mt-6 border-t border-white/[0.06] pt-4">
+                  <button onClick={() => setShowPlayed(!showPlayed)} className="flex items-center gap-2 text-sm font-semibold text-white/50 hover:text-white/70 transition-colors mb-2">
+                    <svg className={`w-3.5 h-3.5 transition-transform ${showPlayed ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                    Recently Played ({playedSongs.length})
+                  </button>
+                  {showPlayed && (
+                    <div className="space-y-0.5">
+                      {playedSongs.map((song: any) => (
+                        <div key={song.id} className="flex items-center gap-3 px-3 py-1.5 rounded-lg opacity-40">
+                          <div className="w-8 text-center text-white/20 text-xs">
+                            <svg className="w-3.5 h-3.5 mx-auto text-white/15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                          </div>
+                          <div className="flex-1 flex items-center gap-3 min-w-0">
+                            {song.albumArt ? <img src={song.albumArt} alt="" className="w-8 h-8 rounded-md grayscale" /> : <div className="w-8 h-8 rounded-md bg-bg-card-hover" />}
+                            <div className="min-w-0">
+                              <p className="text-xs font-medium truncate">{song.trackName}</p>
+                            </div>
+                          </div>
+                          <span className="w-32 text-[10px] text-text-secondary truncate">{song.artistName}</span>
+                          <span className="w-12 text-right text-[10px] text-white/20 tabular-nums">{song.durationMs ? formatDuration(song.durationMs) : ""}</span>
+                          <div className="w-16" />
+                          <div className="w-8" />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Shared modals — render outside mobile/desktop scroll containers */}
           {confirmRemove && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-6">
               <div className="bg-bg-card border border-border rounded-2xl p-6 max-w-sm w-full space-y-4">
@@ -3011,7 +3549,6 @@ function DashboardInner({ user }: { user: any }) {
             </div>
           )}
 
-          {/* Reorder override confirmation modal */}
           {confirmReorder && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-6">
               <div className="bg-bg-card border border-border rounded-2xl p-6 max-w-sm w-full space-y-4">
@@ -3057,7 +3594,6 @@ function DashboardInner({ user }: { user: any }) {
 
           {showHelp && <HelpGuide variant="host" onClose={() => setShowHelp(false)} />}
 
-          {/* Close room confirmation modal */}
           {confirmClose && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-6">
               <div className="bg-bg-card border border-border rounded-2xl p-6 max-w-sm w-full space-y-4">
@@ -3085,10 +3621,6 @@ function DashboardInner({ user }: { user: any }) {
               </div>
             </div>
           )}
-
-          </div>
-          </div>
-          </div>
 
           {/* Floating mini-player bar */}
           <MiniPlayer
