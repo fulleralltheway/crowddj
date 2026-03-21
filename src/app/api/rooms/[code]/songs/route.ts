@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { getAudioFeatures, getSpotifyToken } from "@/lib/spotify";
+import { getAudioFeatures } from "@/lib/spotify";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function GET(
@@ -151,9 +151,32 @@ async function backfillAudioFeatures(hostId: string, songs: { id: string; spotif
     const account = await prisma.account.findFirst({
       where: { userId: hostId, provider: "spotify" },
     });
-    if (!account?.refresh_token) return { error: "no_refresh_token" };
+    if (!account?.access_token) return { error: "no_access_token" };
 
-    const accessToken = await getSpotifyToken(account.refresh_token);
+    // Use existing access token, refresh only if expired (same pattern as sync endpoint)
+    let accessToken = account.access_token;
+    if (account.expires_at && account.expires_at * 1000 < Date.now()) {
+      if (!account.refresh_token) return { error: "no_refresh_token" };
+      const res = await fetch("https://accounts.spotify.com/api/token", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Authorization: `Basic ${Buffer.from(`${process.env.SPOTIFY_CLIENT_ID}:${process.env.SPOTIFY_CLIENT_SECRET}`).toString("base64")}`,
+        },
+        body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: account.refresh_token }),
+      });
+      const tokens = await res.json();
+      if (!res.ok) return { error: tokens.error_description || "token_refresh_failed" };
+      accessToken = tokens.access_token;
+      await prisma.account.update({
+        where: { id: account.id },
+        data: {
+          access_token: tokens.access_token,
+          expires_at: Math.floor(Date.now() / 1000 + tokens.expires_in),
+          refresh_token: tokens.refresh_token ?? account.refresh_token,
+        },
+      });
+    }
     const trackIds = songs
       .map((s) => s.spotifyUri.match(/spotify:track:(.+)/)?.[1])
       .filter((id): id is string => !!id);
