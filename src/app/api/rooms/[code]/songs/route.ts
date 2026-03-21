@@ -153,13 +153,14 @@ async function backfillBPM(
       try {
         const query = `${song.trackName} ${song.artistName}`;
         const res = await fetch(
-          `https://api.getsongbpm.com/search/?api_key=${apiKey}&type=song&lookup=${encodeURIComponent(query)}`,
+          `https://api.getsong.co/search/?api_key=${apiKey}&type=song&lookup=${encodeURIComponent(query)}`,
         );
         if (!res.ok) return;
         const data = await res.json();
-        const match = data.search?.find((s: any) =>
-          s.song_title?.toLowerCase().includes(song.trackName.toLowerCase().slice(0, 20))
-        );
+        const results = Array.isArray(data.search) ? data.search : [];
+        const match = results.find((s: any) =>
+          (s.title ?? s.song_title)?.toLowerCase().includes(song.trackName.toLowerCase().slice(0, 20))
+        ) ?? results[0];
         if (match?.tempo) {
           const tempo = parseFloat(match.tempo);
           if (!isNaN(tempo) && tempo > 0) {
