@@ -1,6 +1,9 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { reorderPlaylist } from "@/lib/spotify";
 import { NextRequest, NextResponse } from "next/server";
+
+export const maxDuration = 15;
 
 export async function POST(
   req: NextRequest,
@@ -38,6 +41,33 @@ export async function POST(
       })
     )
   );
+
+  // In playlist mode, push the new order to Spotify and sync playlistPosition
+  const sortMode = room.sortMode || (room.autoShuffle ? "votes" : "manual");
+  if (sortMode === "playlist") {
+    const orderedSongs = await prisma.roomSong.findMany({
+      where: { roomId: room.id, isPlayed: false, isPlaying: false },
+      orderBy: { sortOrder: "asc" },
+      select: { id: true, spotifyUri: true },
+    });
+    // Update playlistPosition to match new drag order
+    await Promise.all(
+      orderedSongs.map((s, i) =>
+        prisma.roomSong.update({ where: { id: s.id }, data: { playlistPosition: (playingSong ? i + 1 : i) } })
+      )
+    );
+    // Push to Spotify (fire-and-forget)
+    const account = await prisma.account.findFirst({
+      where: { userId: session.user.id, provider: "spotify" },
+    });
+    if (account?.access_token) {
+      const uris = [
+        ...(playingSong ? [playingSong.spotifyUri] : []),
+        ...orderedSongs.map(s => s.spotifyUri),
+      ];
+      reorderPlaylist(account.access_token, room.playlistId, uris).catch(() => {});
+    }
+  }
 
   return NextResponse.json({ success: true });
 }

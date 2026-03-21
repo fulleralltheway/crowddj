@@ -644,7 +644,18 @@ function DashboardInner({ user }: { user: any }) {
     // Fallback polling (slower when socket is connected, full speed when not)
     let pollCount = 0;
     let tabHidden = false;
-    const onVisChange = () => { tabHidden = document.hidden; };
+    const onVisChange = () => {
+      tabHidden = document.hidden;
+      // Auto-sync playlist when tab becomes visible in playlist mode
+      if (!document.hidden) {
+        const mode = activeRoomRef.current?.sortMode || (activeRoomRef.current?.autoShuffle ? "votes" : "manual");
+        if (mode === "playlist") {
+          fetch(`/api/rooms/${code}/sync-playlist`, { method: "POST" })
+            .then(() => refreshSongs(code))
+            .catch(() => {});
+        }
+      }
+    };
     document.addEventListener("visibilitychange", onVisChange);
     const interval = setInterval(async () => {
       if (tabHidden) return; // Skip polling when tab is backgrounded
@@ -1337,9 +1348,11 @@ function DashboardInner({ user }: { user: any }) {
   const commitReorder = async (songs: any[], movedSongId: string, forceLockOverride = false) => {
     if (!activeRoom) return;
     suppressSocketSongs.current = true;
+    const mode = activeRoom.sortMode || (activeRoom.autoShuffle ? "votes" : "manual");
+    const isPlaylistMode = mode === "playlist";
     const movedSong = songs.find((s: any) => s.id === movedSongId);
     const hasVotes = movedSong && (movedSong.upvotes - movedSong.downvotes) !== 0;
-    const willLock = forceLockOverride || hasVotes || movedSong?.isLocked;
+    const willLock = !isPlaylistMode && (forceLockOverride || hasVotes || movedSong?.isLocked);
     // Optimistically mark the moved song as locked (only if it will actually be locked)
     if (willLock) {
       setActiveRoom((prev) => {
@@ -1374,14 +1387,13 @@ function DashboardInner({ user }: { user: any }) {
     if (!activeRoom) return;
     const mode = activeRoom.sortMode || (activeRoom.autoShuffle ? "votes" : "manual");
     const movedSong = songs.find((s: any) => s.id === movedSongId);
-    if (mode === "votes" && !movedSong?.isLocked && !skipReorderConfirm) {
-      // Dragging in votes mode overrides auto-shuffle — confirm with user
-      setConfirmReorder({ songs, movedSongId });
-    } else if (mode === "playlist" && !movedSong?.isLocked && !skipReorderConfirm) {
-      // Dragging in playlist mode overrides playlist order — confirm with user
+    if (mode === "playlist") {
+      // Playlist mode: just reorder, no lock needed (pushes to Spotify via API)
+      commitReorder(songs, movedSongId, false);
+    } else if (mode === "votes" && !movedSong?.isLocked && !skipReorderConfirm) {
       setConfirmReorder({ songs, movedSongId });
     } else {
-      commitReorder(songs, movedSongId, mode !== "manual" && skipReorderConfirm);
+      commitReorder(songs, movedSongId, mode === "votes" && skipReorderConfirm);
     }
   };
 
@@ -2808,7 +2820,7 @@ function DashboardInner({ user }: { user: any }) {
                     {song.isLocked && activeRoom.lastPreQueuedId === song.id && (
                       <p className="text-[10px] font-semibold text-accent uppercase tracking-wider">Queued Next</p>
                     )}
-                    {song.isLocked && activeRoom.lastPreQueuedId !== song.id && (
+                    {song.isLocked && activeRoom.lastPreQueuedId !== song.id && (activeRoom.sortMode || (activeRoom.autoShuffle ? "votes" : "manual")) !== "playlist" && (
                       <p className="text-[10px] font-semibold text-yellow-500 uppercase tracking-wider">DJ Locked</p>
                     )}
                     <p className="font-medium text-sm truncate">{song.trackName}</p>

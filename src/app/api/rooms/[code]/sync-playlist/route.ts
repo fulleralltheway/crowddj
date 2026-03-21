@@ -82,8 +82,8 @@ export async function POST(
     return NextResponse.json({ error: "Not the room host" }, { status: 403 });
   }
 
-  // Throttle: skip if synced within last 30 seconds
-  if (room.lastPlaylistSync && Date.now() - room.lastPlaylistSync.getTime() < 30_000) {
+  // Throttle: skip if synced within last 10 seconds
+  if (room.lastPlaylistSync && Date.now() - room.lastPlaylistSync.getTime() < 10_000) {
     return NextResponse.json({ added: 0, throttled: true });
   }
 

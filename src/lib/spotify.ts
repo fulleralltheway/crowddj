@@ -229,6 +229,22 @@ export async function addTracksToPlaylist(
   }
 }
 
+export async function reorderPlaylist(
+  accessToken: string,
+  playlistId: string,
+  uris: string[]
+): Promise<boolean> {
+  const res = await fetch(`${SPOTIFY_API}/playlists/${playlistId}/tracks`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ uris }),
+  });
+  return res.ok;
+}
+
 export async function getAudioFeatures(
   accessToken: string,
   trackIds: string[]
