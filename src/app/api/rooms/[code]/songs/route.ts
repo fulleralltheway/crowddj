@@ -1,5 +1,4 @@
 import { prisma } from "@/lib/db";
-import { getAudioFeatures } from "@/lib/spotify";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function GET(
@@ -124,102 +123,58 @@ export async function GET(
     }
   }
 
-  // Lazy backfill: if any songs missing tempo, fetch audio features and update before returning
-  const needsBackfill = sorted.some((s) => s.tempo == null);
-  let backfillError: string | null = null;
-  if (needsBackfill) {
-    const result = await backfillAudioFeatures(room.hostId, sorted.filter((s) => s.tempo == null));
-    if (result.error) {
-      backfillError = result.error;
-    } else if (result.data) {
+  // Lazy backfill: if any songs missing tempo and GetSongBPM API key is configured
+  const apiKey = process.env.GETSONGBPM_API_KEY;
+  if (apiKey) {
+    const needsBackfill = sorted.filter((s) => s.tempo == null);
+    if (needsBackfill.length > 0) {
+      const updated = await backfillBPM(apiKey, needsBackfill);
       for (const song of sorted) {
-        const feat = result.data.get(song.id);
-        if (feat) Object.assign(song, feat);
+        const tempo = updated.get(song.id);
+        if (tempo != null) (song as any).tempo = tempo;
       }
     }
   }
 
-  const response = sorted as any[];
-  if (backfillError) {
-    return NextResponse.json({ songs: response, _backfillError: backfillError });
-  }
-  return NextResponse.json(response);
+  return NextResponse.json(sorted);
 }
 
-async function backfillAudioFeatures(hostId: string, songs: { id: string; spotifyUri: string }[]): Promise<{ data?: Map<string, { tempo: number; energy: number; danceability: number }>; error?: string }> {
-  try {
-    const account = await prisma.account.findFirst({
-      where: { userId: hostId, provider: "spotify" },
-    });
-    if (!account?.access_token) return { error: "no_access_token" };
+async function backfillBPM(
+  apiKey: string,
+  songs: { id: string; trackName: string; artistName: string }[]
+): Promise<Map<string, number>> {
+  const result = new Map<string, number>();
 
-    // Use existing access token, refresh only if expired (same pattern as sync endpoint)
-    let accessToken = account.access_token;
-    if (account.expires_at && account.expires_at * 1000 < Date.now()) {
-      if (!account.refresh_token) return { error: "no_refresh_token" };
-      const res = await fetch("https://accounts.spotify.com/api/token", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          Authorization: `Basic ${Buffer.from(`${process.env.SPOTIFY_CLIENT_ID}:${process.env.SPOTIFY_CLIENT_SECRET}`).toString("base64")}`,
-        },
-        body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: account.refresh_token }),
-      });
-      const tokens = await res.json();
-      if (!res.ok) return { error: tokens.error_description || "token_refresh_failed" };
-      accessToken = tokens.access_token;
-      await prisma.account.update({
-        where: { id: account.id },
-        data: {
-          access_token: tokens.access_token,
-          expires_at: Math.floor(Date.now() / 1000 + tokens.expires_in),
-          refresh_token: tokens.refresh_token ?? account.refresh_token,
-        },
-      });
-    }
-    const trackIds = songs
-      .map((s) => s.spotifyUri.match(/spotify:track:(.+)/)?.[1])
-      .filter((id): id is string => !!id);
-    if (trackIds.length === 0) return { error: "no_track_ids" };
+  // Batch: look up up to 10 songs per request cycle to avoid timeout
+  const batch = songs.slice(0, 10);
 
-    // Direct API check for debugging
-    const testIds = trackIds.slice(0, 5).join(",");
-    const testRes = await fetch(`https://api.spotify.com/v1/audio-features?ids=${testIds}`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    const testBody = await testRes.text();
-    if (!testRes.ok) return { error: `spotify_api_${testRes.status}: ${testBody.slice(0, 200)}` };
+  await Promise.all(
+    batch.map(async (song) => {
+      try {
+        const query = `${song.trackName} ${song.artistName}`;
+        const res = await fetch(
+          `https://api.getsongbpm.com/search/?api_key=${apiKey}&type=song&lookup=${encodeURIComponent(query)}`,
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        const match = data.search?.find((s: any) =>
+          s.song_title?.toLowerCase().includes(song.trackName.toLowerCase().slice(0, 20))
+        );
+        if (match?.tempo) {
+          const tempo = parseFloat(match.tempo);
+          if (!isNaN(tempo) && tempo > 0) {
+            result.set(song.id, tempo);
+            await prisma.roomSong.update({
+              where: { id: song.id },
+              data: { tempo },
+            });
+          }
+        }
+      } catch {
+        // Skip individual failures
+      }
+    })
+  );
 
-    const testData = JSON.parse(testBody);
-    const nullCount = testData.audio_features?.filter((f: any) => f === null).length ?? 'no_array';
-
-    const features = await getAudioFeatures(accessToken, trackIds);
-    const spotifyMap = new Map<string, { tempo: number; energy: number; danceability: number }>();
-    for (const f of features) {
-      if (f) spotifyMap.set(f.id, { tempo: f.tempo, energy: f.energy, danceability: f.danceability });
-    }
-
-    if (spotifyMap.size === 0) return { error: `no_features: status=${testRes.status}, nulls=${nullCount}/${testData.audio_features?.length}, ids=${testIds}` };
-
-    const songFeatures = new Map<string, { tempo: number; energy: number; danceability: number }>();
-
-    await Promise.all(
-      songs
-        .map((song) => {
-          const trackId = song.spotifyUri.match(/spotify:track:(.+)/)?.[1];
-          const feat = trackId ? spotifyMap.get(trackId) : null;
-          if (!feat) return null;
-          songFeatures.set(song.id, feat);
-          return prisma.roomSong.update({
-            where: { id: song.id },
-            data: { tempo: feat.tempo, energy: feat.energy, danceability: feat.danceability },
-          });
-        })
-        .filter(Boolean)
-    );
-
-    return { data: songFeatures };
-  } catch (e: any) {
-    return { error: e?.message || "unknown_error" };
-  }
+  return result;
 }
