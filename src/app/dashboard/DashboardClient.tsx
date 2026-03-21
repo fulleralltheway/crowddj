@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, Component, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { useAutoAnimate } from "@formkit/auto-animate/react";
 import { QRCodeSVG } from "qrcode.react";
 import { getSocket } from "@/lib/socket";
@@ -3796,11 +3797,11 @@ function DashboardInner({ user }: { user: any }) {
         </>
       )}
 
-      {/* Fixed search results overlay — rendered outside all stacking contexts */}
+      {/* Fixed search results overlay — portaled to body to escape overflow-hidden + backdrop-blur stacking contexts */}
       {showSearch && searchQuery && (searchResults.length > 0 || searching) && (() => {
         const rect = searchBarRef.current?.getBoundingClientRect();
         if (!rect) return null;
-        return (
+        return createPortal(
           <>
           <div className="fixed inset-0" style={{ zIndex: 9998 }} onClick={() => { setShowSearch(false); onSearchChange(""); }} />
           <div
@@ -3976,7 +3977,8 @@ function DashboardInner({ user }: { user: any }) {
               <div className="px-3 py-2 border-t border-border/50 text-center text-xs text-accent">{searchStatus}</div>
             )}
           </div>
-          </>
+          </>,
+          document.body
         );
       })()}
 
