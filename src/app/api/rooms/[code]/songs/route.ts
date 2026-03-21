@@ -155,6 +155,19 @@ export async function GET(
         }
       }
     }
+
+    // Tier 3: Gemini AI fallback (knows BPM for virtually any song)
+    const finalMissing = sorted.filter((s) => s.tempo == null);
+    if (finalMissing.length > 0) {
+      const geminiKey = process.env.GEMINI_API_KEY;
+      if (geminiKey) {
+        const updated = await backfillFromGemini(geminiKey, finalMissing);
+        for (const song of sorted) {
+          const tempo = updated.get(song.id);
+          if (tempo != null) (song as any).tempo = tempo;
+        }
+      }
+    }
   }
 
   return NextResponse.json(sorted);
@@ -242,6 +255,58 @@ async function backfillFromSpotify(
     await Promise.all(updates);
   } catch {
     // Spotify API may be deprecated / fail — non-critical
+  }
+
+  return result;
+}
+
+async function backfillFromGemini(
+  apiKey: string,
+  songs: { id: string; trackName: string; artistName: string }[]
+): Promise<Map<string, number>> {
+  const result = new Map<string, number>();
+  const batch = songs.slice(0, 10);
+  if (batch.length === 0) return result;
+
+  const songList = batch.map((s, i) => `${i + 1}. "${cleanTrackName(s.trackName)}" by ${s.artistName.split(",")[0].trim()}`).join("\n");
+
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: `What is the BPM (beats per minute) of each song? Respond ONLY with a JSON array of numbers in the same order. If unknown, use 0.\n\n${songList}` }] }],
+          generationConfig: { temperature: 0, maxOutputTokens: 512 },
+        }),
+      }
+    );
+
+    if (!res.ok) return result;
+    const data = await res.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+
+    // Extract JSON array from response
+    const match = text.match(/\[[\d\s,]+\]/);
+    if (!match) return result;
+
+    const bpms: number[] = JSON.parse(match[0]);
+    const updates: Promise<any>[] = [];
+
+    for (let i = 0; i < Math.min(bpms.length, batch.length); i++) {
+      const tempo = bpms[i];
+      if (tempo > 0 && tempo < 300) {
+        result.set(batch[i].id, tempo);
+        updates.push(
+          prisma.roomSong.update({ where: { id: batch[i].id }, data: { tempo } })
+        );
+      }
+    }
+
+    await Promise.all(updates);
+  } catch {
+    // Gemini fallback is non-critical
   }
 
   return result;
