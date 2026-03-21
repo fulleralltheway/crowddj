@@ -151,15 +151,17 @@ async function backfillBPM(
   await Promise.all(
     batch.map(async (song) => {
       try {
-        const query = `${song.trackName} ${song.artistName}`;
+        const query = song.trackName;
         const res = await fetch(
           `https://api.getsong.co/search/?api_key=${apiKey}&type=song&lookup=${encodeURIComponent(query)}`,
         );
         if (!res.ok) return;
         const data = await res.json();
         const results = Array.isArray(data.search) ? data.search : [];
+        // Prefer result matching the artist name
+        const artistLower = song.artistName.toLowerCase().split(",")[0].trim();
         const match = results.find((s: any) =>
-          (s.title ?? s.song_title)?.toLowerCase().includes(song.trackName.toLowerCase().slice(0, 20))
+          s.artist?.name?.toLowerCase().includes(artistLower)
         ) ?? results[0];
         if (match?.tempo) {
           const tempo = parseFloat(match.tempo);
