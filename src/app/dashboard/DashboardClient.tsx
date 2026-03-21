@@ -303,7 +303,12 @@ function MiniPlayer({
                 {nowPlaying ? (
                   <>
                     <p className={`text-sm font-semibold truncate ${isFading ? "text-white/40" : ""}`}>{nowPlaying.trackName}</p>
-                    <p className={`text-xs truncate ${isFading ? "text-accent/60 animate-pulse" : "text-text-secondary"}`}>{isFading ? "Fading out..." : nowPlaying.artistName}</p>
+                    <div className="flex items-center gap-1.5">
+                      <p className={`text-xs truncate ${isFading ? "text-accent/60 animate-pulse" : "text-text-secondary"}`}>{isFading ? "Fading out..." : nowPlaying.artistName}</p>
+                      {nowPlaying.tempo != null && (
+                        <span className="text-[10px] text-accent/60 font-medium tabular-nums flex-shrink-0">{Math.round(nowPlaying.tempo)} BPM</span>
+                      )}
+                    </div>
                   </>
                 ) : (
                   <p className="text-sm text-text-secondary">No song playing</p>
@@ -3426,11 +3431,14 @@ function DashboardInner({ user }: { user: any }) {
                     <p className={`text-lg font-bold truncate ${isFading ? "text-white/40" : ""}`}>{nowPlaying.trackName}</p>
                     <p className={`text-sm truncate ${isFading ? "text-accent/60 animate-pulse" : "text-text-secondary"}`}>{isFading ? "Fading out..." : nowPlaying.artistName}</p>
                   </div>
-                  {durationMs > 0 && (
-                    <div className="text-right flex-shrink-0">
+                  <div className="text-right flex-shrink-0 flex flex-col items-end gap-0.5">
+                    {nowPlaying.tempo != null && (
+                      <span className="text-sm text-accent/70 font-semibold tabular-nums">{Math.round(nowPlaying.tempo)} <span className="text-[10px] font-medium text-accent/40">BPM</span></span>
+                    )}
+                    {durationMs > 0 && (
                       <p className="text-xs text-text-secondary tabular-nums">{formatDuration(durationMs)}</p>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
               )}
 
