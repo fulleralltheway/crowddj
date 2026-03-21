@@ -1941,7 +1941,7 @@ function DashboardInner({ user }: { user: any }) {
     : queuePlaying;
 
   return (
-    <div className="flex flex-col max-w-6xl xl:max-w-7xl mx-auto overflow-hidden overscroll-none relative select-none lg:my-6 lg:bg-white/[0.03] lg:backdrop-blur-xl lg:border lg:border-white/[0.06] lg:rounded-3xl lg:shadow-[0_8px_32px_rgba(0,0,0,0.3)] lg:max-h-[calc(100dvh-3rem)]" style={{ height: 'var(--app-height, 100dvh)' }}>
+    <div className="flex flex-col max-w-6xl xl:max-w-7xl lg:max-w-none mx-auto overflow-hidden overscroll-none relative select-none lg:bg-white/[0.03] lg:backdrop-blur-xl lg:shadow-[0_8px_32px_rgba(0,0,0,0.3)] lg:max-h-[100dvh]" style={{ height: 'var(--app-height, 100dvh)' }}>
       {!isOnline && (
         <div className="flex-shrink-0 bg-red-600 text-white text-center text-xs py-1 font-medium z-[70]">
           No internet connection
@@ -3018,21 +3018,16 @@ function DashboardInner({ user }: { user: any }) {
               ═══════════════════════════════════════════════════════════════ */}
           <div className={`hidden lg:flex flex-1 overflow-hidden relative z-10 transition-opacity duration-200 ${showSearch ? "opacity-30 pointer-events-none" : ""}`}>
             {/* Desktop Sidebar */}
-            <aside className={`flex-shrink-0 border-r border-white/[0.06] overflow-y-auto transition-all duration-200 ${sidebarOpen ? "w-[280px]" : "w-0 overflow-hidden border-r-0"}`}>
-              <div className="p-4 space-y-1 w-[280px]">
+            <aside className={`flex-shrink-0 border-r border-white/[0.06] transition-all duration-200 ${sidebarOpen ? "w-[280px]" : "w-14"}`}>
+              {sidebarOpen ? (
+              <div className="w-[280px] overflow-y-auto h-full p-4 space-y-4">
                 {/* Sidebar: Search */}
-                <button
-                  onClick={() => setSidebarSection(sidebarSection === "search" ? null : "search")}
-                  className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition-colors hover:bg-white/[0.04] text-white/70"
-                >
-                  <span className="flex items-center gap-2">
+                <div>
+                  <div className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white/70">
                     <svg className="w-4 h-4 text-white/40" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
                     Search
-                  </span>
-                  <svg className={`w-3.5 h-3.5 text-white/30 transition-transform ${sidebarSection === "search" ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-                </button>
-                {sidebarSection === "search" && (
-                  <div className="px-2 pb-3">
+                  </div>
+                  <div className="px-2 pb-1">
                     <div className="relative" ref={searchBarRef}>
                       <svg className="w-4 h-4 text-white/30 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
                       <input
@@ -3050,21 +3045,17 @@ function DashboardInner({ user }: { user: any }) {
                       )}
                     </div>
                   </div>
-                )}
+                </div>
+
+                <div className="border-t border-white/[0.06]" />
 
                 {/* Sidebar: Share */}
-                <button
-                  onClick={() => setSidebarSection(sidebarSection === "share" ? null : "share")}
-                  className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition-colors hover:bg-white/[0.04] text-white/70"
-                >
-                  <span className="flex items-center gap-2">
+                <div>
+                  <div className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white/70">
                     <svg className="w-4 h-4 text-white/40" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg>
                     Share
-                  </span>
-                  <svg className={`w-3.5 h-3.5 text-white/30 transition-transform ${sidebarSection === "share" ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-                </button>
-                {sidebarSection === "share" && (
-                  <div className="px-2 pb-3 flex flex-col items-center">
+                  </div>
+                  <div className="px-2 pb-1 flex flex-col items-center">
                     <QRCodeSVG value={roomUrl} size={140} bgColor="transparent" fgColor="#ffffff" level="M" />
                     <p className="text-text-secondary text-xs mt-2">Scan to join</p>
                     <p className="font-mono text-xl text-accent font-bold mt-1 select-text">{activeRoom.code}</p>
@@ -3092,21 +3083,20 @@ function DashboardInner({ user }: { user: any }) {
                       TV Display
                     </button>
                   </div>
-                )}
+                </div>
+
+                <div className="border-t border-white/[0.06]" />
 
                 {/* Sidebar: Guests */}
-                <button
-                  onClick={() => { setSidebarSection(sidebarSection === "guests" ? null : "guests"); if (sidebarSection !== "guests") fetchGuestDetails(); }}
-                  className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition-colors hover:bg-white/[0.04] text-white/70"
-                >
-                  <span className="flex items-center gap-2">
+                <div>
+                  <button
+                    onClick={() => fetchGuestDetails()}
+                    className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white/70 hover:bg-white/[0.04] rounded-xl w-full transition-colors"
+                  >
                     <svg className="w-4 h-4 text-white/40" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                     Guests ({guestCount})
-                  </span>
-                  <svg className={`w-3.5 h-3.5 text-white/30 transition-transform ${sidebarSection === "guests" ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-                </button>
-                {sidebarSection === "guests" && (
-                  <div className="pb-3">
+                  </button>
+                  <div className="pb-1">
                     {selectedGuest ? (
                       <div className="px-2">
                         <button onClick={() => { setSelectedGuest(null); setExpandedGuestSection(null); }} className="text-accent text-xs mb-2 hover:text-accent-hover">&larr; Back</button>
@@ -3173,21 +3163,17 @@ function DashboardInner({ user }: { user: any }) {
                       </div>
                     )}
                   </div>
-                )}
+                </div>
+
+                <div className="border-t border-white/[0.06]" />
 
                 {/* Sidebar: Settings */}
-                <button
-                  onClick={() => setSidebarSection(sidebarSection === "settings" ? null : "settings")}
-                  className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition-colors hover:bg-white/[0.04] text-white/70"
-                >
-                  <span className="flex items-center gap-2">
+                <div>
+                  <div className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white/70">
                     <svg className="w-4 h-4 text-white/40" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                     Settings
-                  </span>
-                  <svg className={`w-3.5 h-3.5 text-white/30 transition-transform ${sidebarSection === "settings" ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-                </button>
-                {sidebarSection === "settings" && (
-                  <div className="px-2 pb-3 space-y-3">
+                  </div>
+                  <div className="px-2 pb-1 space-y-3">
                     <div>
                       <label className="block text-xs font-medium text-text-secondary mb-1">Room Name</label>
                       <input type="text" defaultValue={activeRoom.name} onBlur={(e) => { const val = e.target.value.trim(); if (val && val !== activeRoom.name) saveSettings({ name: val } as any); }} className="w-full px-3 py-1.5 bg-bg-primary border border-border rounded-lg text-xs focus:outline-none focus:border-accent" />
@@ -3243,8 +3229,24 @@ function DashboardInner({ user }: { user: any }) {
                       )}
                     </div>
                   </div>
-                )}
+                </div>
               </div>
+              ) : (
+              <div className="w-14 flex flex-col items-center gap-1 py-4">
+                <button onClick={() => setSidebarOpen(true)} className="p-2.5 rounded-lg text-white/40 hover:text-white/70 hover:bg-white/[0.06] transition-colors" title="Search">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                </button>
+                <button onClick={() => setSidebarOpen(true)} className="p-2.5 rounded-lg text-white/40 hover:text-white/70 hover:bg-white/[0.06] transition-colors" title="Share">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg>
+                </button>
+                <button onClick={() => setSidebarOpen(true)} className="p-2.5 rounded-lg text-white/40 hover:text-white/70 hover:bg-white/[0.06] transition-colors" title="Guests">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                </button>
+                <button onClick={() => setSidebarOpen(true)} className="p-2.5 rounded-lg text-white/40 hover:text-white/70 hover:bg-white/[0.06] transition-colors" title="Settings">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                </button>
+              </div>
+              )}
             </aside>
 
             {/* Desktop Main Queue Area */}
@@ -3325,7 +3327,7 @@ function DashboardInner({ user }: { user: any }) {
               <div className="flex items-center gap-3 px-3 py-2 text-[10px] font-semibold text-white/30 uppercase tracking-wider border-b border-white/[0.06] mb-1">
                 <span className="w-8 text-center">#</span>
                 <span className="flex-1">Title</span>
-                <span className="w-32">Artist</span>
+                <span className="flex-1">Artist</span>
                 <span className="w-12 text-right">Time</span>
                 <span className="w-16 text-center">Votes</span>
                 <span className="w-8"></span>
@@ -3342,7 +3344,7 @@ function DashboardInner({ user }: { user: any }) {
                   return displaySongs.map((song: any, i: number) => (
                     <div
                       key={song.id}
-                      className={`group flex items-center gap-3 px-3 py-2 rounded-lg transition-colors hover:bg-white/[0.03] ${
+                      className={`group flex items-center gap-3 px-3 py-2 rounded-lg transition-colors hover:bg-white/[0.06] ${
                         song.isLocked && activeRoom.lastPreQueuedId === song.id ? "bg-accent/8" : song.isLocked ? "bg-yellow-500/5" : ""
                       } ${dragIdx !== null && overIdx === i ? "ring-1 ring-accent/40" : ""}`}
                     >
@@ -3419,7 +3421,7 @@ function DashboardInner({ user }: { user: any }) {
                       </div>
 
                       {/* Artist */}
-                      <span className="w-32 text-xs text-text-secondary truncate">{song.artistName}</span>
+                      <span className="flex-1 text-xs text-text-secondary truncate">{song.artistName}</span>
 
                       {/* Duration */}
                       <span className="w-12 text-right text-xs text-white/30 tabular-nums">{song.durationMs ? formatDuration(song.durationMs) : "--:--"}</span>
