@@ -279,6 +279,7 @@ async function backfillFromGemini(
         body: JSON.stringify({
           contents: [{ parts: [{ text: `What is the BPM (beats per minute) of each song? Respond ONLY with a JSON array of numbers in the same order. If unknown, use 0.\n\n${songList}` }] }],
           generationConfig: { temperature: 0, maxOutputTokens: 512 },
+          tools: [{ google_search: {} }],
         }),
       }
     );
