@@ -285,42 +285,145 @@ function MiniPlayer({
             <div className="h-full bg-accent animate-pulse" style={{ width: "100%" }} />
           </div>
         )}
-        <div className="flex items-center gap-3 p-3">
-            {/* Album art */}
-            {nowPlaying?.albumArt ? (
-              <img src={nowPlaying.albumArt} alt="" className={`w-12 h-12 rounded-lg shadow-md flex-shrink-0 transition-opacity ${isFading ? "opacity-50" : ""}`} />
-            ) : (
-              <div className="w-12 h-12 rounded-lg bg-bg-card-hover flex items-center justify-center flex-shrink-0">
-                <svg className="w-5 h-5 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
-                </svg>
-              </div>
-            )}
-            {/* Track info + progress */}
-            <div className="flex-1 min-w-0">
-              {nowPlaying ? (
-                <>
-                  <p className={`text-sm font-semibold truncate ${isFading ? "text-white/40" : ""}`}>{nowPlaying.trackName}</p>
-                  <p className={`text-xs truncate ${isFading ? "text-accent/60 animate-pulse" : "text-text-secondary"}`}>{isFading ? "Fading out..." : nowPlaying.artistName}</p>
-                </>
+        <div className="flex items-center gap-3 p-3 lg:grid lg:grid-cols-[1fr_2fr_1fr] lg:gap-4 lg:p-4">
+            {/* Left: Album art + song info */}
+            <div className="flex items-center gap-3 lg:min-w-0">
+              {/* Album art */}
+              {nowPlaying?.albumArt ? (
+                <img src={nowPlaying.albumArt} alt="" className={`w-12 h-12 rounded-lg shadow-md flex-shrink-0 transition-opacity ${isFading ? "opacity-50" : ""}`} />
               ) : (
-                <p className="text-sm text-text-secondary">No song playing</p>
+                <div className="w-12 h-12 rounded-lg bg-bg-card-hover flex items-center justify-center flex-shrink-0">
+                  <svg className="w-5 h-5 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+                  </svg>
+                </div>
               )}
+              {/* Track info — on mobile this also contains the progress bar */}
+              <div className="flex-1 min-w-0">
+                {nowPlaying ? (
+                  <>
+                    <p className={`text-sm font-semibold truncate ${isFading ? "text-white/40" : ""}`}>{nowPlaying.trackName}</p>
+                    <p className={`text-xs truncate ${isFading ? "text-accent/60 animate-pulse" : "text-text-secondary"}`}>{isFading ? "Fading out..." : nowPlaying.artistName}</p>
+                  </>
+                ) : (
+                  <p className="text-sm text-text-secondary">No song playing</p>
+                )}
+                {/* Progress bar — mobile only (shown inline with track info) */}
+                {nowPlaying && durationMs > 0 && (
+                  <div className="flex items-center gap-2 mt-1.5 lg:hidden">
+                    <span className="text-[10px] text-text-secondary tabular-nums w-8 text-right">{formatTime(displayProgress)}</span>
+                    <div className="flex-1 h-1 bg-border rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-accent rounded-full transition-[width] duration-500 ease-linear"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                    <span className="text-[10px] text-text-secondary tabular-nums w-8">{formatTime(durationMs)}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Center: Playback controls + progress bar (desktop) */}
+            <div className="hidden lg:flex lg:flex-col lg:items-center lg:gap-2">
+              <div className="flex items-center gap-2">
+                {/* Fade & Stop */}
+                <button
+                  onClick={controlsLocked ? undefined : onFadePause}
+                  className={`flex flex-col items-center justify-center rounded-lg px-2 py-1 transition-colors ${
+                    controlsLocked ? "opacity-30 cursor-not-allowed" : "text-white/40 hover:text-white/70 hover:bg-white/[0.04]"
+                  }`}
+                  disabled={controlsLocked || isFading}
+                  title={`Fade out over ${fadeDurationSec}s, stop, and load next song`}
+                >
+                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                    <rect x="4" y="4" width="16" height="16" rx="2" />
+                  </svg>
+                </button>
+
+                {/* Play/Pause */}
+                <button
+                  onClick={controlsLocked ? undefined : onTogglePlay}
+                  className={`w-12 h-12 rounded-xl flex items-center justify-center transition-colors ${
+                    controlsLocked ? "opacity-30 cursor-not-allowed" : "bg-white/[0.06] hover:bg-white/[0.1] active:bg-white/[0.15]"
+                  }`}
+                  disabled={controlsLocked}
+                  title={isPlaying ? "Pause" : "Play"}
+                >
+                  {isPlaying ? (
+                    <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
+                      <rect x="6" y="4" width="4" height="16" rx="1" />
+                      <rect x="14" y="4" width="4" height="16" rx="1" />
+                    </svg>
+                  ) : (
+                    <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M8 5v14l11-7z" />
+                    </svg>
+                  )}
+                </button>
+
+                {/* Skip */}
+                <button
+                  onClick={controlsLocked ? undefined : (isFading ? onHardSkipDuringFade : onFadeSkip)}
+                  className={`flex flex-col items-center justify-center rounded-lg px-2 py-1 transition-colors ${
+                    controlsLocked ? "opacity-30 cursor-not-allowed" : isFading ? "text-white/70 bg-white/[0.06]" : "text-white/40 hover:text-white/70 hover:bg-white/[0.04]"
+                  }`}
+                  disabled={controlsLocked}
+                  title={isFading ? "Skip now (hard skip)" : `Fade skip (${fadeDurationSec}s fade)`}
+                >
+                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M5 4v16l10-8zm12 0v16h2V4z" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Progress bar — desktop */}
               {nowPlaying && durationMs > 0 && (
-                <div className="flex items-center gap-2 mt-1.5">
-                  <span className="text-[10px] text-text-secondary tabular-nums w-8 text-right">{formatTime(displayProgress)}</span>
-                  <div className="flex-1 h-1 bg-border rounded-full overflow-hidden">
+                <div className="flex items-center gap-2 w-full max-w-md">
+                  <span className="text-[11px] text-text-secondary tabular-nums w-10 text-right">{formatTime(displayProgress)}</span>
+                  <div className="flex-1 h-1.5 bg-border rounded-full overflow-hidden">
                     <div
                       className="h-full bg-accent rounded-full transition-[width] duration-500 ease-linear"
                       style={{ width: `${pct}%` }}
                     />
                   </div>
-                  <span className="text-[10px] text-text-secondary tabular-nums w-8">{formatTime(durationMs)}</span>
+                  <span className="text-[11px] text-text-secondary tabular-nums w-10">{formatTime(durationMs)}</span>
                 </div>
               )}
             </div>
-            {/* Controls */}
-            <div className="flex items-center gap-1 flex-shrink-0">
+
+            {/* Right: Lock + fade controls (desktop) */}
+            <div className="hidden lg:flex lg:items-center lg:justify-end lg:gap-2">
+              {/* Lock toggle */}
+              <button
+                onClick={onToggleLock}
+                className={`flex flex-col items-center justify-center rounded-lg px-2 py-1 transition-colors ${
+                  controlsLocked ? "text-yellow-500 bg-yellow-500/10" : "text-white/25 hover:text-white/50 hover:bg-white/[0.04]"
+                }`}
+                title={controlsLocked ? "Unlock controls" : "Lock controls"}
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                  {controlsLocked ? (
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                  ) : (
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M8 11V7a4 4 0 118 0m-4 8v2m-2 4h4a2 2 0 002-2v-6a2 2 0 00-2-2H10a2 2 0 00-2 2v6a2 2 0 002 2z" />
+                  )}
+                </svg>
+                <span className="text-[8px] font-medium leading-tight mt-0.5">{controlsLocked ? "Locked" : "Lock"}</span>
+              </button>
+
+              <div className="w-px h-6 bg-white/[0.06]" />
+
+              {/* Fade duration control */}
+              <span
+                className="text-[11px] font-medium px-2.5 py-1 rounded-full bg-white/[0.06] text-white/40 hover:text-accent transition-colors cursor-pointer"
+                onClick={onCycleFadeDuration}
+                title="Click to change fade duration"
+              >{fadeDurationSec}s fade</span>
+            </div>
+
+            {/* Controls — mobile only */}
+            <div className="flex items-center gap-1 flex-shrink-0 lg:hidden">
               {/* Lock toggle */}
               <button
                 onClick={onToggleLock}
@@ -1972,6 +2075,46 @@ function DashboardInner({ user }: { user: any }) {
               </svg>
               End Session
             </button>
+            {activeRoom && (
+              <div className="hidden lg:flex items-center gap-2 ml-2">
+                <h2 className="text-lg font-bold">{activeRoom.name}</h2>
+                <span className="text-white/30 text-xs">{activeRoom.playlistName}</span>
+                <button
+                  onClick={async () => {
+                    if (syncingPlaylist) return;
+                    setSyncingPlaylist(true);
+                    try {
+                      const res = await fetch(`/api/rooms/${activeRoom.code}/sync-playlist`, { method: "POST" });
+                      if (res.ok) {
+                        const data = await res.json();
+                        if (data.added > 0) {
+                          setSongAddedToast(`Added ${data.added} new song${data.added > 1 ? "s" : ""} from playlist`);
+                          getSocket().emit("songs-reordered", activeRoom.code);
+                        } else {
+                          setSongAddedToast("Playlist is up to date");
+                        }
+                        setTimeout(() => setSongAddedToast(""), 3000);
+                      } else {
+                        setSongAddedToast("Couldn't sync playlist");
+                        setTimeout(() => setSongAddedToast(""), 3000);
+                      }
+                    } catch {
+                      setSongAddedToast("Couldn't sync playlist");
+                      setTimeout(() => setSongAddedToast(""), 3000);
+                    } finally {
+                      setSyncingPlaylist(false);
+                    }
+                  }}
+                  disabled={syncingPlaylist}
+                  title="Sync new songs from Spotify playlist"
+                  className="text-white/20 hover:text-accent transition-colors disabled:opacity-30"
+                >
+                  <svg className={`w-3 h-3 ${syncingPlaylist ? "animate-spin" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                </button>
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-2">
             {guestCount > 0 && (
@@ -2011,7 +2154,7 @@ function DashboardInner({ user }: { user: any }) {
           {/* Room title + search */}
           <div className="px-4 pb-3 lg:px-6">
           {/* Room name */}
-          <div className="mb-3">
+          <div className="mb-3 lg:hidden">
             <h2 className="text-xl font-bold tracking-tight leading-tight lg:text-2xl">{activeRoom.name}</h2>
             <p className="text-white/30 text-[11px] mt-0.5 flex items-center gap-1.5">
               {activeRoom.playlistName}
@@ -3056,7 +3199,7 @@ function DashboardInner({ user }: { user: any }) {
                     Share
                   </div>
                   <div className="px-2 pb-1 flex flex-col items-center">
-                    <QRCodeSVG value={roomUrl} size={140} bgColor="transparent" fgColor="#ffffff" level="M" />
+                    <QRCodeSVG value={roomUrl} size={120} bgColor="transparent" fgColor="#ffffff" level="M" />
                     <p className="text-text-secondary text-xs mt-2">Scan to join</p>
                     <p className="font-mono text-xl text-accent font-bold mt-1 select-text">{activeRoom.code}</p>
                     <div className="flex items-center gap-2 mt-2 w-full">
@@ -3433,7 +3576,7 @@ function DashboardInner({ user }: { user: any }) {
                           const hasVotes = song.upvotes > 0 || song.downvotes > 0;
                           return (
                             <span className={`text-xs font-semibold tabular-nums ${net > 0 ? "text-upvote" : net < 0 ? "text-downvote" : "text-white/20"}`}>
-                              {hasVotes ? (net > 0 ? `+${net}` : net) : "\u00B7"}
+                              {hasVotes ? (net > 0 ? `+${net}` : net) : ""}
                             </span>
                           );
                         })()}
@@ -3441,7 +3584,7 @@ function DashboardInner({ user }: { user: any }) {
 
                       {/* Overflow menu */}
                       <div className="w-8 relative">
-                        <button onClick={() => setSongMenuOpen(songMenuOpen === song.id ? null : song.id)} className={`p-1 rounded-lg transition-colors ${songMenuOpen === song.id ? "text-white/60 bg-white/[0.08]" : "text-white/0 group-hover:text-white/30 hover:text-white/50 hover:bg-white/[0.04]"}`}>
+                        <button onClick={() => setSongMenuOpen(songMenuOpen === song.id ? null : song.id)} className={`p-1 rounded-lg transition-colors ${songMenuOpen === song.id ? "!opacity-100 text-white/60 bg-white/[0.08]" : "opacity-0 group-hover:opacity-100 text-white/30 hover:text-white/50 hover:bg-white/[0.04]"}`}>
                           <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="6" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="12" cy="18" r="1.5" /></svg>
                         </button>
                         {songMenuOpen === song.id && (
