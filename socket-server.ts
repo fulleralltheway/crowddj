@@ -4,6 +4,7 @@ import { Server } from "socket.io";
 const VERCEL_URL = process.env.VERCEL_URL || "https://crowddj.vercel.app";
 const CRON_SECRET = process.env.CRON_SECRET || "";
 const SYNC_INTERVAL = 5_000; // 5 seconds — snappier server-side transitions
+const BACKGROUND_ROOM_TTL = 4 * 60 * 60 * 1000; // 4 hours — auto-expire stale background rooms
 const CORS_ORIGINS = [
   VERCEL_URL,
   "https://crowddj.vercel.app",
@@ -36,8 +37,8 @@ const io = new Server(httpServer, {
 const activeRooms = new Map<string, Set<string>>(); // roomCode -> set of socket IDs
 
 // Rooms that should keep syncing even when all clients disconnect.
-// Removed when room is explicitly closed, or when the cron reports it's inactive/expired.
-const backgroundRooms = new Set<string>();
+// Stores last activity timestamp — auto-expires after BACKGROUND_ROOM_TTL.
+const backgroundRooms = new Map<string, number>(); // roomCode -> last activity timestamp
 
 // Track rooms currently being faded (prevent double-triggers)
 const fadingRooms = new Set<string>();
@@ -73,7 +74,16 @@ async function broadcastGuestCount(roomCode: string, delayMs = 1000) {
 function getAllSyncRooms(): string[] {
   const rooms = new Set<string>();
   for (const code of activeRooms.keys()) rooms.add(code);
-  for (const code of backgroundRooms) rooms.add(code);
+  // Expire stale background rooms
+  const now = Date.now();
+  for (const [code, lastActive] of backgroundRooms) {
+    if (now - lastActive > BACKGROUND_ROOM_TTL) {
+      backgroundRooms.delete(code);
+      console.log(`[${code}] Background room expired (inactive ${Math.round((now - lastActive) / 3600000)}h)`);
+    } else {
+      rooms.add(code);
+    }
+  }
   return Array.from(rooms);
 }
 
@@ -95,7 +105,7 @@ io.on("connection", (socket) => {
     activeRooms.get(roomCode)!.add(socket.id);
 
     // Room is known — keep syncing it even if everyone leaves later
-    backgroundRooms.add(roomCode);
+    backgroundRooms.set(roomCode, Date.now());
 
     // Send DB-backed guest count to everyone in the room
     broadcastGuestCount(roomCode);
@@ -288,6 +298,11 @@ async function syncAllRooms() {
             (result.status === "advanced" || result.status === "advanced_prequeued" || result.status === "advanced_external")) {
           clearTimeout(scheduledFades.get(result.code)!);
           scheduledFades.delete(result.code);
+        }
+
+        // Refresh TTL for rooms that are actively playing
+        if (result.status === "playing" && backgroundRooms.has(result.code)) {
+          backgroundRooms.set(result.code, Date.now());
         }
 
         if (result.status !== "playing" && result.status !== "no_current_song" && result.status !== "debounced") {
