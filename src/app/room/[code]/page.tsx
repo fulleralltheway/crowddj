@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, use } from "react";
+import { createPortal } from "react-dom";
 import { useAutoAnimate } from "@formkit/auto-animate/react";
 import { getFingerprint } from "@/lib/fingerprint";
 import { getSocket } from "@/lib/socket";
@@ -712,6 +713,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   };
 
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchBarRef = useRef<HTMLDivElement>(null);
 
   const searchSongs = useCallback(async (query: string) => {
     if (!query.trim()) {
@@ -1055,7 +1057,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         )}
 
         {/* Search bar */}
-        <div className="relative">
+        <div className="relative" ref={searchBarRef}>
           <svg className="w-4 h-4 text-text-secondary absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
@@ -1091,7 +1093,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         </div>
       </div>
 
-      {/* Search results dropdown — overlays content from below header */}
+      {/* Search results dropdown — portaled to body to escape overflow-hidden stacking context */}
       {showSearch && searchQuery.trim() && (() => {
         const q = searchQuery.trim().toLowerCase();
         const queueMatches = songs.filter(
@@ -1106,11 +1108,21 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
           return b.netScore - a.netScore;
         });
         if (queueMatches.length === 0 && searchResults.length === 0 && !searching) return null;
+        const rect = searchBarRef.current?.getBoundingClientRect();
+        if (!rect) return null;
 
-        return (
+        return createPortal(
           <>
-          <div className="fixed inset-0 z-40" onClick={() => { setShowSearch(false); setSearchQuery(""); setSearchResults([]); setRecentlyRequested(new Map()); }} />
-          <div className="absolute left-0 right-0 mx-4 mt-1 z-50 bg-bg-card border border-white/[0.08] rounded-xl overflow-hidden shadow-2xl">
+          <div className="fixed inset-0" style={{ zIndex: 9998 }} onClick={() => { setShowSearch(false); setSearchQuery(""); setSearchResults([]); setRecentlyRequested(new Map()); }} />
+          <div
+            className="fixed bg-bg-card border border-white/[0.08] rounded-xl overflow-hidden shadow-2xl"
+            style={{
+              top: rect.bottom + 4,
+              left: rect.left,
+              right: window.innerWidth - rect.right,
+              zIndex: 9999,
+            }}
+          >
             <div className="max-h-72 overflow-y-auto divide-y divide-border/50">
               {queueMatches.length > 0 && (
                 <div className="p-2 space-y-1">
@@ -1245,7 +1257,8 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
               )}
             </div>
           </div>
-          </>
+          </>,
+          document.body
         );
       })()}
       </div>
