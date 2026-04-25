@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { getNextSong, shiftPinnedPositions } from "@/lib/queue";
 import { startPlayback, getCurrentPlayback, setVolume, pausePlayback } from "@/lib/spotify";
+import { buildFadeCurve } from "@/lib/fade-curve";
 import { NextRequest, NextResponse } from "next/server";
 
 // Long-running — fade loop + restore + startPlayback can run several seconds.
@@ -8,19 +9,6 @@ import { NextRequest, NextResponse } from "next/server";
 export const maxDuration = 60;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-function buildFadeCurve(durationMs: number) {
-  // Fewer steps for longer fades to avoid Spotify API rate limits
-  const stepsPerSec = durationMs <= 3000 ? 4 : 2;
-  const totalSteps = Math.max(2, Math.min(24, Math.round((durationMs / 1000) * stepsPerSec)));
-  const stepMs = Math.round(durationMs / totalSteps);
-  const multipliers: number[] = [];
-  for (let i = 1; i <= totalSteps; i++) {
-    const t = i / totalSteps;
-    multipliers.push(Math.max(0, Math.pow(1 - t, 1.8)));
-  }
-  return { multipliers, stepMs };
-}
 
 async function restoreVolume(accessToken: string, targetVolume: number, maxRetries = 3) {
   for (let attempt = 0; attempt < maxRetries; attempt++) {

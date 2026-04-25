@@ -2,34 +2,13 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getNextSong, shiftPinnedPositions } from "@/lib/queue";
 import { startPlayback, getCurrentPlayback, setVolume, pausePlayback } from "@/lib/spotify";
+import { buildFadeCurve } from "@/lib/fade-curve";
 import { NextRequest, NextResponse } from "next/server";
 
 // Vercel hobby default is 10s — fades with volume restore need more time
 export const maxDuration = 60;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-/**
- * Build a smooth fade-out curve for any duration.
- * Returns an array of volume multipliers (1.0 → 0.0) with even spacing.
- * Uses an ease-out curve so the fade feels natural (slows down toward silence).
- */
-function buildFadeCurve(durationMs: number): { multipliers: number[]; stepMs: number } {
-  // Use fewer steps for longer fades to avoid Spotify API rate limits
-  // Short fades (1-3s): 4 steps/sec, long fades (5s+): 2 steps/sec
-  const stepsPerSec = durationMs <= 3000 ? 4 : 2;
-  const totalSteps = Math.max(2, Math.min(24, Math.round((durationMs / 1000) * stepsPerSec)));
-  const stepMs = Math.round(durationMs / totalSteps);
-
-  const multipliers: number[] = [];
-  for (let i = 1; i <= totalSteps; i++) {
-    const t = i / totalSteps;
-    const vol = Math.pow(1 - t, 1.8);
-    multipliers.push(Math.max(0, vol));
-  }
-
-  return { multipliers, stepMs };
-}
 
 // Restore volume with retries — critical after fade to avoid stuck-at-zero
 async function restoreVolume(accessToken: string, targetVolume: number, maxRetries = 3) {
