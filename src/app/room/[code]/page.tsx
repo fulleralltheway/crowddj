@@ -30,6 +30,7 @@ type Room = {
   code: string;
   name: string;
   playlistName: string;
+  isActive: boolean;
   votesPerUser: number;
   voteResetMinutes: number;
   votingPaused: boolean;
@@ -147,6 +148,10 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const reorderTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastScrollTime = useRef(0);
   const lastPreQueuedRef = useRef<string | null>(null); // track pre-queue changes from sync poll
+  // Drives the "host disconnected" banner. Bumped on any inbound socket
+  // message or successful sync poll; stale check fires every 5s.
+  const lastActivityAt = useRef(Date.now());
+  const [hostAway, setHostAway] = useState(false);
   const [songListRef] = useAutoAnimate({ duration: 300 });
   const knownApproved = useRef<Set<string>>(new Set());
   const [pullRefreshing, setPullRefreshing] = useState(false);
@@ -266,6 +271,8 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     socket.emit("join-room", code);
 
     const handleSongsUpdate = (songs: any[]) => {
+      lastActivityAt.current = Date.now();
+      setHostAway(false);
       const mapped = songs.map((s: any) => ({
         ...s,
         netScore: s.upvotes - s.downvotes,
@@ -297,6 +304,8 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     };
 
     const handleRoomUpdate = (data: any) => {
+      lastActivityAt.current = Date.now();
+      setHostAway(false);
       if (data && !data.isActive) {
         // Graceful close: show overlay first, then transition to closed screen
         setRoomClosing(true);
@@ -309,6 +318,8 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
 
     const handleServerTime = (serverTime: number) => {
       serverTimeOffset.current = serverTime - Date.now();
+      lastActivityAt.current = Date.now();
+      setHostAway(false);
     };
 
     const handleRoomClosed = () => {
@@ -331,6 +342,8 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       if (tabHidden) return; // Skip polling when tab is backgrounded
       fetch(`/api/rooms/${code}/sync`, { method: "POST" }).then(async (res) => {
         if (res.ok) {
+          lastActivityAt.current = Date.now();
+          setHostAway(false);
           const data = await res.json();
           if (data.playing === false) {
             setSpotifyPlaying(false);
@@ -398,6 +411,17 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       clearInterval(flushInterval);
     };
   }, [code, fetchSongs, applySongs]);
+
+  // Host-disconnect detection: if no socket message or successful sync poll
+  // arrives for 60s while the room is active, surface a "host disconnected"
+  // banner so guests aren't left wondering why playback stalled.
+  useEffect(() => {
+    if (!room?.isActive) return;
+    const t = setInterval(() => {
+      if (Date.now() - lastActivityAt.current > 60_000) setHostAway(true);
+    }, 5_000);
+    return () => clearInterval(t);
+  }, [room?.isActive]);
 
   // Pull-to-refresh: non-passive touch listeners to prevent native overscroll
   useEffect(() => {
@@ -933,6 +957,11 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       {!isOnline && (
         <div className="flex-shrink-0 bg-red-600 text-white text-center text-xs py-1 font-medium z-[70]">
           No internet connection
+        </div>
+      )}
+      {isOnline && hostAway && room?.isActive && (
+        <div className="flex-shrink-0 bg-yellow-600/90 text-white text-center text-xs py-1 font-medium z-[70]">
+          Host disconnected — playback may pause
         </div>
       )}
       {/* In-app notification toast */}

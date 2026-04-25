@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef, Component, type ReactNode } f
 import { createPortal } from "react-dom";
 import { useAutoAnimate } from "@formkit/auto-animate/react";
 import { QRCodeSVG } from "qrcode.react";
+import Link from "next/link";
 import { getSocket } from "@/lib/socket";
 import { useAppHeight, useNetworkStatus } from "@/lib/pwa";
 import HelpGuide from "@/components/HelpGuide";
@@ -526,6 +527,7 @@ function DashboardInner({ user }: { user: any }) {
   const isOnline = useNetworkStatus();
   const [view, setView] = useState<"loading" | "rooms" | "create" | "manage">("loading");
   const [rooms, setRooms] = useState<Room[]>([]);
+  const [reopeningRoomId, setReopeningRoomId] = useState<string | null>(null);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [activeRoom, setActiveRoom] = useState<Room | null>(null);
   const [requests, setRequests] = useState<SongRequest[]>([]);
@@ -558,6 +560,10 @@ function DashboardInner({ user }: { user: any }) {
     return localStorage.getItem("skipRemoveConfirm") === "true";
   });
   const [confirmReorder, setConfirmReorder] = useState<{ songs: any[]; movedSongId: string } | null>(null);
+  // Schedule-start confirmation: when host taps Play before scheduledStart,
+  // ask "start now anyway?" rather than hard-blocking. Stores the same args
+  // togglePlay would have received so "Start Now" can resume cleanly.
+  const [scheduleConfirmOpen, setScheduleConfirmOpen] = useState(false);
   const [skipReorderConfirm, setSkipReorderConfirm] = useState(() => {
     if (typeof window === "undefined") return false;
     const ts = localStorage.getItem("skipReorderConfirm_ts");
@@ -1116,7 +1122,7 @@ function DashboardInner({ user }: { user: any }) {
   // Mutex to prevent rapid-tap race conditions on all playback controls
   const playbackBusy = useRef(false);
 
-  const togglePlay = async () => {
+  const performPlay = async () => {
     if (!activeRoom || playbackBusy.current) return;
     playbackBusy.current = true;
     setPlayError("");
@@ -1135,6 +1141,21 @@ function DashboardInner({ user }: { user: any }) {
     } finally {
       playbackBusy.current = false;
     }
+  };
+
+  const togglePlay = async () => {
+    if (!activeRoom || playbackBusy.current) return;
+    // If host is starting playback (not pausing) and the room has a future
+    // scheduledStart, prompt before kicking off — don't hard-block, since
+    // hosts often want to test/sound-check before the scheduled time.
+    if (!isPlaying && activeRoom.scheduledStart) {
+      const startMs = new Date(activeRoom.scheduledStart).getTime();
+      if (!Number.isNaN(startMs) && startMs > Date.now()) {
+        setScheduleConfirmOpen(true);
+        return;
+      }
+    }
+    await performPlay();
   };
 
   // Lock the next song in the queue so the UI shows it as "Queued Next" before a fade/skip starts
@@ -1703,19 +1724,56 @@ function DashboardInner({ user }: { user: any }) {
                       ? `${Math.floor(durationMin / 60)}h ${durationMin % 60}m`
                       : `${durationMin}m`;
                   return (
-                    <div key={r.id} className="bg-white/[0.03] border border-white/[0.06] rounded-xl px-4 py-3">
-                      <div className="flex items-center justify-between mb-1">
+                    <Link
+                      key={r.id}
+                      href={`/events/${r.id}`}
+                      className="block bg-white/[0.03] hover:bg-white/[0.05] border border-white/[0.06] hover:border-white/[0.1] rounded-xl px-4 py-3 transition-colors"
+                    >
+                      <div className="flex items-center justify-between gap-2 mb-1">
                         <p className="text-sm font-medium truncate">{r.name}</p>
-                        <span className="text-white/20 text-[10px] tabular-nums">{created.toLocaleDateString()}</span>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <span className="text-white/20 text-[10px] tabular-nums">{created.toLocaleDateString()}</span>
+                          <button
+                            type="button"
+                            onClick={async (e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              if (reopeningRoomId) return;
+                              setReopeningRoomId(r.id);
+                              try {
+                                const res = await fetch("/api/rooms/reopen", {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({ sourceRoomId: r.id }),
+                                });
+                                if (!res.ok) {
+                                  const data = await res.json().catch(() => ({}));
+                                  alert(data?.error || "Failed to reopen room.");
+                                  setReopeningRoomId(null);
+                                  return;
+                                }
+                                window.location.assign("/dashboard");
+                              } catch {
+                                alert("Failed to reopen room.");
+                                setReopeningRoomId(null);
+                              }
+                            }}
+                            disabled={reopeningRoomId === r.id}
+                            aria-label={`Reopen ${r.name} as new room`}
+                            className="text-[11px] font-medium text-accent/80 hover:text-accent disabled:opacity-50 px-2 py-1 -my-1 rounded-md hover:bg-accent/10 transition-colors"
+                          >
+                            {reopeningRoomId === r.id ? "…" : "Reopen"}
+                          </button>
+                        </div>
                       </div>
-                      <p className="text-white/30 text-xs mb-1.5">{r.playlistName}</p>
+                      <p className="text-white/30 text-xs mb-1.5 truncate">{r.playlistName}</p>
                       <div className="flex gap-3 text-[11px] text-white/40">
                         <span>{r.totalSongsPlayed || 0} songs</span>
                         <span>{r.totalVotesCast || 0} votes</span>
                         <span>{r.peakGuestCount || 0} peak guests</span>
                         <span>{durationStr}</span>
                       </div>
-                    </div>
+                    </Link>
                   );
                 })}
               </div>
@@ -3798,6 +3856,40 @@ function DashboardInner({ user }: { user: any }) {
           )}
 
           {showHelp && <HelpGuide variant="host" onClose={() => setShowHelp(false)} />}
+
+          {scheduleConfirmOpen && activeRoom?.scheduledStart && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-6">
+              <div className="bg-bg-card border border-border rounded-2xl p-6 max-w-sm w-full space-y-4">
+                <p className="font-semibold text-center">Start before scheduled time?</p>
+                <p className="text-text-secondary text-sm text-center">
+                  This room is scheduled for{" "}
+                  <span className="text-white">
+                    {new Date(activeRoom.scheduledStart).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
+                    {" at "}
+                    {new Date(activeRoom.scheduledStart).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                  </span>
+                  . Guests are watching a countdown until then.
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setScheduleConfirmOpen(false)}
+                    className="flex-1 py-2.5 bg-bg-card-hover border border-border rounded-xl text-sm font-medium transition-colors"
+                  >
+                    Wait
+                  </button>
+                  <button
+                    onClick={() => {
+                      setScheduleConfirmOpen(false);
+                      performPlay();
+                    }}
+                    className="flex-1 py-2.5 bg-accent text-black rounded-xl text-sm font-semibold transition-colors"
+                  >
+                    Start Now
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {confirmClose && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-6">
