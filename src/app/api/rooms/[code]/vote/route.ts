@@ -124,9 +124,13 @@ export async function POST(
     });
   }
 
-  // Only reorder if autoShuffle is enabled
-  if (room.autoShuffle) {
+  // Only reorder if autoShuffle is enabled. Skip while a drag is in flight to
+  // prevent the host's chosen position from getting bumped by vote-driven sort.
+  // The vote itself is already persisted above; only the resort is suppressed.
+  if (room.autoShuffle && !room.dragInFlight) {
     await reorderByVotes(room.id, room.queueDisplaySize || 50);
+  } else if (room.autoShuffle && room.dragInFlight) {
+    console.log(`[${code}] Suppressing reorderByVotes: dragInFlight=true`);
   }
 
   // Return actual vote count so client stays in sync

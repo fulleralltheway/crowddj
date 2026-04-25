@@ -166,47 +166,40 @@ export async function POST(
     const playing = await prisma.roomSong.findFirst({
       where: { roomId: room.id, isPlaying: true },
     });
-    if (playing) {
-      await prisma.roomSong.update({
-        where: { id: playing.id },
-        data: { isPlaying: false, isPlayed: true, playedAt: new Date() },
-      });
-    }
 
     const nextSong = lockedNextSong ?? await getNextSong(room.id, room.sortMode || (room.autoShuffle ? "votes" : "manual"));
 
     if (nextSong) {
-      await prisma.roomSong.update({
+      // Phase 1A: collapse cooldowns. DB writes (mark current played + flip
+      // next to playing) run in parallel with restoreVolume so the dead-air
+      // window between fade end and startPlayback is bounded by API latency.
+      const dbOps: Promise<unknown>[] = [];
+      if (playing) {
+        dbOps.push(prisma.roomSong.update({
+          where: { id: playing.id },
+          data: { isPlaying: false, isPlayed: true, playedAt: new Date() },
+        }));
+      }
+      dbOps.push(prisma.roomSong.update({
         where: { id: nextSong.id },
         data: { isPlaying: true, isLocked: false },
-      });
+      }));
 
-      // Rate limit cooldown after rapid fade steps — 1.5s lets Spotify API recover
-      await sleep(1500);
-      await restoreVolume(accessToken, originalVolume);
+      // Restore volume BEFORE startPlayback so the next track begins at the
+      // correct level. Single restore — no redundant second call afterward.
+      await Promise.all([
+        Promise.all(dbOps),
+        restoreVolume(accessToken, originalVolume),
+      ]);
 
       // Start the exact song by URI — never skipToNext which plays unknown songs
       try {
         await startPlayback(accessToken, [nextSong.spotifyUri]);
       } catch {
         // Retry once
-        await sleep(500);
+        await sleep(300);
         try { await startPlayback(accessToken, [nextSong.spotifyUri]); } catch {}
       }
-
-      // Set volume AGAIN after playback starts (some devices ignore while paused)
-      await sleep(500);
-      await restoreVolume(accessToken, originalVolume);
-
-      // Final safety net — verify volume after a longer delay
-      await sleep(1500);
-      try {
-        const check = await getCurrentPlayback(accessToken);
-        const actual = check?.device?.volume_percent ?? originalVolume;
-        if (actual < originalVolume - 10) {
-          await setVolume(accessToken, originalVolume);
-        }
-      } catch {}
 
       // Clear pre-queue, debounce cron, track stats
       await prisma.room.update({
@@ -219,8 +212,13 @@ export async function POST(
       });
       await shiftPinnedPositions(room.id);
     } else {
+      if (playing) {
+        await prisma.roomSong.update({
+          where: { id: playing.id },
+          data: { isPlaying: false, isPlayed: true, playedAt: new Date() },
+        });
+      }
       try { await pausePlayback(accessToken); } catch {}
-      await sleep(500);
       await restoreVolume(accessToken, originalVolume);
     }
 

@@ -93,7 +93,8 @@ export async function POST(
 
   // Re-sort on unlock (song needs to find its vote-based position)
   // Skip on forceLock (triggered by drag — order was already set by reorder endpoint)
-  if (room.autoShuffle && !newLocked && !forceLock) {
+  // Skip while drag is in flight so the freshly-set drag order isn't clobbered.
+  if (room.autoShuffle && !newLocked && !forceLock && !room.dragInFlight) {
     await reorderByVotes(room.id, room.queueDisplaySize || 50);
   }
 

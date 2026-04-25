@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
     },
   });
 
-  const results: { code: string; status: string; detail?: string; fadeInMs?: number; currentSongId?: string }[] = [];
+  const results: { code: string; status: string; detail?: string; fadeInMs?: number; fadeDurationMs?: number; currentSongId?: string }[] = [];
 
   // Report rooms that the caller asked about but aren't active (closed/expired/not found)
   if (roomCodes) {
@@ -85,6 +85,11 @@ export async function GET(req: NextRequest) {
         // to it by checking for a locked next song (client locks before fading).
         if (room.maxSongDurationSec >= 30 && playback.is_playing) {
           const maxMs = room.maxSongDurationSec * 1000;
+          // Phase 1A: fade should END at maxMs, so trigger it fadeMs earlier.
+          // fadeDurationSec defaults to 3 in the schema; clamp to a minimum of 500ms
+          // so a misconfigured 0 doesn't collapse to firing AT threshold like before.
+          const fadeMs = Math.max(500, (room.fadeDurationSec ?? 3) * 1000);
+          const fadeTriggerMs = maxMs - fadeMs;
           const timeSinceSync = Date.now() - room.lastSyncAdvance.getTime();
 
           // Pre-queue: 15s before threshold, lock the next song so UI shows "Queued Next"
@@ -100,12 +105,23 @@ export async function GET(req: NextRequest) {
                 where: { id: room.id },
                 data: { lastPreQueuedId: nextUp.id },
               });
-              results.push({ code: room.code, status: "prequeued_maxdur", detail: nextUp.trackName, fadeInMs: maxMs - playback.progress_ms, currentSongId: currentSong.id });
+              // fadeInMs is time until threshold (maxMs). Socket server subtracts
+              // fadeDurationMs + jitter buffer to schedule the actual fade start.
+              results.push({
+                code: room.code,
+                status: "prequeued_maxdur",
+                detail: nextUp.trackName,
+                fadeInMs: maxMs - playback.progress_ms,
+                fadeDurationMs: fadeMs,
+                currentSongId: currentSong.id,
+              });
             }
           }
 
-          // Transition: song is past threshold
-          if (playback.progress_ms >= maxMs && timeSinceSync >= 15000) {
+          // Transition: fade must START so it ENDS at maxMs.
+          // Trigger when we're inside the fade window (progress >= maxMs - fadeMs).
+          // The lastSyncAdvance debounce still prevents re-firing on the next sync cycle.
+          if (playback.progress_ms >= fadeTriggerMs && timeSinceSync >= 15000) {
             // Check if a client is actively mid-fade (recently locked a song via lock-next).
             // lock-next sets lastSyncAdvance to now, so a recent lock means timeSinceSync < 30s.
             // If the lock is stale (30s+), the client abandoned it or the cron's own pre-queue

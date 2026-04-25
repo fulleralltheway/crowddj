@@ -3,7 +3,8 @@ import { getNextSong, shiftPinnedPositions } from "@/lib/queue";
 import { startPlayback, getCurrentPlayback, setVolume, pausePlayback } from "@/lib/spotify";
 import { NextRequest, NextResponse } from "next/server";
 
-// Long-running — fade can take up to 12s + volume restore
+// Long-running — fade loop + restore + startPlayback can run several seconds.
+// Phase 1A trimmed redundant cooldowns; keep maxDuration generous for safety.
 export const maxDuration = 60;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -145,50 +146,45 @@ export async function POST(req: NextRequest) {
       try { await setVolume(accessToken, 0); } catch {}
     }
 
-    // Pause
+    // Pause — never leave a song playing at volume 0
     try { await pausePlayback(accessToken); } catch {}
 
-    // Mark current song as played
+    // Resolve the next song (use the pre-locked one if we set one above)
+    const nextSong = nextUp ?? await getNextSong(room.id, room.sortMode || (room.autoShuffle ? "votes" : "manual"));
+
+    // Mark current song as played + flip the next one to playing.
+    // Independent rows — the actual writes are dispatched in parallel
+    // alongside the volume restore below to collapse the dead-air window.
     const playing = await prisma.roomSong.findFirst({
       where: { roomId: room.id, isPlaying: true },
     });
-    if (playing) {
-      await prisma.roomSong.update({
-        where: { id: playing.id },
-        data: { isPlaying: false, isPlayed: true, playedAt: new Date() },
-      });
-    }
-
-    // Start next song
-    const nextSong = nextUp ?? await getNextSong(room.id, room.sortMode || (room.autoShuffle ? "votes" : "manual"));
     if (nextSong) {
-      await prisma.roomSong.update({
+      const dbOps: Promise<unknown>[] = [];
+      if (playing) {
+        dbOps.push(prisma.roomSong.update({
+          where: { id: playing.id },
+          data: { isPlaying: false, isPlayed: true, playedAt: new Date() },
+        }));
+      }
+      dbOps.push(prisma.roomSong.update({
         where: { id: nextSong.id },
         data: { isPlaying: true, isLocked: false },
-      });
+      }));
 
-      // Rate limit cooldown after rapid fade steps — 1.5s lets Spotify API recover
-      await sleep(1500);
-      await restoreVolume(accessToken, originalVolume);
+      // Phase 1A: overlap DB writes with the volume restore so the
+      // dead-air window between fade end and next song starting is
+      // bounded by Spotify API latency, not DB serialization.
+      // Restore volume BEFORE startPlayback so the next track begins at the
+      // correct level (single restore — no redundant second call, no safety-net sleep).
+      await Promise.all([
+        Promise.all(dbOps),
+        restoreVolume(accessToken, originalVolume),
+      ]);
 
       try { await startPlayback(accessToken, [nextSong.spotifyUri]); } catch {
-        await sleep(500);
+        await sleep(300);
         try { await startPlayback(accessToken, [nextSong.spotifyUri]); } catch {}
       }
-
-      // Restore again after playback starts (some devices ignore volume while paused)
-      await sleep(500);
-      await restoreVolume(accessToken, originalVolume);
-
-      // Final safety net — verify volume after a longer delay
-      await sleep(1500);
-      try {
-        const check = await getCurrentPlayback(accessToken);
-        const actual = check?.device?.volume_percent ?? originalVolume;
-        if (actual < originalVolume - 10) {
-          await setVolume(accessToken, originalVolume);
-        }
-      } catch {}
 
       await prisma.room.update({
         where: { id: room.id },
@@ -202,7 +198,13 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({ success: true, action: "faded", song: nextSong.trackName, originalVolume });
     } else {
-      await sleep(500);
+      // No next song — just mark the current played, restore volume, and stay paused.
+      if (playing) {
+        await prisma.roomSong.update({
+          where: { id: playing.id },
+          data: { isPlaying: false, isPlayed: true, playedAt: new Date() },
+        });
+      }
       await restoreVolume(accessToken, originalVolume);
       return NextResponse.json({ success: true, action: "paused_end", originalVolume });
     }

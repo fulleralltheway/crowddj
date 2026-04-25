@@ -316,13 +316,17 @@ async function syncAllRooms() {
           }
 
           // Schedule a precise fade when pre-queue fires — triggers at
-          // approximately threshold time instead of waiting for the next
-          // sync cycle to detect needs_fade (saves 5-10s of latency)
+          // approximately the fade-start time (threshold minus fade duration)
+          // instead of waiting for the next sync cycle to detect needs_fade.
           if (result.status === "prequeued_maxdur" && result.fadeInMs && result.currentSongId) {
             if (!scheduledFades.has(result.code) && !fadingRooms.has(result.code)) {
-              // Subtract 3s to compensate for network round-trip overhead
-              const delay = Math.max(1000, result.fadeInMs - 3000);
-              console.log(`[${result.code}] Scheduling server fade in ${delay}ms (threshold in ${result.fadeInMs}ms)`);
+              // Phase 1A: fade should END at the threshold, so START it
+              // (fadeDurationMs + 500ms jitter buffer) before the threshold.
+              // fadeInMs = ms until maxMs threshold; fadeDurationMs = full fade length.
+              // Fallback to 3000ms if fadeDurationMs missing (older cron payloads).
+              const fadeDurationMs = (result as { fadeDurationMs?: number }).fadeDurationMs ?? 3000;
+              const delay = Math.max(1000, result.fadeInMs - fadeDurationMs - 500);
+              console.log(`[${result.code}] Scheduling server fade in ${delay}ms (threshold in ${result.fadeInMs}ms, fadeDuration ${fadeDurationMs}ms)`);
               const fadeRoomCode = result.code;
               const fadeSongId = result.currentSongId;
               const timer = setTimeout(() => {

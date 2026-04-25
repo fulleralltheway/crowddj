@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { ServiceWorker } from "./ServiceWorker";
+import { BpmFooter } from "./BpmFooter";
 
 export const metadata: Metadata = {
   title: "PartyQueue - Your Crowd. Your Queue.",
@@ -46,9 +47,7 @@ export default function RootLayout({
       <body className="antialiased">
         {children}
         <ServiceWorker />
-        <p className="fixed bottom-2 left-1/2 -translate-x-1/2 text-[10px] text-white/10 z-0">
-          BPM data by <a href="https://getsongbpm.com" target="_blank" rel="noopener">GetSongBPM</a>
-        </p>
+        <BpmFooter />
       </body>
     </html>
   );

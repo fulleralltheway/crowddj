@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Design Persona
+
+When building or modifying UI, approach it as a senior UI designer and front-end developer.
+
 ## Project Overview
 
 PartyQueue — a crowd-sourced DJ app where hosts connect Spotify, create rooms from playlists, and guests vote on songs via mobile/PWA. The queue reorders by net votes in real-time.

@@ -125,8 +125,9 @@ export async function PATCH(
     data: updates,
   });
 
-  // If switching to votes mode, immediately re-sort the queue
-  if ((body.sortMode === "votes" || (body.autoShuffle === true && !room.autoShuffle)) && !room.autoShuffle) {
+  // If switching to votes mode, immediately re-sort the queue.
+  // Skip while drag is in flight to avoid clobbering host's chosen order.
+  if ((body.sortMode === "votes" || (body.autoShuffle === true && !room.autoShuffle)) && !room.autoShuffle && !room.dragInFlight) {
     await reorderByVotes(room.id, updated.queueDisplaySize || 50);
   }
 
@@ -146,12 +147,15 @@ export async function DELETE(
     return NextResponse.json({ error: "Not authorized" }, { status: 403 });
   }
 
+  // Stamp closedAt for accurate event-end time, and defensively clear dragInFlight
+  // so a stale flag from a crashed drag doesn't persist.
+  const closedAt = new Date();
   const updated = await prisma.room.update({
     where: { id: room.id },
-    data: { isActive: false },
+    data: { isActive: false, dragInFlight: false, closedAt },
   });
 
-  const durationMinutes = Math.round((Date.now() - room.createdAt.getTime()) / 60000);
+  const durationMinutes = Math.round((closedAt.getTime() - room.createdAt.getTime()) / 60000);
 
   return NextResponse.json({
     success: true,

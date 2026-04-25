@@ -57,64 +57,83 @@ export async function POST(
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
 
-  // Get the playing song's sortOrder as baseline
-  const playingSong = await prisma.roomSong.findFirst({
-    where: { roomId: room.id, isPlaying: true },
+  // Set dragInFlight = true AFTER auth + validation succeed so unauthorized
+  // requests can't leak the flag. Clear it in finally on every exit path.
+  await prisma.room.update({
+    where: { id: room.id },
+    data: { dragInFlight: true },
   });
-  const startOrder = playingSong ? playingSong.sortOrder + 1 : 0;
 
-  // Update all songs with new sort orders
-  await Promise.all(
-    orderedIds.map((id, i) =>
-      prisma.roomSong.update({
-        where: { id },
-        data: { sortOrder: startOrder + i },
-      })
-    )
-  );
-
-  // In playlist mode, push the new order to Spotify and sync playlistPosition
-  const sortMode = room.sortMode || (room.autoShuffle ? "votes" : "manual");
-  if (sortMode === "playlist") {
-    const orderedSongs = await prisma.roomSong.findMany({
-      where: { roomId: room.id, isPlayed: false, isPlaying: false },
-      orderBy: { sortOrder: "asc" },
-      select: { id: true, spotifyUri: true },
+  try {
+    // Get the playing song's sortOrder as baseline
+    const playingSong = await prisma.roomSong.findFirst({
+      where: { roomId: room.id, isPlaying: true },
     });
-    // Update playlistPosition to match new drag order
+    const startOrder = playingSong ? playingSong.sortOrder + 1 : 0;
+
+    // Update all songs with new sort orders
     await Promise.all(
-      orderedSongs.map((s, i) =>
-        prisma.roomSong.update({ where: { id: s.id }, data: { playlistPosition: (playingSong ? i + 1 : i) } })
+      orderedIds.map((id, i) =>
+        prisma.roomSong.update({
+          where: { id },
+          data: { sortOrder: startOrder + i },
+        })
       )
     );
-    // Push to Spotify with fresh token and full playlist preservation
-    try {
-      const account = await prisma.account.findFirst({
-        where: { userId: session.user.id, provider: "spotify" },
-      });
-      if (account?.access_token) {
-        const accessToken = await getAccessToken(account);
-        if (accessToken) {
-          // Fetch full playlist from Spotify so we don't lose songs outside the queue
-          const playlistTracks = await getPlaylistTracks(accessToken, room.playlistId);
-          const spotifyUris = playlistTracks.map((t: any) => t.spotifyUri);
-          const queueUriSet = new Set(orderedSongs.map(s => s.spotifyUri));
-          if (playingSong) queueUriSet.add(playingSong.spotifyUri);
-          // Remove queue songs from Spotify list, then reinsert in new order
-          const nonQueueUris = spotifyUris.filter((uri: string) => !queueUriSet.has(uri));
-          const fullUris = [
-            ...(playingSong ? [playingSong.spotifyUri] : []),
-            ...orderedSongs.map(s => s.spotifyUri),
-            ...nonQueueUris,
-          ];
-          const ok = await reorderPlaylist(accessToken, room.playlistId, fullUris);
-          if (!ok) console.log("[Reorder] Failed to push to Spotify playlist");
-        }
-      }
-    } catch (err) {
-      console.log("[Reorder] Spotify push error:", err);
-    }
-  }
 
-  return NextResponse.json({ success: true });
+    // In playlist mode, push the new order to Spotify and sync playlistPosition
+    const sortMode = room.sortMode || (room.autoShuffle ? "votes" : "manual");
+    if (sortMode === "playlist") {
+      const orderedSongs = await prisma.roomSong.findMany({
+        where: { roomId: room.id, isPlayed: false, isPlaying: false },
+        orderBy: { sortOrder: "asc" },
+        select: { id: true, spotifyUri: true },
+      });
+      // Update playlistPosition to match new drag order
+      await Promise.all(
+        orderedSongs.map((s, i) =>
+          prisma.roomSong.update({ where: { id: s.id }, data: { playlistPosition: (playingSong ? i + 1 : i) } })
+        )
+      );
+      // Push to Spotify with fresh token and full playlist preservation
+      try {
+        const account = await prisma.account.findFirst({
+          where: { userId: session.user.id, provider: "spotify" },
+        });
+        if (account?.access_token) {
+          const accessToken = await getAccessToken(account);
+          if (accessToken) {
+            // Fetch full playlist from Spotify so we don't lose songs outside the queue
+            const playlistTracks = await getPlaylistTracks(accessToken, room.playlistId);
+            const spotifyUris = playlistTracks.map((t: any) => t.spotifyUri);
+            const queueUriSet = new Set(orderedSongs.map(s => s.spotifyUri));
+            if (playingSong) queueUriSet.add(playingSong.spotifyUri);
+            // Remove queue songs from Spotify list, then reinsert in new order
+            const nonQueueUris = spotifyUris.filter((uri: string) => !queueUriSet.has(uri));
+            const fullUris = [
+              ...(playingSong ? [playingSong.spotifyUri] : []),
+              ...orderedSongs.map(s => s.spotifyUri),
+              ...nonQueueUris,
+            ];
+            const ok = await reorderPlaylist(accessToken, room.playlistId, fullUris);
+            if (!ok) console.log("[Reorder] Failed to push to Spotify playlist");
+          }
+        }
+      } catch (err) {
+        console.log("[Reorder] Spotify push error:", err);
+      }
+    }
+
+    return NextResponse.json({ success: true });
+  } finally {
+    // Clear dragInFlight on every exit path (success, error, throw).
+    // Catch errors here in case room was deleted mid-drag (DELETE handler ran);
+    // we don't want a stale-flag cleanup to mask the original error or 200.
+    await prisma.room.update({
+      where: { id: room.id },
+      data: { dragInFlight: false },
+    }).catch((err) => {
+      console.log(`[Reorder] dragInFlight cleanup failed for room ${code}:`, err);
+    });
+  }
 }

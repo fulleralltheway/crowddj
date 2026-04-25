@@ -68,6 +68,8 @@ type Room = {
   peakGuestCount: number;
   lastPlaylistSync: string | null;
   createdAt: string;
+  updatedAt?: string;
+  closedAt?: string | null;
   songs: any[];
 };
 
@@ -1273,8 +1275,9 @@ function DashboardInner({ user }: { user: any }) {
     if (!maxDur || maxDur < 30 || !isPlaying || isFading) return;
 
     const maxMs = maxDur * 1000;
-    // Fade starts AFTER the max duration — fade time is extra on top
-    const triggerMs = maxMs;
+    // Fade should END at maxMs, so it must START fadeMs earlier
+    const fadeMs = Math.max(500, fadeDurationSec * 1000);
+    const triggerMs = maxMs - fadeMs;
     const currentUri = spotifyTrack?.uri ?? null;
     const id = setInterval(() => {
       // Skip if setting was changed mid-song for this track (takes effect next song)
@@ -1375,7 +1378,9 @@ function DashboardInner({ user }: { user: any }) {
     const hasPosition = position != null;
     // Save scroll position for simple lock toggle (no position change)
     const scrollPos = !hasPosition ? (scrollRef.current?.scrollTop ?? 0) : null;
-    // Suppress socket broadcasts during lock to prevent stale data from overwriting
+    // Snapshot pre-mutation state for revert-on-error
+    const previousSongs = activeRoom.songs;
+    const myEpoch = ++dragEpoch.current;
     suppressSocketSongs.current = true;
 
     // Compute the new queue order for position-based lock (same approach as drag-and-drop)
@@ -1411,36 +1416,47 @@ function DashboardInner({ user }: { user: any }) {
       };
     });
 
-    if (hasPosition && orderedIds) {
-      // Position-based lock: use same path as drag-and-drop (reorder + simple lock)
-      await fetch(`/api/rooms/${activeRoom.code}/reorder`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderedIds }),
-      });
-      const res = await fetch(`/api/rooms/${activeRoom.code}/lock`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ songId, forceLock: true }),
-      });
-      const lockResult = await res.json().catch(() => null);
-      console.log("[DJ Lock] position lock response:", res.status, lockResult);
-    } else {
-      // Simple lock toggle
-      const res = await fetch(`/api/rooms/${activeRoom.code}/lock`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ songId }),
-      });
-      const lockResult = await res.json().catch(() => null);
-      console.log("[DJ Lock] toggle response:", res.status, lockResult);
-    }
+    try {
+      if (hasPosition && orderedIds) {
+        // Position-based lock: use same path as drag-and-drop (reorder + simple lock)
+        const reorderRes = await fetch(`/api/rooms/${activeRoom.code}/reorder`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ orderedIds }),
+        });
+        if (!reorderRes.ok) throw new Error(`reorder ${reorderRes.status}`);
+        const res = await fetch(`/api/rooms/${activeRoom.code}/lock`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ songId, forceLock: true }),
+        });
+        if (!res.ok) throw new Error(`lock ${res.status}`);
+        const lockResult = await res.json().catch(() => null);
+        console.log("[DJ Lock] position lock response:", res.status, lockResult);
+      } else {
+        // Simple lock toggle
+        const res = await fetch(`/api/rooms/${activeRoom.code}/lock`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ songId }),
+        });
+        if (!res.ok) throw new Error(`lock ${res.status}`);
+        const lockResult = await res.json().catch(() => null);
+        console.log("[DJ Lock] toggle response:", res.status, lockResult);
+      }
 
-    await refreshSongs(activeRoom.code);
-    // Re-enable socket broadcasts after our own refresh is complete
-    suppressSocketSongs.current = false;
-    // Now notify guests
-    getSocket().emit("songs-reordered", activeRoom.code);
+      await refreshSongs(activeRoom.code);
+      // Hold suppression past refresh to absorb in-flight stale broadcasts
+      setTimeout(() => {
+        if (dragEpoch.current === myEpoch) suppressSocketSongs.current = false;
+      }, SUPPRESS_GRACE_MS);
+      getSocket().emit("songs-reordered", activeRoom.code);
+    } catch (err) {
+      console.error("[lockSong] error:", err);
+      setActiveRoom((prev) => prev ? { ...prev, songs: previousSongs } : null);
+      suppressSocketSongs.current = false;
+      refreshSongs(activeRoom.code).catch(() => {});
+    }
     // Only restore scroll for simple toggle (position lock should show the new location)
     if (scrollPos != null) {
       requestAnimationFrame(() => {
@@ -1480,16 +1496,24 @@ function DashboardInner({ user }: { user: any }) {
   const dragSongs = useRef<any[]>([]);
   const dragStartY = useRef(0);
   const dragItemHeight = useRef(0);
+  // Bumped on every reorder/lock commit; suppression grace timers compare
+  // their captured epoch to the current value and bail if a newer commit
+  // has started, so a fresh drag never has its suppression cleared early.
+  const dragEpoch = useRef(0);
+  const SUPPRESS_GRACE_MS = 750;
 
   const commitReorder = async (songs: any[], movedSongId: string, forceLockOverride = false) => {
     if (!activeRoom) return;
+    // Snapshot pre-mutation state for revert-on-error
+    const previousSongs = activeRoom.songs;
+    const myEpoch = ++dragEpoch.current;
     suppressSocketSongs.current = true;
+
     const mode = activeRoom.sortMode || (activeRoom.autoShuffle ? "votes" : "manual");
     const isPlaylistMode = mode === "playlist";
     const movedSong = songs.find((s: any) => s.id === movedSongId);
     const hasVotes = movedSong && (movedSong.upvotes - movedSong.downvotes) !== 0;
     const willLock = !isPlaylistMode && (forceLockOverride || hasVotes || movedSong?.isLocked);
-    // Optimistically mark the moved song as locked (only if it will actually be locked)
     if (willLock) {
       setActiveRoom((prev) => {
         if (!prev) return null;
@@ -1502,21 +1526,41 @@ function DashboardInner({ user }: { user: any }) {
       });
     }
     const orderedIds = songs.filter((s: any) => !s.isPlaying).map((s: any) => s.id);
-    await fetch(`/api/rooms/${activeRoom.code}/reorder`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ orderedIds }),
-    });
-    if (willLock) {
-      await fetch(`/api/rooms/${activeRoom.code}/lock`, {
+
+    try {
+      const reorderRes = await fetch(`/api/rooms/${activeRoom.code}/reorder`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ songId: movedSongId, forceLock: true }),
+        body: JSON.stringify({ orderedIds }),
       });
+      if (!reorderRes.ok) throw new Error(`reorder ${reorderRes.status}`);
+
+      if (willLock) {
+        const lockRes = await fetch(`/api/rooms/${activeRoom.code}/lock`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ songId: movedSongId, forceLock: true }),
+        });
+        if (!lockRes.ok) throw new Error(`lock ${lockRes.status}`);
+      }
+
+      await refreshSongs(activeRoom.code);
+
+      // Hold suppression past refresh to absorb any in-flight stale
+      // broadcasts (e.g., a vote that landed server-side before
+      // dragInFlight was set). Epoch check protects against a later drag.
+      setTimeout(() => {
+        if (dragEpoch.current === myEpoch) suppressSocketSongs.current = false;
+      }, SUPPRESS_GRACE_MS);
+
+      getSocket().emit("songs-reordered", activeRoom.code);
+    } catch (err) {
+      console.error("[commitReorder] error:", err);
+      // Revert optimistic state and reconcile from server
+      setActiveRoom((prev) => prev ? { ...prev, songs: previousSongs } : null);
+      suppressSocketSongs.current = false;
+      refreshSongs(activeRoom.code).catch(() => {});
     }
-    await refreshSongs(activeRoom.code);
-    suppressSocketSongs.current = false;
-    getSocket().emit("songs-reordered", activeRoom.code);
   };
 
   const saveOrder = (songs: any[], movedSongId: string) => {
@@ -1651,8 +1695,13 @@ function DashboardInner({ user }: { user: any }) {
               <div className="space-y-2 max-h-64 overflow-y-auto">
                 {pastRooms.slice(0, 10).map((r) => {
                   const created = new Date(r.createdAt);
-                  const durationMin = Math.round((Date.now() - created.getTime()) / 60000);
-                  const durationStr = durationMin >= 60 ? `${Math.floor(durationMin / 60)}h ${durationMin % 60}m` : `${durationMin}m`;
+                  const endTime = r.closedAt ? new Date(r.closedAt) : (r.updatedAt ? new Date(r.updatedAt) : null);
+                  const durationMin = endTime ? Math.round((endTime.getTime() - created.getTime()) / 60000) : null;
+                  const durationStr = durationMin === null
+                    ? "—"
+                    : durationMin >= 60
+                      ? `${Math.floor(durationMin / 60)}h ${durationMin % 60}m`
+                      : `${durationMin}m`;
                   return (
                     <div key={r.id} className="bg-white/[0.03] border border-white/[0.06] rounded-xl px-4 py-3">
                       <div className="flex items-center justify-between mb-1">
@@ -1974,68 +2023,70 @@ function DashboardInner({ user }: { user: any }) {
                     />
                   </button>
                 </div>
-              </div>
-            </div>
-
-            {/* Schedule start time */}
-            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl overflow-hidden">
-              <div className="px-4 py-3 space-y-2 min-w-0">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-sm">Schedule start time</p>
-                    <p className="text-white/30 text-xs">Show countdown until start</p>
-                  </div>
-                  <button
-                    onClick={() => {
-                      const next = !scheduleEnabled;
-                      setScheduleEnabled(next);
-                      if (next && !scheduledStart) {
-                        // Default to tomorrow at 8 PM
-                        const d = new Date();
-                        d.setDate(d.getDate() + 1);
-                        d.setHours(20, 0, 0, 0);
-                        setScheduledStart(d.toISOString().slice(0, 16));
-                      }
-                    }}
-                    className={`w-11 h-6 rounded-full transition-colors flex-shrink-0 flex items-center px-0.5 ${
-                      scheduleEnabled ? "bg-accent" : "bg-white/15"
-                    }`}
-                  >
-                    <span
-                      className={`w-5 h-5 bg-white rounded-full transition-transform shadow-sm ${
-                        scheduleEnabled ? "translate-x-5" : "translate-x-0"
+                {/* Schedule start time — merged into settings card */}
+                <div className="px-4 py-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm">Schedule start time</p>
+                      <p className="text-white/30 text-xs">Show countdown until start</p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        const next = !scheduleEnabled;
+                        setScheduleEnabled(next);
+                        if (next && !scheduledStart) {
+                          // Default to tomorrow at 8 PM
+                          const d = new Date();
+                          d.setDate(d.getDate() + 1);
+                          d.setHours(20, 0, 0, 0);
+                          setScheduledStart(d.toISOString().slice(0, 16));
+                        }
+                      }}
+                      className={`w-11 h-6 rounded-full transition-colors flex-shrink-0 flex items-center px-0.5 ${
+                        scheduleEnabled ? "bg-accent" : "bg-white/15"
                       }`}
-                    />
-                  </button>
-                </div>
-                {scheduleEnabled && (
-                  <div className="min-w-0">
-                    <input
-                      type="datetime-local"
-                      value={scheduledStart}
-                      onChange={(e) => setScheduledStart(e.target.value)}
-                      min={new Date().toISOString().slice(0, 16)}
-                      className="w-full max-w-full box-border px-3 py-2.5 bg-white/[0.06] border border-white/[0.08] rounded-lg text-sm focus:outline-none focus:border-accent/40 transition-colors [color-scheme:dark]"
-                    />
-                    {scheduledStart && (
-                      <p className="text-white/30 text-xs mt-2 truncate">
-                        {new Date(scheduledStart).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })} at {new Date(scheduledStart).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
-                      </p>
-                    )}
+                    >
+                      <span
+                        className={`w-5 h-5 bg-white rounded-full transition-transform shadow-sm ${
+                          scheduleEnabled ? "translate-x-5" : "translate-x-0"
+                        }`}
+                      />
+                    </button>
                   </div>
-                )}
+                  {scheduleEnabled && (
+                    <div className="mt-3 min-w-0">
+                      <input
+                        type="datetime-local"
+                        value={scheduledStart}
+                        onChange={(e) => setScheduledStart(e.target.value)}
+                        min={new Date().toISOString().slice(0, 16)}
+                        className="w-full max-w-full box-border px-3 py-2.5 bg-white/[0.06] border border-white/[0.08] rounded-lg text-sm focus:outline-none focus:border-accent/40 transition-colors [color-scheme:dark]"
+                      />
+                      {scheduledStart && (
+                        <p className="text-white/30 text-xs mt-2 truncate">
+                          {new Date(scheduledStart).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })} at {new Date(scheduledStart).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
-            {/* Create button */}
-            <button
-              onClick={createRoom}
-              disabled={!roomName.trim() || !selectedPlaylist || loading || (scheduleEnabled && !scheduledStart)}
-              className="w-full py-3.5 bg-accent hover:bg-accent-hover text-black font-semibold rounded-xl transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              {loading ? "Creating..." : scheduleEnabled ? "Schedule Room" : "Create Room"}
-            </button>
           </div>
+        </div>
+
+        {/* Pinned Create Room button — kept outside the scroll container
+            so it's always visible regardless of playlist-picker height
+            or how much form content is loaded. */}
+        <div className="flex-shrink-0 px-4 pt-3 pb-4 bg-gradient-to-t from-bg-primary via-bg-primary/95 to-bg-primary/0 border-t border-white/[0.06] safe-bottom z-50">
+          <button
+            onClick={createRoom}
+            disabled={!roomName.trim() || !selectedPlaylist || loading || (scheduleEnabled && !scheduledStart)}
+            className="w-full py-3.5 bg-accent hover:bg-accent-hover text-black font-semibold rounded-xl transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {loading ? "Creating..." : scheduleEnabled ? "Schedule Room" : "Create Room"}
+          </button>
         </div>
       </div>
     );
