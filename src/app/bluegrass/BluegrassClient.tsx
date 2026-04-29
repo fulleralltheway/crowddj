@@ -218,37 +218,54 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
     setPlaylistsState((s) => (s === "idle" ? "idle" : "loading"));
     setPlaylistsError(null);
     try {
-      // Use the proven shared endpoint that the PartyQueue dashboard uses.
-      // The Bluegrass-specific /api/bluegrass/playlists with its cache wrapper
-      // turned out to be flaky (worked sometimes, 429'd repeatedly other times)
-      // even when /api/spotify/playlists returned the same data fine. Until
-      // that's debugged, route through the working path.
-      const res = await fetch("/api/spotify/playlists");
+      // /api/bluegrass/playlists distinguishes 429 / 401 / 403 / 5xx so we
+      // can show the right message and handle the right retry cadence.
+      const res = await fetch("/api/bluegrass/playlists");
 
       if (res.status === 429) {
+        const data = (await res.json().catch(() => ({}))) as { retryAfterSec?: number };
+        const wait = Math.max(1, data.retryAfterSec ?? 60);
         const cached = readCachedPlaylists();
         if (cached && cached.length > 0) {
           setPlaylists(cached);
           setPlaylistsState("idle");
         } else {
-          setPlaylistsError("Spotify is rate-limiting. Retrying in 15s…");
+          // For long timeouts (e.g., Spotify's 600s app-throttle window)
+          // do NOT auto-retry — repeated calls inside the window can extend
+          // it. Show a human-readable wait and let the user retry manually.
+          if (wait > 120) {
+            const mins = Math.ceil(wait / 60);
+            setPlaylistsError(
+              `Spotify has the app in a ${mins}-minute timeout. Wait it out, then tap Try again. (Don't reload the page in the meantime — extra calls can extend the window.)`
+            );
+          } else {
+            setPlaylistsError(`Spotify is rate-limiting. Retrying in ${wait}s…`);
+          }
           setPlaylistsState("error");
         }
-        retryTimerRef.current = setTimeout(() => {
-          retryTimerRef.current = null;
-          void loadPlaylistsRef.current({ skipCache: true });
-        }, 15_000);
+        // Only schedule auto-retry for short waits.
+        if (wait <= 120) {
+          retryTimerRef.current = setTimeout(() => {
+            retryTimerRef.current = null;
+            void loadPlaylistsRef.current({ skipCache: true });
+          }, wait * 1000);
+        }
         return;
       }
 
       if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        const data = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          detail?: string;
+          status?: number;
+        };
         const message =
-          data.error === "TokenRevoked"
+          data.detail ||
+          (data.error === "TokenRevoked"
             ? "Spotify access expired. Sign out and sign back in."
             : data.error
-            ? `${data.error} (HTTP ${res.status})`
-            : `HTTP ${res.status}`;
+            ? `${data.error}${data.status ? ` (Spotify ${data.status})` : ""}`
+            : `HTTP ${res.status}`);
         setPlaylistsError(message);
         setPlaylistsState("error");
         return;
