@@ -150,11 +150,13 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
     return () => clearInterval(t);
   }, [sess?.id, pollState]);
 
-  // Load devices when needed
+  // Load devices. Falls back to the sessionless endpoint when no active
+  // session exists yet (the playlist picker is shown BEFORE a session is
+  // created — we can't use the session-scoped endpoint there).
   const loadDevices = useCallback(async () => {
     const s = sessRef.current;
-    if (!s) return;
-    const res = await fetch(`/api/bluegrass/sessions/${s.id}/devices`);
+    const url = s ? `/api/bluegrass/sessions/${s.id}/devices` : `/api/bluegrass/devices`;
+    const res = await fetch(url);
     if (res.ok) setDevices(await res.json());
   }, []);
 

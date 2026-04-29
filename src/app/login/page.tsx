@@ -7,6 +7,13 @@ import { Suspense } from "react";
 function LoginContent() {
   const searchParams = useSearchParams();
   const error = searchParams.get("error");
+  // Honor the callbackUrl from the redirect (e.g., /bluegrass auth gate).
+  // Only accept relative paths so this can't open-redirect to another host.
+  const requestedCallback = searchParams.get("callbackUrl") ?? "";
+  const callbackUrl =
+    requestedCallback.startsWith("/") && !requestedCallback.startsWith("//")
+      ? requestedCallback
+      : "/dashboard";
 
   return (
     <div className="min-h-dvh flex flex-col items-center justify-center px-4 select-none">
@@ -30,7 +37,7 @@ function LoginContent() {
         )}
 
         <button
-          onClick={() => signIn("spotify", { callbackUrl: "/dashboard" })}
+          onClick={() => signIn("spotify", { callbackUrl })}
           className="w-full py-3.5 bg-[#1DB954] hover:bg-[#1ed760] text-black font-semibold rounded-xl transition-colors flex items-center justify-center gap-3 lg:py-4 lg:text-base lg:rounded-2xl"
         >
           <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
