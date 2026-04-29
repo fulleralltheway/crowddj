@@ -67,6 +67,8 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
   const [playback, setPlayback] = useState<PlaybackState | null>(null);
   const [devices, setDevices] = useState<Device[]>([]);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
+  const [playlistsState, setPlaylistsState] = useState<"idle" | "loading" | "error">("idle");
+  const [playlistsError, setPlaylistsError] = useState<string | null>(null);
   const [picker, setPicker] = useState<"none" | "device" | "playlist" | "settings" | "ended">("none");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -160,17 +162,35 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
     if (res.ok) setDevices(await res.json());
   }, []);
 
-  // Load playlists when picker opens
+  // Load playlists when picker opens. Surfaces loading + error states so a
+  // silent failure doesn't leave the user staring at a blank list. Filters
+  // out null/empty entries (Spotify's /me/playlists occasionally returns
+  // them for inaccessible playlists).
   const loadPlaylists = useCallback(async () => {
-    const res = await fetch("/api/spotify/playlists");
-    if (res.ok) {
-      const items = await res.json();
-      setPlaylists(items.map((p: { id: string; uri: string; name: string; images?: { url: string }[] }) => ({
-        id: p.id,
-        uri: p.uri,
-        name: p.name,
-        images: p.images ?? [],
-      })));
+    setPlaylistsState("loading");
+    setPlaylistsError(null);
+    try {
+      const res = await fetch("/api/spotify/playlists");
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        const reason = (data as { error?: string }).error ?? `HTTP ${res.status}`;
+        setPlaylistsError(
+          reason === "TokenRevoked"
+            ? "Spotify access expired. Sign out and sign back in."
+            : `Couldn't load playlists: ${reason}`
+        );
+        setPlaylistsState("error");
+        return;
+      }
+      const items = (await res.json()) as Array<{ id?: string; uri?: string; name?: string; images?: { url: string }[] } | null>;
+      const cleaned: Playlist[] = (items ?? [])
+        .filter((p): p is { id: string; uri: string; name: string; images?: { url: string }[] } => !!p && !!p.id && !!p.uri && !!p.name)
+        .map((p) => ({ id: p.id, uri: p.uri, name: p.name, images: p.images ?? [] }));
+      setPlaylists(cleaned);
+      setPlaylistsState("idle");
+    } catch (e) {
+      setPlaylistsError(e instanceof Error ? e.message : "Network error");
+      setPlaylistsState("error");
     }
   }, []);
 
@@ -300,9 +320,12 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
         ) : (
           <PlaylistPicker
             playlists={playlists}
+            playlistsState={playlistsState}
+            playlistsError={playlistsError}
             devices={devices}
             onPick={startWithPlaylist}
             onLoad={() => { void loadDevices(); void loadPlaylists(); }}
+            onReloadPlaylists={() => void loadPlaylists()}
             busy={busy}
             error={error}
           />
@@ -433,6 +456,8 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
         <Sheet onClose={() => setPicker("none")} title="Pick playlist">
           <PlaylistList
             playlists={playlists}
+            playlistsState={playlistsState}
+            playlistsError={playlistsError}
             selected={sess.playlistUri}
             onPick={async (p) => {
               await patchSession({ playlistUri: p.uri, playlistName: p.name });
@@ -538,16 +563,22 @@ function DeviceList({
 
 function PlaylistPicker({
   playlists,
+  playlistsState,
+  playlistsError,
   devices,
   onPick,
   onLoad,
+  onReloadPlaylists,
   busy,
   error,
 }: {
   playlists: Playlist[];
+  playlistsState: "idle" | "loading" | "error";
+  playlistsError: string | null;
   devices: Device[];
   onPick: (p: Playlist, deviceId: string) => void;
   onLoad: () => void;
+  onReloadPlaylists: () => void;
   busy: boolean;
   error: string | null;
 }) {
@@ -584,25 +615,45 @@ function PlaylistPicker({
       </div>
 
       <div>
-        <div className="text-xs text-text-secondary uppercase tracking-wide mb-2">Playlist</div>
-        <div className="space-y-2">
-          {playlists.map((p) => (
-            <button
-              key={p.id}
-              onClick={() => onPick(p, deviceId)}
-              disabled={busy || !deviceId}
-              className="w-full flex items-center gap-3 text-left px-3 py-2 rounded-xl border border-white/[0.06] bg-bg-card/50 disabled:opacity-40"
-            >
-              {p.images?.[0]?.url ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={p.images[0].url} alt="" className="w-10 h-10 rounded" />
-              ) : (
-                <div className="w-10 h-10 rounded bg-white/[0.06]" />
-              )}
-              <span className="font-medium truncate">{p.name}</span>
-            </button>
-          ))}
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-xs text-text-secondary uppercase tracking-wide">Playlist</div>
+          <button onClick={onReloadPlaylists} className="text-xs text-accent">Refresh</button>
         </div>
+        {playlistsState === "loading" && (
+          <div className="text-sm text-text-secondary">Loading playlists…</div>
+        )}
+        {playlistsState === "error" && (
+          <div className="text-sm text-red-400">
+            {playlistsError ?? "Couldn't load playlists."}{" "}
+            <button onClick={onReloadPlaylists} className="text-accent underline">Try again</button>
+          </div>
+        )}
+        {playlistsState === "idle" && playlists.length === 0 && (
+          <div className="text-sm text-text-secondary">
+            No playlists found in your Spotify account.{" "}
+            <button onClick={onReloadPlaylists} className="text-accent underline">Refresh</button>
+          </div>
+        )}
+        {playlistsState === "idle" && playlists.length > 0 && (
+          <div className="space-y-2">
+            {playlists.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => onPick(p, deviceId)}
+                disabled={busy || !deviceId}
+                className="w-full flex items-center gap-3 text-left px-3 py-2 rounded-xl border border-white/[0.06] bg-bg-card/50 disabled:opacity-40"
+              >
+                {p.images?.[0]?.url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={p.images[0].url} alt="" className="w-10 h-10 rounded" />
+                ) : (
+                  <div className="w-10 h-10 rounded bg-white/[0.06]" />
+                )}
+                <span className="font-medium truncate">{p.name}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {error && (
@@ -616,16 +667,41 @@ function PlaylistPicker({
 
 function PlaylistList({
   playlists,
+  playlistsState,
+  playlistsError,
   selected,
   onPick,
   onLoad,
 }: {
   playlists: Playlist[];
+  playlistsState: "idle" | "loading" | "error";
+  playlistsError: string | null;
   selected: string;
   onPick: (p: Playlist) => void;
   onLoad: () => void;
 }) {
   useEffect(() => { onLoad(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+
+  if (playlistsState === "loading") {
+    return <div className="text-sm text-text-secondary">Loading playlists…</div>;
+  }
+  if (playlistsState === "error") {
+    return (
+      <div className="text-sm text-red-400">
+        {playlistsError ?? "Couldn't load playlists."}{" "}
+        <button onClick={onLoad} className="text-accent underline">Try again</button>
+      </div>
+    );
+  }
+  if (playlists.length === 0) {
+    return (
+      <div className="text-sm text-text-secondary">
+        No playlists found.{" "}
+        <button onClick={onLoad} className="text-accent underline">Refresh</button>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-2">
       {playlists.map((p) => (
