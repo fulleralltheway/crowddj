@@ -46,9 +46,13 @@ export async function POST(
   // setVolume reliably lands.
   try { await setVolume(accessToken, sess.targetVolume); } catch {}
 
+  // Only update trackStartedAt — DO NOT touch lastSyncAdvance here. That
+  // field gates the fade-transition cooldown guard; setting it now would
+  // make the first auto-fade after Play look like a double-fire when
+  // 2 * fadeDurationMs >= maxSongDurationMs (e.g. fade=6, max=15).
   await prisma.bluegrassSession.update({
     where: { id },
-    data: { lastSyncAdvance: new Date(), trackStartedAt: new Date() },
+    data: { trackStartedAt: new Date() },
   });
 
   return NextResponse.json({ ok: true });

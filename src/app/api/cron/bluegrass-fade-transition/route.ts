@@ -108,15 +108,28 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ skipped: true, reason: "concurrent_transition_in_flight" });
   }
 
+  // If we bail before the actual transition, release the cooldown claim so
+  // a retry on the next tick isn't blocked for 2*fadeMs.
+  const releaseCooldown = async () => {
+    try {
+      await prisma.bluegrassSession.update({
+        where: { id: sess.id },
+        data: { lastSyncAdvance: cooldownCutoff },
+      });
+    } catch {}
+  };
+
   const account = await prisma.account.findFirst({
     where: { userId: sess.userId, provider: "spotify" },
   });
   if (!account?.access_token) {
+    await releaseCooldown();
     return NextResponse.json({ error: "no_token" }, { status: 401 });
   }
 
   const accessToken = await getAccessToken(account);
   if (!accessToken) {
+    await releaseCooldown();
     return NextResponse.json({ error: "token_refresh_failed" }, { status: 401 });
   }
 
@@ -156,6 +169,7 @@ export async function POST(req: NextRequest) {
   // Otherwise, skip to the next track on the playlist context.
   try { await skipToNext(accessToken); } catch {
     await restoreVolume(accessToken, sess.targetVolume);
+    await releaseCooldown();
     return NextResponse.json({ error: "skip_failed" }, { status: 502 });
   }
 

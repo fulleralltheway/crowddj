@@ -78,8 +78,16 @@ export async function POST(
   // playing a vanilla playlist with no reorder semantics — Spotify's native
   // playlist ordering is the source of truth.
   try { await skipToNext(accessToken); } catch (e) {
-    // Hard to recover from; restore volume so the user isn't stuck quiet.
+    // Hard to recover from; restore volume so the user isn't stuck quiet,
+    // and release the cooldown claim so a retry on the next tick isn't
+    // blocked for 2*fadeMs.
     await restoreVolume(accessToken, originalVolume || sess.targetVolume);
+    try {
+      await prisma.bluegrassSession.update({
+        where: { id },
+        data: { lastSyncAdvance: cooldownCutoff },
+      });
+    } catch {}
     return NextResponse.json(
       { error: "skip_failed", detail: e instanceof Error ? e.message : "" },
       { status: 502 }

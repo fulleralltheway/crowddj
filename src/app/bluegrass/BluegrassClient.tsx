@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { getSocket } from "@/lib/socket";
 import { useAppHeight } from "@/lib/pwa";
+import { AUTO_DURATION_MIN_SEC } from "@/lib/bluegrass-sync";
 
 // Single source of truth for socket connection state, satisfies the
 // react-hooks/set-state-in-effect rule (no synchronous setState in effects).
@@ -89,11 +90,13 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
       setPlayback(data);
 
       // Threshold fallback: only when socket isn't pushing precise schedules.
+      // Floor must match the lib's AUTO_DURATION_MIN_SEC so spec V14 (which
+      // tests at maxSongDurationSec=15 with the socket down) actually fires.
       if (
         !socketConnected &&
         data.isPlaying &&
         data.positionMs != null &&
-        s.maxSongDurationSec >= 30
+        s.maxSongDurationSec >= AUTO_DURATION_MIN_SEC
       ) {
         const maxMs = s.maxSongDurationSec * 1000;
         const fadeMs = Math.max(500, s.fadeDurationSec * 1000);
@@ -105,6 +108,15 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
             localStorage.setItem(FADE_FIRED_KEY, String(Date.now()));
             const path = s.stopAfterCurrent ? "fade-pause" : "fade-skip";
             void fetch(`/api/bluegrass/sessions/${s.id}/${path}`, { method: "POST" });
+            // Mirror the cron-path's stopAfterCurrent reset so behavior is
+            // identical regardless of socket connectivity.
+            if (s.stopAfterCurrent) {
+              void fetch(`/api/bluegrass/sessions/${s.id}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ stopAfterCurrent: false }),
+              });
+            }
           }
         }
       }

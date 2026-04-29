@@ -104,3 +104,159 @@ Three blocking issues need to land before this can ship:
 The other "fix-before-ship" items (vercel.json query, fireFade await, DELETE up-ramp direction, race guard, cron auth parity) are real but smaller. Resolve them in the same patch.
 
 Build is clean (zero warnings), 19/19 unit tests pass. Architecture matches ADR-0001 — parallel pipelines, no cross-contamination with the `Room` / `RoomSong` graph. Once the blockers are fixed, this is in good shape for Phase 6 QA.
+
+## Round 2 (2026-04-29)
+**Reviewer:** fresh cold-context general-purpose agent
+**Commits since first review:** ccaa3aa fix(bluegrass-dj): address Phase 5 review findings
+
+### Verification of first reviewer's findings
+
+| Round 1 issue | Status | Citation |
+|---|---|---|
+| **block** stopAfterCurrent never pauses (`bluegrass-fade-transition`) | **addressed correctly** | `src/app/api/cron/bluegrass-fade-transition/route.ts:142-153`. New ordering: pause → 200ms sleep → restoreVolume → clear flag. Volume only returns *after* pause, so the resume-at-target requirement is preserved without an audible artifact. |
+| **block** AUTO_DURATION_MIN_SEC = 30 invalidates spec scenarios | **addressed but introduced new issue** | `src/lib/bluegrass-sync.ts:54` lowered to 10. Test `bluegrass-sync.test.ts:41-48` now asserts 15s is *not* auto_disabled. **However, two callers in `BluegrassClient.tsx:96` and `:317` still hardcode `>= 30`. The first is a real defect (V14 still broken), the second is cosmetic.** See New findings below. |
+| **block** package-lock.json dropped @emnapi/* Linux deps | **addressed correctly** | `git diff main -- package-lock.json` returns 0 lines. Lockfile is byte-identical to main. Vercel `npm ci` will succeed. |
+| **fix-before-ship** vercel.json query-string in cron path | **addressed correctly** | `vercel.json:4` now `/api/cron/sync-bluegrass` with no query. `sync-bluegrass/route.ts:80-83` comment clarifies the default-false behavior. Wire intent and config now agree. |
+| **fix-before-ship** fireFade serialized in per-session loop, risks maxDuration | **addressed correctly** | `sync-bluegrass/route.ts:106,146,154-156` collects `firePromises` and `await Promise.all` at the end. `maxDuration` raised 30→60 (line 10). The per-session loop body still has serial `await prisma.account.findFirst` + `getAccessToken` + `getCurrentPlayback`, so it's not fully parallel — but the *fade fires* are parallel, which is the long-tail piece. Acceptable. |
+| **fix-before-ship** DELETE up-ramp curve direction inverted | **NOT addressed — and the original finding was wrong.** | I traced the math independently. With currentVol=30, target=75, 8-step reversed multipliers `[0, 0.0249, 0.0866, 0.171, 0.287, 0.434, 0.6, 0.793]`, formula `30 + round(45*mult)` produces 30→31→34→38→43→50→57→66→75. Monotonically increasing. The implementer was correct to leave this alone. The first reviewer misread `currentVol + (target-currentVol)*mult` as if `mult` started at 1; it starts at 0 (because the *reversed* down-curve's first element is the original last element, which is 0). |
+| **fix-before-ship** Race: client polling + socket reconnect double-fire | **addressed but introduced edge-case issue** | `fade-skip/route.ts:51-58` and `bluegrass-fade-transition/route.ts:101-109` both use atomic `updateMany` with `lastSyncAdvance < (now - 2*fadeMs)` cooldown. Logic is sound. **However: `play/route.ts:51` already sets `lastSyncAdvance: new Date()` on play start, which can interact badly with the new guard for short-max / long-fade configurations. See New findings.** |
+| **fix-before-ship** bluegrass-fade-transition only accepts ?secret= | **addressed correctly** | `bluegrass-fade-transition/route.ts:10-17` `isAuthorized` helper now mirrors sync-bluegrass — Bearer or `?secret=`. |
+
+Adaptive `PREQUEUE_LEAD_MS` clamp (`bluegrass-sync.ts:90`): `Math.min(PREQUEUE_LEAD_MS, Math.floor(maxMs / 3))`. Behavior across the slider range:
+
+- max=10s: lead = min(15000, 3333) = 3.33s. Pre-queue window = 6.66s–10s. Fade fires at end. OK.
+- max=15s (spec V7/V14/V15): lead = 5s. Pre-queue 10s–15s. OK and matches the new test at line 81-85.
+- max=45s and below: still adaptive. lead = max/3.
+- max=45s and above: lead = 15s (the original cap). Same behavior as PartyQueue.
+- max=300s: lead = 15s. OK.
+
+Math holds across the full slider range (min=0, max=300, step=5). Below 10s the auto_disabled branch short-circuits before the lead calculation, so no division-by-tiny-number issues.
+
+### New findings
+
+#### blocker — Client-polling fallback still gated at >=30s; spec V14 still fails
+
+`src/app/bluegrass/BluegrassClient.tsx:96`:
+
+```
+data.isPlaying &&
+data.positionMs != null &&
+s.maxSongDurationSec >= 30
+```
+
+The implementer lowered `AUTO_DURATION_MIN_SEC` from 30 → 10 in the server-side library and updated the slider hint text (line 643), but did not update the client-polling threshold gate. Result: when the Fly.io socket is down and the PWA is foregrounded, **for `maxSongDurationSec < 30` the client never fires the fallback fade**. Spec V14 explicitly tests the socket-down + foregrounded case at `maxSongDurationSec = 15`. With this gate, the PWA will silently let tracks play to natural end at full volume — exactly the failure mode V14 is meant to detect.
+
+Fix: import `AUTO_DURATION_MIN_SEC` from `@/lib/bluegrass-sync` (or duplicate the constant here with a comment) and use it at line 96. Also update the cosmetic `>= 30` at line 317 the same way for symmetry.
+
+#### high — `play/route.ts:51` writes lastSyncAdvance, can deadlock the new fade guard
+
+`src/app/api/bluegrass/sessions/[id]/play/route.ts:49-52`:
+
+```
+await prisma.bluegrassSession.update({
+  where: { id },
+  data: { lastSyncAdvance: new Date(), trackStartedAt: new Date() },
+});
+```
+
+The new concurrency guard in `bluegrass-fade-transition` and `fade-skip` will only claim if `lastSyncAdvance < (now - 2 * fadeDurationSec * 1000)`. Setting `lastSyncAdvance = now` at play time means the first auto-fade after play is blocked unless `(maxSongDurationSec - fadeDurationSec) > 2 * fadeDurationSec` — i.e., `max > 3 * fade`.
+
+Slider allows `max ∈ [0, 300]` and `fade ∈ [1, 10]`. Counterexamples that pass validation but are blocked:
+
+- `max=15, fade=6` → first fade scheduled at ~9s, cooldown 12s, blocked.
+- `max=10, fade=10` → blocked indefinitely (cooldown 20s, threshold every 10s).
+- `max=20, fade=10` → blocked.
+
+At spec defaults (max=15, fade=3) the math survives by 6s, but the slider lets users walk straight into a silent failure. The guard never claims, the cron returns `concurrent_transition_in_flight`, no fade ever fires.
+
+Fix: don't set `lastSyncAdvance` in `/play`. The `trackStartedAt` write is fine. Or carve `lastSyncAdvance` semantics to mean "last advance-or-skip" only, not "last play."
+
+#### high — Cooldown blocks legitimate fade retries on transient failure
+
+`bluegrass-fade-transition/route.ts:103-109`: the atomic claim runs *before* `getCurrentPlayback`, `setVolume` retries, or `skipToNext`. If any of those fail mid-flight (Spotify 502, network glitch, token-just-expired race), the fade aborts but `lastSyncAdvance` stays set to the failed-claim time. The next sync tick (5s later from the socket server, 60s from Vercel Cron) will be inside the 2*fadeMs cooldown and bail out with `concurrent_transition_in_flight`. Result: a single transient Spotify failure produces a 6–20 second window where retries are silently dropped.
+
+Specifically, line 157-160's `skip_failed` path returns 502 *without resetting* `lastSyncAdvance`. The track keeps playing past threshold; the next attempt is locked out for 2*fadeMs.
+
+Fix: on any failure path that returns before successfully completing the fade, write `lastSyncAdvance` back to its original value. Or: only claim the cooldown after the fade has actually completed (write at the bottom of the success path). The atomic-read-old-then-write-new can be done with `findUnique` first then `updateMany WHERE lastSyncAdvance = $oldValue` for proper CAS — Prisma supports this.
+
+#### medium — `fade-pause` fallback path doesn't clear `stopAfterCurrent`; behavior diverges from socket-driven path
+
+`bluegrass-fade-transition/route.ts:151` clears `stopAfterCurrent: false` after a stop-after-this-song fade.
+
+`BluegrassClient.tsx:106` — when socket is down and `stopAfterCurrent=true`, the client-polling fallback POSTs to `fade-pause` instead of `fade-skip`. `fade-pause/route.ts` does not clear `stopAfterCurrent`. So the user-visible toggle behavior is socket-up: toggle clears itself after one fade; socket-down: toggle remains set. The spec doesn't mandate either behavior, but the divergence is a latent bug (e.g., the user re-enables auto-advance, hits play, toggle is still on from yesterday → next track gets paused unexpectedly).
+
+Fix: pick one. If the socket-up clear-after-fire is intentional, mirror it in `fade-pause`. If not, drop the clear in `bluegrass-fade-transition`.
+
+#### medium — `fade-resume` and DELETE up-ramp produce a perceptual ease-in (delayed swell) instead of ease-out
+
+`fade-resume/route.ts:42-48` and `route.ts:147-154` both reuse `buildFadeCurve` (which is ease-out for fade-OUT) and reverse it. Reversing an ease-out down-curve gives an ease-in up-curve: the multiplier stays small for most of the duration, then swells at the end. Perceptually this is "music starts inaudibly, then suddenly arrives." Spec V5 says "smooth volume ramp from target → 0" and "ramps back up over ~3 seconds" — the up-ramp violates the implicit symmetry.
+
+This is a cosmetic / UX issue, not a functional bug. The first reviewer flagged this as a nit. Round 2 confirms it's still present and still a nit.
+
+Fix (deferrable): add `buildFadeInCurve()` to `src/lib/fade-curve.ts` using `1 - pow(1-t, 1.8)` or `pow(t, 1/1.8)` and use it for fade-resume and DELETE up-ramp.
+
+#### low — Concurrent-transition response is `200 { skipped: true }` not `409`
+
+`fade-skip/route.ts:57` and `bluegrass-fade-transition/route.ts:108` return HTTP 200 with `{skipped: true, reason: "concurrent_transition_in_flight"}`. From the caller's perspective (socket server, Vercel Cron, client polling) a 200 looks like success. If the client polling fallback hits this and gets a 200, it sets `localStorage[FADE_FIRED_KEY]` and silently moves on — but in the client-polling case there's no other transition in flight (that's why polling fired it). The atomic write on the server prevented the duplicate, fine. But for observability, returning 409 with the same body would let monitoring distinguish "duplicate suppressed" from "actually advanced."
+
+Not a blocker; consider for next pass.
+
+#### low — `fade-pause` doesn't have the cooldown guard; double-pause races aren't protected
+
+The new updateMany cooldown only guards `fade-skip` and `bluegrass-fade-transition`. `fade-pause` and `fade-resume` are not guarded. In the socket-down + `stopAfterCurrent=true` path, the client-polling fallback fires `fade-pause`, and the socket server's reconnect could fire `bluegrass-fade-transition` (which now has a stopAfter branch that pauses). Result: two pauses + two volume-restores in flight. Final state is correct (paused at target volume), but the 200ms sleep + restoreVolume retries can produce an audible re-volumeup-then-down artifact.
+
+Fix: add the same updateMany guard to `fade-pause`. Low priority since the audible artifact is brief and only in fallback mode.
+
+#### low — sw.js precaches /bluegrass which is auth-gated (carryover from round 1, not addressed)
+
+`public/sw.js:7` still includes `/bluegrass` in `PRECACHE_URLS`. Round 1 flagged this. Round 2 finding: when an unauthenticated user visits `/bluegrass`, `page.tsx:32` redirects to `/login?callbackUrl=/bluegrass` (302). Service worker `addAll` follows redirects by default, so the cache key `/bluegrass` ends up holding the login HTML. Subsequent offline navigation to `/bluegrass` serves the login page indefinitely (until cache bump). Confusing, not a security hole.
+
+Fix: drop `/bluegrass` from `PRECACHE_URLS`. Runtime fetch handler caches it on first authed hit anyway.
+
+#### low — socket-server health check still doesn't surface session counts (carryover, not addressed)
+
+`socket-server.ts:20` still only reports `rooms`, `backgroundRooms`, `scheduledFades`. Round 1 flagged. Operationally invisible; harmless.
+
+### Security pass (round 2)
+
+Re-verifying the round 1 security flags after the diff:
+
+| Boundary | Status | Notes |
+|---|---|---|
+| auth() gate on all /api/bluegrass/* | **pass** | All 7 routes call auth() and 401 on missing user.id. Owner check `sess.userId !== auth_.user.id` consistent. No IDOR. |
+| Cron secret gate | **pass** | `sync-bluegrass:12-21` and `bluegrass-fade-transition:10-17` both verify `CRON_SECRET` via Bearer or `?secret=`. Both early-return false if env unset. |
+| No Spotify tokens to client | **pass** | `state/route.ts` and `devices/route.ts` strip token. `SessionRow` shape (BluegrassClient.tsx:21-31) has no token field. `auth_.accessToken` accessed server-side only. |
+| New updateMany guard | **pass for security** | An attacker who could spam `/api/bluegrass/sessions/[id]/fade-skip` would need a valid session for the owning user (auth-gated). They can't grief another user's session. They CAN grief their OWN session (set `lastSyncAdvance` to now → block the auto-fade for 2*fadeMs). Self-grief is not a real attack class. |
+| New Bearer auth path on bluegrass-fade-transition | **pass** | Constant-time comparison? No — JS string `===` is timing-sensitive in principle. Same as the existing `?secret=` check on sibling routes. Existing pattern, not a regression. Worth a follow-up to use `crypto.timingSafeEqual` on all cron paths. |
+| sw.js precache → cached login redirect | **info** | Not a security hole; redirect HTML doesn't leak secrets. Confusing UX only. |
+| Logs / PII | **pass** | Logs use cuid session IDs and Spotify track URIs. No emails, no tokens. |
+
+No new security flags introduced by the fix commit. The updateMany cooldown is a self-grief surface only, which is not exploitable across users.
+
+### Unresolved issues
+
+| Severity | Location | Issue | Suggested fix |
+|---|---|---|---|
+| **block** | `src/app/bluegrass/BluegrassClient.tsx:96` | Client-polling fallback hardcodes `>= 30`; spec V14 (socket-down + foreground at maxSongDurationSec=15) cannot pass. The library constant was lowered but this caller wasn't updated. | Import `AUTO_DURATION_MIN_SEC` from `@/lib/bluegrass-sync` and use it. Also fix line 317 for symmetry (cosmetic). |
+| **high** | `src/app/api/bluegrass/sessions/[id]/play/route.ts:51` | Setting `lastSyncAdvance: new Date()` on play interacts with the new cooldown guard. For configurations where `maxSongDurationSec < 3 * fadeDurationSec` (e.g., max=10/fade=10, max=15/fade=6, max=20/fade=10), the first fade after play is silently dropped as `concurrent_transition_in_flight`. Validators allow these settings. | Drop the `lastSyncAdvance` write from `/play`. Keep `trackStartedAt`. |
+| **high** | `src/app/api/cron/bluegrass-fade-transition/route.ts:103-109` and `:157-160` | Cooldown is claimed *before* the fade-and-skip operation. Any transient failure (skipToNext 502, network) leaves the cooldown active, blocking retries for 2*fadeMs. | Reset `lastSyncAdvance` on failure paths, or move the claim to after success (using a CAS-style updateMany WHERE oldValue=...). |
+| **medium** | `BluegrassClient.tsx:106` ↔ `bluegrass-fade-transition:151` | `stopAfterCurrent` flag clears in the cron path but not in the client-polling fallback path (which calls `fade-pause`). Behavior diverges based on socket connectivity. | Pick one semantic. Either clear in `fade-pause` too, or stop clearing in the cron. |
+| **medium** | `fade-resume/route.ts:42-48`, `route.ts:147-154` | Reversing an ease-out fade-out curve produces an ease-in up-ramp. Subjectively "delayed swell." Spec V5 implies a symmetrical fade-up. | Add `buildFadeInCurve()` to `src/lib/fade-curve.ts`. |
+| low | `fade-skip/route.ts:57`, `bluegrass-fade-transition/route.ts:108` | Returns 200 on duplicate-suppression. 409 would be more honest for callers. | Status 409 with same body. |
+| low | `fade-pause`, `fade-resume` | No cooldown guard; double-pause race in fallback paths can produce brief audible artifact. | Optional: add same updateMany guard. |
+| low | `public/sw.js:7` | Precache of `/bluegrass` may cache a login redirect for unauthed installs. Carryover from round 1. | Drop from `PRECACHE_URLS`. |
+| low | `socket-server.ts:18-22` | Health check lacks session counts. Carryover. | Add `activeSessions.size`, `backgroundSessions.size`, `scheduledSessionFades.size`. |
+
+### Recommendation
+
+**fix-and-resubmit**
+
+The blocker from round 1 about `AUTO_DURATION_MIN_SEC` was only partially addressed: the constant was lowered, but the client-side caller in `BluegrassClient.tsx:96` was missed. As written, spec V14 (socket-down + foregrounded auto-fade at `maxSongDurationSec=15`) still cannot pass — the client polling fallback short-circuits the threshold check.
+
+The new concurrency guard correctly closes the round-1 race window, but it interacts badly with the existing `lastSyncAdvance` write in `/play` (high severity — silently breaks several valid slider configurations) and with transient-failure recovery (high severity — a single Spotify 502 locks out retries for 2*fadeMs).
+
+The other round-1 fixes landed correctly: the lockfile is byte-identical to main, vercel.json is clean, the stopAfterCurrent pause-then-restore is correctly ordered, the parallel fireFade is correct, the Bearer-auth parity matches. The implementer's rebuttal of the DELETE up-ramp finding is mathematically correct — that line is fine and should not change.
+
+Build and tests are clean (21/21 vitest, zero warnings on `npm run build`). Architecture still matches ADR-0001.
+
+The two highs and the missed blocker should land in one focused fix patch. After that, this is shippable.
