@@ -206,6 +206,14 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
     if (res.ok) setSess(await res.json());
   };
 
+  // Track which session id we've already fired /play for. Comparing this
+  // against sess?.id lets handlePlayPause distinguish "first start" (calls
+  // /play with explicit offset 0) from "resume after pause" (fade-resume).
+  // Storing the id-or-null instead of a boolean avoids the
+  // setState-on-id-change effect that the React lint rule flags.
+  const [startedForSession, setStartedForSession] = useState<string | null>(null);
+  const hasStarted = sess?.id != null && startedForSession === sess.id;
+
   const startWithPlaylist = async (playlist: Playlist, deviceId: string) => {
     const created = await post("/api/bluegrass/sessions", {
       playlistUri: playlist.uri,
@@ -215,8 +223,8 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
     if (created?.id) {
       setSess(created);
       setPicker("none");
-      // Now fire /play
-      await post(`/api/bluegrass/sessions/${created.id}/play`);
+      // Do NOT auto-play. The user picks a playlist, sees the now-playing
+      // panel, then presses Play themselves — that's the expected UX.
     }
   };
 
@@ -224,10 +232,15 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
     if (!sess) return;
     if (playback?.isPlaying) {
       await post(`/api/bluegrass/sessions/${sess.id}/fade-pause`);
+    } else if (!hasStarted) {
+      // First play of this session: /play sets the playlist context with
+      // offset 0 so we always start at track 1 of the chosen playlist
+      // (regardless of whatever Spotify was doing before).
+      const r = await post(`/api/bluegrass/sessions/${sess.id}/play`);
+      if (r?.ok !== false) setStartedForSession(sess.id);
     } else {
-      // First play of a new session: hit /play. Subsequent: fade-resume.
-      const hasPlayed = !!playback?.trackName;
-      await post(`/api/bluegrass/sessions/${sess.id}/${hasPlayed ? "fade-resume" : "play"}`);
+      // Mid-session: smoothly resume whatever's loaded.
+      await post(`/api/bluegrass/sessions/${sess.id}/fade-resume`);
     }
     void pollState();
   };

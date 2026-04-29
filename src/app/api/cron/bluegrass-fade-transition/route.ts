@@ -141,12 +141,16 @@ export async function POST(req: NextRequest) {
   const fadeDurationMs = Math.max(500, sess.fadeDurationSec * 1000);
 
   // Capture current volume + currently-playing track URI BEFORE the fade.
+  // Spotify's track relinking surfaces both the relinked uri (item.uri)
+  // and the original playlist uri (item.linked_from.uri). Match on either.
   let originalVolume = sess.targetVolume;
   let currentTrackUri: string | undefined;
+  let currentLinkedFromUri: string | undefined;
   try {
     const playback = await getCurrentPlayback(accessToken);
     originalVolume = playback?.device?.volume_percent ?? sess.targetVolume;
     currentTrackUri = playback?.item?.uri;
+    currentLinkedFromUri = playback?.item?.linked_from?.uri;
   } catch {}
 
   // Look up next track URI so we can use the explicit-URI transition pattern
@@ -158,7 +162,13 @@ export async function POST(req: NextRequest) {
     try {
       const tracks = await getPlaylistTracks(accessToken, playlistId);
       if (tracks.length > 0) {
-        const idx = currentTrackUri ? tracks.findIndex((t: { spotifyUri: string }) => t.spotifyUri === currentTrackUri) : -1;
+        let idx = -1;
+        if (currentTrackUri) {
+          idx = tracks.findIndex((t: { spotifyUri: string }) => t.spotifyUri === currentTrackUri);
+        }
+        if (idx < 0 && currentLinkedFromUri) {
+          idx = tracks.findIndex((t: { spotifyUri: string }) => t.spotifyUri === currentLinkedFromUri);
+        }
         const nextIdx = idx >= 0 ? (idx + 1) % tracks.length : 0;
         nextTrackUri = tracks[nextIdx].spotifyUri;
       }

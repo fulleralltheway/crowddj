@@ -64,10 +64,16 @@ export async function POST(
   // before we've started ramping volume down.
   let originalVolume = sess.targetVolume;
   let currentTrackUri: string | undefined;
+  // Spotify's track relinking: when a track has a region-specific replacement,
+  // playback.item.uri is the RELINKED uri, while the playlist still stores
+  // the ORIGINAL uri at item.linked_from.uri. Both forms must be considered
+  // when matching the playing track against the playlist.
+  let currentLinkedFromUri: string | undefined;
   try {
     const playback = await getCurrentPlayback(accessToken);
     originalVolume = playback?.device?.volume_percent ?? sess.targetVolume;
     currentTrackUri = playback?.item?.uri;
+    currentLinkedFromUri = playback?.item?.linked_from?.uri;
   } catch {}
 
   // Look up the next track URI in the playlist. PartyQueue's CLAUDE.md flags
@@ -77,14 +83,32 @@ export async function POST(
   // user's native crossfade work after our cut).
   const playlistId = sess.playlistUri.replace(/^spotify:playlist:/, "");
   let nextTrackUri: string | undefined;
+  // Diagnostic state surfaced in the response so failures are debuggable
+  // from the client without spelunking Vercel logs.
+  let trackCount = 0;
+  let matchKind: "uri" | "linked_from" | "none" = "none";
+  let resolvedIdx = -1;
+  let lookupError: string | undefined;
   try {
     const tracks = await getPlaylistTracks(accessToken, playlistId);
+    trackCount = tracks.length;
     if (tracks.length > 0) {
-      const idx = currentTrackUri ? tracks.findIndex((t: { spotifyUri: string }) => t.spotifyUri === currentTrackUri) : -1;
+      let idx = -1;
+      if (currentTrackUri) {
+        idx = tracks.findIndex((t: { spotifyUri: string }) => t.spotifyUri === currentTrackUri);
+        if (idx >= 0) matchKind = "uri";
+      }
+      if (idx < 0 && currentLinkedFromUri) {
+        idx = tracks.findIndex((t: { spotifyUri: string }) => t.spotifyUri === currentLinkedFromUri);
+        if (idx >= 0) matchKind = "linked_from";
+      }
+      resolvedIdx = idx;
       const nextIdx = idx >= 0 ? (idx + 1) % tracks.length : 0;
       nextTrackUri = tracks[nextIdx].spotifyUri;
     }
-  } catch {}
+  } catch (e) {
+    lookupError = e instanceof Error ? e.message : "unknown";
+  }
 
   const { multipliers, stepMs } = buildFadeCurve(fadeDurationMs);
 
@@ -127,5 +151,17 @@ export async function POST(
     data: { trackStartedAt: new Date(), currentTrackUri: nextTrackUri ?? null },
   });
 
-  return NextResponse.json({ ok: true, fadedFrom: originalVolume, nextTrackUri });
+  return NextResponse.json({
+    ok: true,
+    fadedFrom: originalVolume,
+    nextTrackUri,
+    diagnostics: {
+      currentTrackUri,
+      currentLinkedFromUri,
+      matchKind,            // "uri" | "linked_from" | "none"
+      resolvedIdx,          // -1 = current track not in playlist; fell back to position 0
+      trackCount,
+      lookupError,
+    },
+  });
 }
