@@ -819,11 +819,26 @@ function PlaylistPicker({
   );
 }
 
+// Extract a Spotify playlist ID from a URL or URI on the client. No Spotify
+// API call — we don't need /v1/playlists/{id} to validate, since playback
+// endpoints (/me/player/play) accept the URI directly. Skipping validation
+// means we can pick a playlist even while playlist-metadata endpoints are
+// rate-limited.
+function extractPlaylistId(input: string): string | null {
+  const trimmed = input.trim();
+  const url = trimmed.match(/open\.spotify\.com\/playlist\/([A-Za-z0-9]+)/);
+  if (url) return url[1];
+  const uri = trimmed.match(/^spotify:playlist:([A-Za-z0-9]+)$/);
+  if (uri) return uri[1];
+  if (/^[A-Za-z0-9]{16,}$/.test(trimmed)) return trimmed;
+  return null;
+}
+
 /**
- * Manual playlist URL paste — primary path while /me/playlists is rate-limited.
- * Hits /api/bluegrass/playlist which uses /v1/playlists/{id} (separate quota
- * bucket) so the picker works even when the user-playlists list endpoint
- * is throttled.
+ * Manual playlist URL paste with NO Spotify call. Extract the ID locally,
+ * trust the URL, and create the session immediately. The user names the
+ * playlist themselves (we can't look up the real name while
+ * /v1/playlists/{id} is rate-limited).
  */
 function PasteUrlPicker({
   disabled,
@@ -833,62 +848,51 @@ function PasteUrlPicker({
   onPick: (p: Playlist) => void;
 }) {
   const [input, setInput] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [label, setLabel] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [preview, setPreview] = useState<{
-    id: string;
-    uri: string;
-    name: string;
-    images?: { url: string }[];
-    owner?: string | null;
-    trackCount?: number | null;
-  } | null>(null);
 
-  const lookup = async () => {
-    setBusy(true);
+  const id = extractPlaylistId(input);
+
+  const submit = () => {
     setError(null);
-    setPreview(null);
-    try {
-      const res = await fetch(`/api/bluegrass/playlist?input=${encodeURIComponent(input)}`);
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data?.detail ?? data?.error ?? `HTTP ${res.status}`);
-        return;
-      }
-      setPreview(data);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Network error");
-    } finally {
-      setBusy(false);
+    if (!id) {
+      setError("That doesn't look like a Spotify playlist link.");
+      return;
     }
+    onPick({
+      id,
+      uri: `spotify:playlist:${id}`,
+      name: label.trim() || "Custom playlist",
+      images: [],
+    });
+    setInput("");
+    setLabel("");
   };
 
   return (
     <div>
       <div className="text-xs text-text-secondary uppercase tracking-wide mb-2">Playlist (paste URL)</div>
-      <div className="flex gap-2">
-        <input
-          type="url"
-          inputMode="url"
-          autoCapitalize="off"
-          autoCorrect="off"
-          spellCheck={false}
-          placeholder="https://open.spotify.com/playlist/..."
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && input) void lookup(); }}
-          className="flex-1 min-w-0 px-3 py-2 bg-bg-card border border-white/[0.06] rounded-xl text-sm"
-        />
-        <button
-          onClick={() => void lookup()}
-          disabled={busy || !input}
-          className="px-4 py-2 bg-bg-card border border-white/[0.06] rounded-xl text-sm disabled:opacity-40"
-        >
-          {busy ? "…" : "Find"}
-        </button>
-      </div>
+      <input
+        type="url"
+        inputMode="url"
+        autoCapitalize="off"
+        autoCorrect="off"
+        spellCheck={false}
+        placeholder="https://open.spotify.com/playlist/..."
+        value={input}
+        onChange={(e) => setInput(e.target.value)}
+        className="w-full px-3 py-2 bg-bg-card border border-white/[0.06] rounded-xl text-sm"
+      />
+      <input
+        type="text"
+        placeholder="Label (optional, e.g. 'Tuesday class')"
+        value={label}
+        onChange={(e) => setLabel(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter" && id) submit(); }}
+        className="w-full mt-2 px-3 py-2 bg-bg-card border border-white/[0.06] rounded-xl text-sm"
+      />
       <p className="text-text-secondary text-xs mt-2">
-        In Spotify, tap the playlist&apos;s … menu → Share → Copy link, paste it here.
+        In Spotify, tap the playlist&apos;s … menu → Share → Copy link.
       </p>
 
       {error && (
@@ -897,32 +901,13 @@ function PasteUrlPicker({
         </div>
       )}
 
-      {preview && (
-        <button
-          onClick={() => {
-            onPick({ id: preview.id, uri: preview.uri, name: preview.name, images: preview.images ?? [] });
-            setInput("");
-            setPreview(null);
-          }}
-          disabled={disabled}
-          className="mt-3 w-full flex items-center gap-3 text-left px-3 py-3 rounded-xl border border-accent bg-accent/10 disabled:opacity-40"
-        >
-          {preview.images?.[0]?.url ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={preview.images[0].url} alt="" className="w-12 h-12 rounded" />
-          ) : (
-            <div className="w-12 h-12 rounded bg-white/[0.06]" />
-          )}
-          <div className="min-w-0 flex-1">
-            <div className="font-medium truncate">{preview.name}</div>
-            <div className="text-text-secondary text-xs truncate">
-              {preview.owner ? `by ${preview.owner}` : ""}
-              {preview.trackCount != null ? `${preview.owner ? " · " : ""}${preview.trackCount} tracks` : ""}
-            </div>
-          </div>
-          <span className="text-accent text-sm shrink-0">Use this →</span>
-        </button>
-      )}
+      <button
+        onClick={submit}
+        disabled={disabled || !id}
+        className="mt-3 w-full py-3 bg-accent text-black font-semibold rounded-xl disabled:opacity-40"
+      >
+        {id ? `Use playlist ${id.slice(0, 8)}…` : "Paste a playlist URL above"}
+      </button>
     </div>
   );
 }
