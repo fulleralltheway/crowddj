@@ -46,6 +46,14 @@ const fadingRooms = new Set<string>();
 // Scheduled fade timers — set when pre-queue fires, fires at threshold for precise timing
 const scheduledFades = new Map<string, ReturnType<typeof setTimeout>>();
 
+// Bluegrass DJ — parallel session machinery (no rooms, no songs, one playlist
+// + threshold-fade per active session). See ADR 0001 in spotifyapp/.studio.
+const activeSessions = new Map<string, Set<string>>(); // sessionId -> set of socket IDs (usually 1)
+const backgroundSessions = new Map<string, number>(); // sessionId -> last activity timestamp
+const fadingSessions = new Set<string>();
+const scheduledSessionFades = new Map<string, ReturnType<typeof setTimeout>>();
+const BACKGROUND_SESSION_TTL = 4 * 60 * 60 * 1000; // 4h, mirrors BACKGROUND_ROOM_TTL
+
 function getRoomCount(roomCode: string): number {
   return activeRooms.get(roomCode)?.size || 0;
 }
@@ -89,6 +97,41 @@ function getAllSyncRooms(): string[] {
 
 io.on("connection", (socket) => {
   let currentRoom: string | null = null;
+  let currentSession: string | null = null;
+
+  // Bluegrass DJ session join/leave/end. Mirrors join-room but for sessions.
+  socket.on("join-session", (sessionId: string) => {
+    if (currentSession) {
+      socket.leave(`session:${currentSession}`);
+      activeSessions.get(currentSession)?.delete(socket.id);
+      if (activeSessions.get(currentSession)?.size === 0) activeSessions.delete(currentSession);
+    }
+    socket.join(`session:${sessionId}`);
+    currentSession = sessionId;
+    if (!activeSessions.has(sessionId)) activeSessions.set(sessionId, new Set());
+    activeSessions.get(sessionId)!.add(socket.id);
+    backgroundSessions.set(sessionId, Date.now());
+    console.log(`[session:${sessionId}] Client joined (${activeSessions.get(sessionId)!.size} connected)`);
+  });
+
+  socket.on("leave-session", (sessionId: string) => {
+    socket.leave(`session:${sessionId}`);
+    activeSessions.get(sessionId)?.delete(socket.id);
+    if (activeSessions.get(sessionId)?.size === 0) activeSessions.delete(sessionId);
+    if (currentSession === sessionId) currentSession = null;
+    // Note: session stays in backgroundSessions so sync continues even with no clients connected
+  });
+
+  socket.on("session-ended", (sessionId: string) => {
+    io.to(`session:${sessionId}`).emit("session-ended");
+    console.log(`[session:${sessionId}] Session ended by user`);
+    activeSessions.delete(sessionId);
+    backgroundSessions.delete(sessionId);
+    if (scheduledSessionFades.has(sessionId)) {
+      clearTimeout(scheduledSessionFades.get(sessionId)!);
+      scheduledSessionFades.delete(sessionId);
+    }
+  });
 
   socket.on("join-room", (roomCode: string) => {
     if (currentRoom) {
@@ -178,6 +221,12 @@ io.on("connection", (socket) => {
       broadcastGuestCount(currentRoom);
       console.log(`[${currentRoom}] Client left (${getRoomCount(currentRoom)} connected)`);
       // Note: room stays in backgroundRooms so sync continues
+    }
+    if (currentSession) {
+      activeSessions.get(currentSession)?.delete(socket.id);
+      if (activeSessions.get(currentSession)?.size === 0) activeSessions.delete(currentSession);
+      console.log(`[session:${currentSession}] Client left`);
+      // Note: session stays in backgroundSessions so sync continues
     }
   });
 });
@@ -389,8 +438,110 @@ async function syncPlaylists() {
   }
 }
 
+// ===== Bluegrass DJ session sync (parallel pipeline to syncAllRooms) =====
+
+function getAllSyncSessions(): string[] {
+  const ids = new Set<string>();
+  for (const id of activeSessions.keys()) ids.add(id);
+  const now = Date.now();
+  for (const [id, lastActive] of backgroundSessions) {
+    if (now - lastActive > BACKGROUND_SESSION_TTL) {
+      backgroundSessions.delete(id);
+      console.log(`[session:${id}] Background session expired (inactive ${Math.round((now - lastActive) / 3600000)}h)`);
+    } else {
+      ids.add(id);
+    }
+  }
+  return Array.from(ids);
+}
+
+async function triggerSessionFade(sessionId: string, expectedTrackUri?: string) {
+  if (fadingSessions.has(sessionId)) return;
+  fadingSessions.add(sessionId);
+  console.log(`[session:${sessionId}] Triggering server-side fade transition`);
+  try {
+    const url = `${VERCEL_URL}/api/cron/bluegrass-fade-transition?secret=${encodeURIComponent(CRON_SECRET)}`;
+    const body: Record<string, string> = { sessionId };
+    if (expectedTrackUri) body.expectedTrackUri = expectedTrackUri;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const result = await res.json();
+    console.log(`[session:${sessionId}] Fade result:`, JSON.stringify(result));
+    if (activeSessions.has(sessionId)) {
+      io.to(`session:${sessionId}`).emit("session-state-changed");
+    }
+  } catch (err) {
+    console.error(`[session:${sessionId}] Server fade error:`, err);
+  } finally {
+    fadingSessions.delete(sessionId);
+  }
+}
+
+async function syncAllSessions() {
+  if (!CRON_SECRET) return;
+  const ids = getAllSyncSessions();
+  if (ids.length === 0) return;
+
+  try {
+    const url = `${VERCEL_URL}/api/cron/sync-bluegrass?secret=${encodeURIComponent(CRON_SECRET)}&sessionIds=${encodeURIComponent(ids.join(","))}&deferFade=true`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      console.error(`Session sync got ${res.status}: ${await res.text()}`);
+      return;
+    }
+    const data = await res.json();
+    for (const result of data.results || []) {
+      if (result.status === "session_ended") {
+        backgroundSessions.delete(result.id);
+        activeSessions.delete(result.id);
+        if (scheduledSessionFades.has(result.id)) {
+          clearTimeout(scheduledSessionFades.get(result.id)!);
+          scheduledSessionFades.delete(result.id);
+        }
+        console.log(`[session:${result.id}] Removed from sync (session ended)`);
+        continue;
+      }
+
+      // Refresh background TTL for actively-playing sessions
+      if (result.status === "playing" && backgroundSessions.has(result.id)) {
+        backgroundSessions.set(result.id, Date.now());
+      }
+
+      // Pre-queue: schedule a precise setTimeout to fire the fade at the
+      // right moment. fadeInMs is time-until-threshold; we start the fade
+      // (fadeDurationMs + 500ms jitter) before so it ends at the threshold.
+      if (result.status === "prequeued_maxdur" && result.fadeInMs && result.currentTrackUri) {
+        if (!scheduledSessionFades.has(result.id) && !fadingSessions.has(result.id)) {
+          const fadeDurationMs = result.fadeDurationMs ?? 3000;
+          const delay = Math.max(1000, result.fadeInMs - fadeDurationMs - 500);
+          console.log(`[session:${result.id}] Scheduling server fade in ${delay}ms (threshold in ${result.fadeInMs}ms, fadeDuration ${fadeDurationMs}ms)`);
+          const id = result.id;
+          const trackUri = result.currentTrackUri;
+          const timer = setTimeout(() => {
+            scheduledSessionFades.delete(id);
+            triggerSessionFade(id, trackUri);
+          }, delay);
+          scheduledSessionFades.set(id, timer);
+        }
+      }
+
+      // Late-arriving: cron is past threshold but no scheduled fade is queued.
+      // Fire immediately. (Should be rare — usually pre-queue catches it first.)
+      if (result.status === "needs_fade" && !scheduledSessionFades.has(result.id) && !fadingSessions.has(result.id)) {
+        triggerSessionFade(result.id, result.currentTrackUri);
+      }
+    }
+  } catch (err) {
+    console.error("Session sync loop error:", err);
+  }
+}
+
 // Start background loops
 setInterval(syncAllRooms, SYNC_INTERVAL);
+setInterval(syncAllSessions, SYNC_INTERVAL);
 setInterval(syncPlaylists, PLAYLIST_SYNC_INTERVAL);
 setInterval(broadcastServerTime, 30_000); // Sync clocks every 30s
 
