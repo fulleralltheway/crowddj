@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { signOut } from "next-auth/react";
 import { getSocket } from "@/lib/socket";
 import { useAppHeight } from "@/lib/pwa";
 import { AUTO_DURATION_MIN_SEC } from "@/lib/bluegrass-sync";
@@ -170,15 +171,23 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
     setPlaylistsState("loading");
     setPlaylistsError(null);
     try {
-      const res = await fetch("/api/spotify/playlists");
+      const res = await fetch("/api/bluegrass/playlists");
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        const reason = (data as { error?: string }).error ?? `HTTP ${res.status}`;
-        setPlaylistsError(
-          reason === "TokenRevoked"
+        const data = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          detail?: string;
+          status?: number;
+          reason?: string;
+        };
+        // Bluegrass-side endpoint includes detail + the Spotify status code.
+        const message =
+          data.detail ||
+          (data.error === "TokenRevoked"
             ? "Spotify access expired. Sign out and sign back in."
-            : `Couldn't load playlists: ${reason}`
-        );
+            : data.error
+            ? `${data.error}${data.status ? ` (Spotify ${data.status})` : ""}`
+            : `HTTP ${res.status}`);
+        setPlaylistsError(message);
         setPlaylistsState("error");
         return;
       }
@@ -623,9 +632,17 @@ function PlaylistPicker({
           <div className="text-sm text-text-secondary">Loading playlists…</div>
         )}
         {playlistsState === "error" && (
-          <div className="text-sm text-red-400">
-            {playlistsError ?? "Couldn't load playlists."}{" "}
-            <button onClick={onReloadPlaylists} className="text-accent underline">Try again</button>
+          <div className="text-sm text-red-400 space-y-2">
+            <div>{playlistsError ?? "Couldn't load playlists."}</div>
+            <div className="flex gap-3">
+              <button onClick={onReloadPlaylists} className="text-accent underline">Try again</button>
+              <button
+                onClick={() => signOut({ callbackUrl: "/login?callbackUrl=/bluegrass" })}
+                className="text-accent underline"
+              >
+                Sign out & back in
+              </button>
+            </div>
           </div>
         )}
         {playlistsState === "idle" && playlists.length === 0 && (
