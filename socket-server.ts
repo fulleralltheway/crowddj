@@ -95,6 +95,29 @@ function getAllSyncRooms(): string[] {
   return Array.from(rooms);
 }
 
+// Active rooms only (clients connected) — synced at the fast cadence so
+// pre-queue scheduling stays accurate.
+function getActiveRoomsOnly(): string[] {
+  return Array.from(activeRooms.keys());
+}
+
+// Background-only rooms (no clients connected). Synced at a slower cadence
+// to relieve Spotify rate-limit pressure. Still preserves pre-queue
+// detection for thresholds >= 30s (15s pre-queue window > 10s sync interval).
+function getBackgroundOnlyRooms(): string[] {
+  const rooms: string[] = [];
+  const now = Date.now();
+  for (const [code, lastActive] of backgroundRooms) {
+    if (now - lastActive > BACKGROUND_ROOM_TTL) {
+      backgroundRooms.delete(code);
+      console.log(`[${code}] Background room expired (inactive ${Math.round((now - lastActive) / 3600000)}h)`);
+      continue;
+    }
+    if (!activeRooms.has(code)) rooms.push(code);
+  }
+  return rooms;
+}
+
 io.on("connection", (socket) => {
   let currentRoom: string | null = null;
   let currentSession: string | null = null;
@@ -309,17 +332,16 @@ async function triggerServerFade(roomCode: string, expectedSongId?: string) {
 }
 
 // Background sync loop — syncs all known rooms (connected + background)
-async function syncAllRooms() {
+async function syncRoomsList(roomCodes: string[]) {
   if (!CRON_SECRET) {
     console.warn("CRON_SECRET not set — sync loop disabled");
     return;
   }
 
-  const allRooms = getAllSyncRooms();
-  if (allRooms.length === 0) return;
+  if (roomCodes.length === 0) return;
 
   try {
-    const roomsList = allRooms.join(",");
+    const roomsList = roomCodes.join(",");
     const url = `${VERCEL_URL}/api/cron/sync-rooms?secret=${encodeURIComponent(CRON_SECRET)}&rooms=${encodeURIComponent(roomsList)}&deferFade=true`;
     const res = await fetch(url);
     if (res.ok) {
@@ -455,6 +477,26 @@ function getAllSyncSessions(): string[] {
   return Array.from(ids);
 }
 
+function getActiveSessionsOnly(): string[] {
+  return Array.from(activeSessions.keys());
+}
+
+// Sessions in backgroundSessions but with no live client. Synced at the
+// slower cadence to relieve Spotify rate-limit pressure.
+function getBackgroundOnlySessions(): string[] {
+  const ids: string[] = [];
+  const now = Date.now();
+  for (const [id, lastActive] of backgroundSessions) {
+    if (now - lastActive > BACKGROUND_SESSION_TTL) {
+      backgroundSessions.delete(id);
+      console.log(`[session:${id}] Background session expired (inactive ${Math.round((now - lastActive) / 3600000)}h)`);
+      continue;
+    }
+    if (!activeSessions.has(id)) ids.push(id);
+  }
+  return ids;
+}
+
 async function triggerSessionFade(sessionId: string, expectedTrackUri?: string) {
   if (fadingSessions.has(sessionId)) return;
   fadingSessions.add(sessionId);
@@ -480,10 +522,10 @@ async function triggerSessionFade(sessionId: string, expectedTrackUri?: string) 
   }
 }
 
-async function syncAllSessions() {
+async function syncSessionsList(sessionIds: string[]) {
   if (!CRON_SECRET) return;
-  const ids = getAllSyncSessions();
-  if (ids.length === 0) return;
+  if (sessionIds.length === 0) return;
+  const ids = sessionIds;
 
   try {
     const url = `${VERCEL_URL}/api/cron/sync-bluegrass?secret=${encodeURIComponent(CRON_SECRET)}&sessionIds=${encodeURIComponent(ids.join(","))}&deferFade=true`;
@@ -539,9 +581,17 @@ async function syncAllSessions() {
   }
 }
 
-// Start background loops
-setInterval(syncAllRooms, SYNC_INTERVAL);
-setInterval(syncAllSessions, SYNC_INTERVAL);
+// Background loops. Active rooms/sessions sync at SYNC_INTERVAL (5s) so
+// pre-queue scheduling stays accurate; background-only ones sync at
+// BACKGROUND_SYNC_INTERVAL (10s) — still inside the 15s pre-queue window
+// for any threshold >= 30s, but cuts Spotify API calls in half for
+// hosted-but-no-clients scenarios. Bluegrass session-min thresholds (10s)
+// still get the fast path via the active-sessions loop.
+const BACKGROUND_SYNC_INTERVAL = 10_000;
+setInterval(() => syncRoomsList(getActiveRoomsOnly()), SYNC_INTERVAL);
+setInterval(() => syncRoomsList(getBackgroundOnlyRooms()), BACKGROUND_SYNC_INTERVAL);
+setInterval(() => syncSessionsList(getActiveSessionsOnly()), SYNC_INTERVAL);
+setInterval(() => syncSessionsList(getBackgroundOnlySessions()), BACKGROUND_SYNC_INTERVAL);
 setInterval(syncPlaylists, PLAYLIST_SYNC_INTERVAL);
 setInterval(broadcastServerTime, 30_000); // Sync clocks every 30s
 

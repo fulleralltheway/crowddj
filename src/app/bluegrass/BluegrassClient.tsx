@@ -171,7 +171,10 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
   useEffect(() => {
     if (!sess) return;
     void pollState();
-    const t = setInterval(pollState, 1000);
+    // 2s cadence (was 1s). Halves Spotify API pressure from foregrounded
+    // sessions and the UI is still responsive — fade transitions are
+    // already gated by the precise socket-scheduled timer, not the poll.
+    const t = setInterval(pollState, 2000);
     return () => clearInterval(t);
   }, [sess?.id, pollState]);
 
