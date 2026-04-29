@@ -62,6 +62,27 @@ type Playlist = {
 const FADE_FIRED_KEY = "bluegrass.lastFadeFiredAt";
 const PLAYLIST_CACHE_KEY = "bluegrass.playlistCache";
 const PLAYLIST_CACHE_TTL_MS = 60 * 60 * 1000; // 1h
+// Spotify rate-limit cool-off. When we see a long Retry-After (>120s),
+// stash the unlock time so subsequent picker opens skip the fetch
+// entirely. Hitting the endpoint inside a long timeout can extend it.
+const SPOTIFY_BLOCKED_UNTIL_KEY = "bluegrass.spotifyBlockedUntil";
+
+function readBlockedUntil(): number {
+  try {
+    const raw = localStorage.getItem(SPOTIFY_BLOCKED_UNTIL_KEY);
+    return raw ? parseInt(raw, 10) || 0 : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function writeBlockedUntil(unlockAt: number) {
+  try { localStorage.setItem(SPOTIFY_BLOCKED_UNTIL_KEY, String(unlockAt)); } catch {}
+}
+
+function clearBlockedUntil() {
+  try { localStorage.removeItem(SPOTIFY_BLOCKED_UNTIL_KEY); } catch {}
+}
 
 type CachedPlaylists = { ts: number; items: Playlist[] };
 
@@ -200,7 +221,7 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
   // react-hooks/immutability).
   const loadPlaylistsRef = useRef<(opts?: { skipCache?: boolean }) => Promise<void>>(() => Promise.resolve());
 
-  const loadPlaylists = useCallback(async (opts: { skipCache?: boolean } = {}) => {
+  const loadPlaylists = useCallback(async (opts: { skipCache?: boolean; force?: boolean } = {}) => {
     if (retryTimerRef.current) {
       clearTimeout(retryTimerRef.current);
       retryTimerRef.current = null;
@@ -215,6 +236,27 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
       }
     }
 
+    // Spotify rate-limit back-off. If we know we're still inside a long
+    // timeout window, do NOT call the endpoint — that just extends the
+    // penalty. Show the remaining wait and let the user manually force.
+    const blockedUntil = readBlockedUntil();
+    const nowMs = Date.now();
+    if (!opts.force && blockedUntil > nowMs) {
+      const cached = readCachedPlaylists();
+      const remainSec = Math.ceil((blockedUntil - nowMs) / 1000);
+      const mins = Math.ceil(remainSec / 60);
+      if (cached && cached.length > 0) {
+        setPlaylists(cached);
+        setPlaylistsState("idle");
+      } else {
+        setPlaylistsError(
+          `Spotify has the app in a timeout for ~${mins} more minute${mins === 1 ? "" : "s"}. Don't reload — extra calls extend the window. Tap "Try anyway" to force a fetch.`
+        );
+        setPlaylistsState("error");
+      }
+      return;
+    }
+
     setPlaylistsState((s) => (s === "idle" ? "idle" : "loading"));
     setPlaylistsError(null);
     try {
@@ -225,6 +267,10 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
       if (res.status === 429) {
         const data = (await res.json().catch(() => ({}))) as { retryAfterSec?: number };
         const wait = Math.max(1, data.retryAfterSec ?? 60);
+        // Persist the unlock time so subsequent picker opens skip the
+        // network call entirely. Critical for long timeouts because each
+        // call inside the window can push it out further.
+        writeBlockedUntil(Date.now() + wait * 1000);
         const cached = readCachedPlaylists();
         if (cached && cached.length > 0) {
           setPlaylists(cached);
@@ -277,6 +323,8 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
       setPlaylists(cleaned);
       setPlaylistsState("idle");
       writeCachedPlaylists(cleaned);
+      // We're unblocked; clear any back-off marker.
+      clearBlockedUntil();
     } catch (e) {
       setPlaylistsError(e instanceof Error ? e.message : "Network error");
       setPlaylistsState("error");
@@ -418,7 +466,7 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
             devices={devices}
             onPick={startWithPlaylist}
             onLoad={() => { void loadDevices(); void loadPlaylists(); }}
-            onReloadPlaylists={() => void loadPlaylists()}
+            onReloadPlaylists={() => void loadPlaylists({ force: true })}
             busy={busy}
             error={error}
           />
