@@ -1,10 +1,10 @@
 ---
 name: Bluegrass DJ
 slug: bluegrass-dj
-status: signed-off
+status: shipped
 created: 2026-04-28
 signed_off: 2026-04-28
-shipped: pending
+shipped: 2026-04-29
 ---
 
 # Bluegrass DJ

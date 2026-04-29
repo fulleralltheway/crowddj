@@ -1,7 +1,7 @@
 ---
 number: 0001
 slug: bluegrass-session-model
-status: proposed
+status: accepted
 date: 2026-04-28
 supersedes: none
 ---
