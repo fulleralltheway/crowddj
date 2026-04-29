@@ -260,3 +260,147 @@ The other round-1 fixes landed correctly: the lockfile is byte-identical to main
 Build and tests are clean (21/21 vitest, zero warnings on `npm run build`). Architecture still matches ADR-0001.
 
 The two highs and the missed blocker should land in one focused fix patch. After that, this is shippable.
+
+## Round 3 (2026-04-29)
+**Reviewer:** fresh cold-context general-purpose agent
+**Commits since round 2:** `89e3d35` fix(bluegrass-dj): address Phase 5 round-2 review findings
+
+Build: clean, zero warnings. Tests: 21/21 passing. Branch tip is `89e3d35`, 7 commits since main as expected.
+
+### Verification of round-2 findings
+
+| Round 2 issue | Status | Evidence |
+|---|---|---|
+| **block** Client polling fallback hardcoded `>= 30` | **addressed correctly** | `src/app/bluegrass/BluegrassClient.tsx:6` imports `AUTO_DURATION_MIN_SEC` from `@/lib/bluegrass-sync`. Line 99 uses it in the gate. The cosmetic line at 317 was NOT updated for symmetry — but round 2 explicitly tagged that one as cosmetic, not the blocker. Spec V14 (max=15 + socket-down) now passes the gate (15 >= 10). |
+| **high** `play/route.ts:51` writes `lastSyncAdvance` and deadlocks tight configs | **addressed but underlying bug remains — see new finding below** | `src/app/api/bluegrass/sessions/[id]/play/route.ts:53-56` no longer touches `lastSyncAdvance`. Comment block at 49-52 explains why. **However** the schema default `@default(now())` at `prisma/schema.prisma:177` still sets `lastSyncAdvance = now()` at session create, and even after the first fade succeeds, the cooldown gate still blocks every subsequent track-to-track auto-fade for any config where `maxSongDurationSec < 2 * fadeDurationSec`. New blocker. |
+| **high** Cooldown locked retries on transient fade failure | **addressed correctly** | `bluegrass-fade-transition/route.ts:113-120` defines `releaseCooldown()` helper that sets `lastSyncAdvance` back to the original `cooldownCutoff`. Called on `no_token` (line 126), `token_refresh_failed` (line 132), `skip_failed` (line 172). Math: next attempt at T_retry computes new cutoff = T_retry − 2·fadeMs; restored value (T_claim − 2·fadeMs) < new cutoff iff T_claim < T_retry, i.e., any forward time movement unblocks retries. ✓. Same pattern applied in `fade-skip/route.ts:85-90` for the user-facing endpoint. ✓. |
+| **medium** `stopAfterCurrent` flag clearing diverged client vs cron | **addressed** | `BluegrassClient.tsx:113-119` PATCHes `stopAfterCurrent: false` alongside the `fade-pause` POST in the threshold-fallback path. The PATCH and the fade-pause race, but `fade-pause/route.ts` doesn't read or care about `stopAfterCurrent`, so race is harmless — final state matches cron-driven path. Acceptable. |
+| medium fade-resume/DELETE up-ramp = ease-in (carry-over) | **not addressed** | Still present. Round 2 noted as nit. |
+| low 200 vs 409 on `concurrent_transition_in_flight` (carry-over) | **not addressed** | Still 200. Carry-over. |
+| low `fade-pause`/`fade-resume` lack cooldown guard (carry-over) | **not addressed** | Still ungated. Carry-over. |
+| low `sw.js` precaches `/bluegrass` (carry-over) | **not addressed** | Round 1, round 2, round 3 — still in `PRECACHE_URLS`. |
+| low `socket-server.ts` health check missing session counts (carry-over) | **not addressed** | Still rooms-only. Carry-over. |
+
+### New findings
+
+#### blocker — Cooldown gate silently blocks ongoing auto-fades whenever `maxSongDurationSec < 2 * fadeDurationSec`
+
+The round-2 fix to `play/route.ts` removed one trigger of the cooldown deadlock, but the **deeper invariant** is unchanged: after fade #N succeeds, the cooldown guard sets `lastSyncAdvance = claim_time(T_N)`. The next track plays from Spotify position 0; `decideSyncStatus` (`src/lib/bluegrass-sync.ts:95`) fires `needs_fade` when `progress_ms >= maxMs`, which lands at wall-time ≈ T_N + maxSongDurationSec. The fade-transition cooldown gate (`bluegrass-fade-transition/route.ts:101-109`):
+
+```
+cooldownCutoff = now - 2 * fadeMs
+claim WHERE lastSyncAdvance < cooldownCutoff
+```
+
+For fade #N+1: `now ≈ T_N + max`, `cooldownCutoff ≈ T_N + max - 2*fade`. The claim succeeds iff `lastSyncAdvance(T_N) < T_N + max - 2*fade`, i.e., **`max > 2*fade`**.
+
+Validator allows `maxSongDurationSec ∈ [0, 600]` (`src/app/api/bluegrass/sessions/[id]/route.ts:62`) and `fadeDurationSec ∈ [1, 30]` (line 69). Concrete configurations within the validators that **silently fail every track-to-track auto-fade after the first**:
+
+| config | `2*fade` | `max < 2*fade`? | result |
+|---|---|---|---|
+| max=10, fade=10 | 20 | yes | every fade after first dropped |
+| max=15, fade=10 | 20 | yes | every fade after first dropped |
+| max=15, fade=8 | 16 | yes | dropped |
+| max=20, fade=10 | 20 | no (boundary) | works |
+| max=15, fade=3 (spec V7) | 6 | no | works |
+| max=15, fade=6 | 12 | no | works |
+
+The round-2 review asserted the high was "addressed" once `play/route.ts` stopped writing `lastSyncAdvance`. That claim is wrong for ongoing fades: the cooldown sets `lastSyncAdvance` from inside the fade-transition itself (the atomic claim at line 105), so the next fade is always exactly `(max − fade)` away from the previous claim, and the cooldown window is `2*fade`. If `max - fade < 2*fade` (i.e., `max < 3*fade`), even the **wall-time** until the next threshold is shorter than the cooldown — and the cooldown wins.
+
+Worse: the **schema default** `lastSyncAdvance @default(now())` at `prisma/schema.prisma:177` reproduces this for the **first** fade of a freshly-created session whenever the user hits Play within `2*fade` of session creation:
+
+- max=15, fade=6 → first threshold at T_play+9. cutoff = T_play+9-12 = T_play-3. lastSyncAdvance(T0) < T_play-3 requires T_play - T0 > 3s. Realistic setup time (>3s) saves this in practice but it's a contrived race.
+- max=10, fade=10 → first threshold at T_play+0. cutoff = T_play-20. Setup must take >20s. Borderline plausible.
+
+So the schema default is a milder version of the same root cause; the ongoing-fades case is the real blocker.
+
+**Fix candidates:**
+
+1. **Tighten the validator to enforce `maxSongDurationSec >= 3 * fadeDurationSec`** (or 2*fade). Reject the slider configurations that the cooldown silently disables. This is the correct semantic: if the user picks tight values that physically can't work with the cooldown, tell them at PATCH time, don't silently drop fades.
+2. **Make the cooldown adaptive**: set cooldown = `min(2*fadeMs, max(fadeMs, maxMs/3))` so it never exceeds the threshold window.
+3. **Drop the cooldown entirely** and rely on the in-memory `fadingSessions` set + the upstream `expectedTrackUri` check (line 94). The cooldown was added in round 2 to close the client-polling + socket-reconnect race. That race could also be closed by tracking the in-flight URI at the DB level (e.g., `fadingFromUri` column) without a wall-time window.
+
+The simplest landing today is option (1): bump the validator. The `bluegrass-sync.ts:54` floor at `AUTO_DURATION_MIN_SEC = 10` already documents a class of configs that "shouldn't be allowed." Add a similar pairwise constraint.
+
+#### high — Cooldown release on `releaseCooldown()` failure swallows the unlock
+
+`bluegrass-fade-transition/route.ts:113-120`:
+
+```ts
+const releaseCooldown = async () => {
+  try {
+    await prisma.bluegrassSession.update({
+      where: { id: sess.id },
+      data: { lastSyncAdvance: cooldownCutoff },
+    });
+  } catch {}
+};
+```
+
+If the prisma.update itself fails (e.g., transient DB connectivity, the same kind of failure that triggered the outer `releaseCooldown` call), the cooldown stays at the claim value. The next 2·fadeMs of retries are silently dropped. This is the same low-impact case the briefing flagged for the trailing success-path `prisma.update`, but it's now ALSO present on the no-token / token-refresh-failed / skip-failed early-return paths.
+
+In practice DB connectivity failures usually mean the next attempt will *also* fail to read the session, so it's self-cancelling. But under partial outage (read works, write fails), the system gets stuck.
+
+Not a blocker; flag for follow-up. Could be solved by making the release a CAS: `updateMany WHERE lastSyncAdvance = $claimedTime SET lastSyncAdvance = $cutoff` so that successful concurrent writes don't fight each other.
+
+#### high — `releaseCooldown` not called on `stopAfterCurrent` path nor on success path; also no release if trailing `prisma.update` fails
+
+`bluegrass-fade-transition/route.ts`:
+- Line 155-167 (stopAfterCurrent): does NOT call `releaseCooldown`. **This is intentional and correct** — the song was successfully paused; the cooldown should remain to prevent immediate re-fire on the next sync tick. ✓
+- Line 169-186 (success): does NOT call `releaseCooldown`. **Intentional and correct** — the skip succeeded; cooldown protects against duplicate firing for 2·fadeMs. ✓
+- Line 180-186 (trailing `prisma.update` for `trackStartedAt` and `currentTrackUri: null`): **if this throws after `skipToNext` succeeded**, the cooldown stays at claim time, but `trackStartedAt` doesn't bump. The next sync tick observing the actual Spotify track-change will call `prisma.update` itself (sync-bluegrass:135-140), so `trackStartedAt` will recover after one tick. By then, lastSyncAdvance is also old enough for the next fade. **Low impact, self-healing.** Confirm and move on.
+
+So the briefing's predicted "trailing prisma.update failure leaves cooldown stuck" is mathematically real but operationally low-impact, agreed. The bigger concern is the new finding above (#blocker).
+
+#### medium — Race between client-side PATCH and `fade-pause` body still has a corner case
+
+`BluegrassClient.tsx:109-119`: client fires `fade-pause` POST and `PATCH stopAfterCurrent: false` essentially simultaneously. The PATCH validator at `route.ts:81-83` accepts `stopAfterCurrent: false` and writes it. The `fade-pause` route reads `sess` once at line 20 (before the fade ramp), so it never reads the updated value anyway. So far so good — but if the PATCH lands AFTER `fade-pause` reads `sess` and BEFORE `fade-pause` returns, the response back to the client lags the actual DB state. The next state-poll (line 87) fetches the session row, sees `stopAfterCurrent: false`, and the UI updates correctly. **No functional bug; the race just means the UI has stale state for the duration of the fade ramp** (~3s). Acceptable.
+
+#### medium — `fade-skip/route.ts` allows the user-facing skip even when `stopAfterCurrent` is set; behavior is "skip, then the toggle remains on"
+
+`fade-skip/route.ts` doesn't read or update `stopAfterCurrent`. If the user has the toggle ON and presses Skip manually, the song fade-skips (advances), but `stopAfterCurrent` stays ON, and the next threshold-fade will pause. This is consistent with the "toggle is sticky until threshold-fade clears it" model, but the user might expect "Skip" to also turn off the toggle (since they're explicitly advancing). Not a regression from this fix commit; pre-existing.
+
+#### low — Comment at `bluegrass-fade-transition/route.ts:179` is stale
+
+Line 179 says "lastSyncAdvance was already set by the concurrency-guard updateMany above." True for the success path. But misleading because the file ALSO has a `releaseCooldown` helper that sets `lastSyncAdvance` BACK to the cutoff on early-return paths. A reader skimming this comment alone would miss the early-return mutation.
+
+Same comment in `fade-skip/route.ts:101`.
+
+Suggest: "lastSyncAdvance is already at claim time from the cooldown guard at line 52-58. Don't overwrite it on the success path; the claim time is the correct cooldown anchor."
+
+#### low — Cosmetic `>= 30` at `BluegrassClient.tsx:317` was not updated to use `AUTO_DURATION_MIN_SEC`
+
+The implementer fixed line 96 (the gate) but left line 317 (the cosmetic "(limit)" tag display) at the literal `>= 30`. Round 2 explicitly called this out: "Also fix line 317 for symmetry (cosmetic)." Round 2 was not addressed. Functional impact: the "(limit)" badge now shows for max=30+ but the auto-fade actually engages at max=10+. Slight UI inconsistency.
+
+### Security pass
+
+No new security flags. The `releaseCooldown` write is auth-gated upstream (the cron endpoint requires CRON_SECRET; the user-facing `fade-skip` requires session ownership). No new attack surface.
+
+### Final unresolved issues
+
+| Severity | Location | Issue | Suggested fix |
+|---|---|---|---|
+| **block** | `prisma/schema.prisma:177` + cooldown logic at `bluegrass-fade-transition/route.ts:101-105` | Cooldown silently blocks every track-to-track auto-fade after the first when `maxSongDurationSec < 2 * fadeDurationSec`. Slider validators allow these configs (e.g., max=15/fade=10, max=10/fade=10). | Tighten PATCH validator to require `maxSongDurationSec >= 3 * fadeDurationSec`, OR make cooldown adaptive (`min(2*fadeMs, maxMs/3)`), OR replace wall-time cooldown with a `fadingFromUri` DB column. Add unit test covering ongoing track-to-track fades for max=15/fade=3 and max=15/fade=10. |
+| high | `bluegrass-fade-transition/route.ts:113-120`, `fade-skip/route.ts:85-90` | `releaseCooldown` is best-effort; if its prisma.update throws, the cooldown stays at claim time and retries are silently dropped for 2·fadeMs. | Make the release a CAS (`updateMany WHERE lastSyncAdvance = $claimedAt`) so concurrent retries don't fight; log on failure. |
+| medium | `fade-resume/route.ts:42-48`, `route.ts:147-154` | Reversed ease-out curve produces ease-in fade-in ("delayed swell"). | Add `buildFadeInCurve()` to `src/lib/fade-curve.ts`. (Carry-over from rounds 1+2.) |
+| low | `BluegrassClient.tsx:317` | Cosmetic `>= 30` not updated to use `AUTO_DURATION_MIN_SEC`; UI says "(limit)" badge engages at 30 but auto-fade actually engages at 10. | Use `AUTO_DURATION_MIN_SEC` for symmetry. (Round 2 explicitly flagged.) |
+| low | `fade-skip/route.ts:101`, `bluegrass-fade-transition/route.ts:179` | Stale comments don't mention the new `releaseCooldown` early-return mutation. | Update comments. |
+| low | `fade-skip/route.ts` | User-facing Skip doesn't clear `stopAfterCurrent`; user might expect it. | Optional: clear the flag on manual skip. |
+| low | `fade-skip` / `bluegrass-fade-transition` | 200 status on `concurrent_transition_in_flight`. | Use 409 for caller observability. (Carry-over.) |
+| low | `fade-pause`, `fade-resume` | No cooldown guard on these endpoints. | Optional: same updateMany guard. (Carry-over.) |
+| low | `public/sw.js:7` | Precache of `/bluegrass` may cache login redirect. | Drop from PRECACHE_URLS. (Carry-over from rounds 1 and 2.) |
+| low | `socket-server.ts:18-22` | Health check lacks session counts. | Add `activeSessions.size`, etc. (Carry-over.) |
+
+### Recommendation
+
+**fix-and-resubmit**
+
+The round-2 reviewer was wrong to declare the "high — first-fade silently dropped on tight configs" addressed. The fix to `play/route.ts:51` was necessary but not sufficient: the cooldown gate's invariant `lastSyncAdvance < now - 2*fadeMs` is fundamentally incompatible with the `decideSyncStatus` threshold of `progress >= maxMs` whenever `max < 2*fade`. The bug now manifests on every ongoing track-to-track auto-fade for tight configurations, not just the first. The schema default makes the first fade also vulnerable when setup time is short, but the ongoing-fade case is the harder blocker because *no* setup-time amount saves it.
+
+Two clean paths forward:
+1. Validate `maxSongDurationSec >= 3 * fadeDurationSec` at the PATCH endpoint and reject the silently-broken configurations explicitly. Update the slider min hints to match.
+2. Replace the wall-time cooldown with a track-URI-based in-flight check: add `fadingFromUri String?` to `BluegrassSession`, set it in the atomic claim, clear it on success/release. The race that round 2 closed (client polling + socket reconnect double-fire) was about the *same* threshold of the *same* track — URI-keyed is the right primary key for that, not wall time.
+
+Either fix is small. Pair with a unit test that walks two consecutive track-to-track fades for the spec V7 config (max=15, fade=3) AND a tight config (max=15, fade=10) to lock the invariant in.
+
+The other round-2 fixes (cooldown release on failure, client-fallback gate import, stopAfterCurrent client-side parity) all landed correctly. Build clean, 21/21 tests green, branch is structurally healthy. One more focused patch should clear it.

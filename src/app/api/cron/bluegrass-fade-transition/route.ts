@@ -98,6 +98,11 @@ export async function POST(req: NextRequest) {
   // Concurrency guard: if another transition fired for this session within
   // 2*fadeDurationSec, treat this call as a duplicate. Atomic check-and-set
   // via updateMany so two concurrent callers can't both pass.
+  //
+  // Invariant: this only works for non-degenerate configs where
+  // maxSongDurationSec >= 3*fadeDurationSec. Otherwise the next legitimate
+  // auto-fade would land inside the cooldown window and be silently dropped.
+  // PATCH validator at /api/bluegrass/sessions/[id] enforces 3x.
   const fadeMs = Math.max(500, sess.fadeDurationSec * 1000);
   const cooldownCutoff = new Date(Date.now() - 2 * fadeMs);
   const claimed = await prisma.bluegrassSession.updateMany({

@@ -48,6 +48,8 @@ export async function POST(
 
   // Concurrency guard against client-polling fallback + socket-driven cron
   // racing on the same threshold. Atomic check-and-set on lastSyncAdvance.
+  // Invariant requires max >= 3*fade (enforced by PATCH validator) so that
+  // legitimate consecutive auto-fades land outside the cooldown window.
   const cooldownCutoff = new Date(Date.now() - 2 * fadeDurationMs);
   const claimed = await prisma.bluegrassSession.updateMany({
     where: { id: sess.id, lastSyncAdvance: { lt: cooldownCutoff } },

@@ -103,6 +103,21 @@ export async function PATCH(
     return NextResponse.json({ error: "No valid fields" }, { status: 400 });
   }
 
+  // Enforce max >= 3 * fade (or max=0 = auto-fade off). Without this, the
+  // wall-time cooldown guard on lastSyncAdvance silently drops every
+  // consecutive auto-fade once max < 2*fade. 3x leaves headroom.
+  const newMax = "maxSongDurationSec" in data ? (data.maxSongDurationSec as number) : sess.maxSongDurationSec;
+  const newFade = "fadeDurationSec" in data ? (data.fadeDurationSec as number) : sess.fadeDurationSec;
+  if (newMax > 0 && newMax < 3 * newFade) {
+    return NextResponse.json(
+      {
+        error: "max_too_short_for_fade",
+        detail: `maxSongDurationSec (${newMax}) must be at least 3× fadeDurationSec (${newFade}). Lower the fade or raise the max.`,
+      },
+      { status: 400 }
+    );
+  }
+
   const updated = await prisma.bluegrassSession.update({
     where: { id },
     data,

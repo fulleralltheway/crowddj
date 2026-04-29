@@ -326,7 +326,7 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
           <div className="text-text-secondary text-sm truncate">{playback?.artistName ?? sess.playlistName}</div>
           <div className="text-text-secondary text-xs mt-1">
             {fmt(positionSec)} / {fmt(durationCap)}
-            {sess.maxSongDurationSec >= 30 && playback?.durationMs && playback.durationMs / 1000 > sess.maxSongDurationSec
+            {sess.maxSongDurationSec >= AUTO_DURATION_MIN_SEC && playback?.durationMs && playback.durationMs / 1000 > sess.maxSongDurationSec
               ? " (limit)"
               : ""}
           </div>
