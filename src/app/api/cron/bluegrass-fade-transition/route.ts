@@ -1,11 +1,20 @@
 import { prisma } from "@/lib/db";
-import { getCurrentPlayback, setVolume, skipToNext } from "@/lib/spotify";
+import { getCurrentPlayback, pausePlayback, setVolume, skipToNext } from "@/lib/spotify";
 import { buildFadeCurve } from "@/lib/fade-curve";
 import { NextRequest, NextResponse } from "next/server";
 
 export const maxDuration = 60;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+function isAuthorized(req: NextRequest): boolean {
+  const expected = process.env.CRON_SECRET;
+  if (!expected) return false;
+  const header = req.headers.get("authorization");
+  if (header === `Bearer ${expected}`) return true;
+  const param = req.nextUrl.searchParams.get("secret");
+  return param === expected;
+}
 
 async function restoreVolume(accessToken: string, target: number, maxRetries = 3) {
   for (let attempt = 0; attempt < maxRetries; attempt++) {
@@ -61,8 +70,7 @@ async function getAccessToken(account: {
  * (Vercel Cron fallback).
  */
 export async function POST(req: NextRequest) {
-  const secret = req.nextUrl.searchParams.get("secret");
-  if (!process.env.CRON_SECRET || secret !== process.env.CRON_SECRET) {
+  if (!isAuthorized(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -85,6 +93,19 @@ export async function POST(req: NextRequest) {
   // Race-safety: if the song already changed, don't double-skip.
   if (body.expectedTrackUri && sess.currentTrackUri && sess.currentTrackUri !== body.expectedTrackUri) {
     return NextResponse.json({ skipped: true, reason: "track_already_changed" });
+  }
+
+  // Concurrency guard: if another transition fired for this session within
+  // 2*fadeDurationSec, treat this call as a duplicate. Atomic check-and-set
+  // via updateMany so two concurrent callers can't both pass.
+  const fadeMs = Math.max(500, sess.fadeDurationSec * 1000);
+  const cooldownCutoff = new Date(Date.now() - 2 * fadeMs);
+  const claimed = await prisma.bluegrassSession.updateMany({
+    where: { id: sess.id, lastSyncAdvance: { lt: cooldownCutoff } },
+    data: { lastSyncAdvance: new Date() },
+  });
+  if (claimed.count === 0) {
+    return NextResponse.json({ skipped: true, reason: "concurrent_transition_in_flight" });
   }
 
   const account = await prisma.account.findFirst({
@@ -119,12 +140,15 @@ export async function POST(req: NextRequest) {
 
   // "Stop after this song" mode: pause instead of advancing.
   if (sess.stopAfterCurrent) {
-    // restore volume before pause so the user isn't stuck quiet on resume
+    // Pause first (volume is at 0, silent), THEN restore volume so a
+    // subsequent resume comes back at target. Without the pause the track
+    // would keep playing audibly the moment volume returns.
+    try { await pausePlayback(accessToken); } catch {}
     await sleep(200);
     await restoreVolume(accessToken, sess.targetVolume);
     await prisma.bluegrassSession.update({
       where: { id: sess.id },
-      data: { lastSyncAdvance: new Date(), stopAfterCurrent: false },
+      data: { stopAfterCurrent: false },
     });
     return NextResponse.json({ ok: true, action: "stopped_after_song", fadedFrom: originalVolume });
   }
@@ -138,10 +162,10 @@ export async function POST(req: NextRequest) {
   await sleep(300);
   await restoreVolume(accessToken, sess.targetVolume);
 
+  // lastSyncAdvance was already set by the concurrency-guard updateMany above.
   await prisma.bluegrassSession.update({
     where: { id: sess.id },
     data: {
-      lastSyncAdvance: new Date(),
       trackStartedAt: new Date(),
       currentTrackUri: null,
     },

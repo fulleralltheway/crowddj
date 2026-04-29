@@ -48,8 +48,10 @@ export type SyncDecision = {
 export const PREQUEUE_LEAD_MS = 15_000;
 
 // Auto-fade is only enabled when maxSongDurationSec >= this. Below this we
-// treat it as "off" — same convention as PartyQueue's sync-rooms.
-export const AUTO_DURATION_MIN_SEC = 30;
+// treat it as "off". 10s is low enough to support short-class scenarios
+// (and the spec's V7 test at 15s) while still rejecting truly accidental
+// 1-2s values where the fade-out would dominate the playback window.
+export const AUTO_DURATION_MIN_SEC = 10;
 
 export function decideSyncStatus(
   sess: BluegrassSessionShape,
@@ -80,7 +82,13 @@ export function decideSyncStatus(
 
   const maxMs = sess.maxSongDurationSec * 1000;
   const fadeMs = Math.max(500, sess.fadeDurationSec * 1000);
-  const preQueueMs = Math.max(0, maxMs - PREQUEUE_LEAD_MS);
+  // Adaptive pre-queue lead: when the threshold is short (e.g. 15s for the
+  // spec's V7 test), the default 15s lead would open the pre-queue window
+  // at 0ms — every position would be "prequeued_maxdur" and the socket
+  // scheduler would re-fire on every tick. Cap the lead to a third of the
+  // window so there's always some "playing" room before pre-queue starts.
+  const lead = Math.min(PREQUEUE_LEAD_MS, Math.floor(maxMs / 3));
+  const preQueueMs = Math.max(0, maxMs - lead);
 
   const progress = playback.progress_ms;
 

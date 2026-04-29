@@ -3,7 +3,11 @@ import { getCurrentPlayback } from "@/lib/spotify";
 import { decideSyncStatus, type SyncDecision } from "@/lib/bluegrass-sync";
 import { NextRequest, NextResponse } from "next/server";
 
-export const maxDuration = 30;
+// Same ceiling as bluegrass-fade-transition. With deferFade=false the cron
+// awaits the in-process fade endpoint; that endpoint can take up to ~10s
+// per session (fade ramp + restoreVolume retries). 60s gives headroom for
+// up to ~5 concurrent active sessions before risking a Vercel timeout.
+export const maxDuration = 60;
 
 function isAuthorized(req: NextRequest): boolean {
   const expected = process.env.CRON_SECRET;
@@ -73,6 +77,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // Default deferFade=false so the Vercel Cron path (no query string — Vercel
+  // strips them from cron paths) hits the synchronous-fade fallback. The
+  // socket server explicitly opts into precise scheduling with `?deferFade=true`.
   const deferFade = req.nextUrl.searchParams.get("deferFade") === "true";
   const sessionIdsParam = req.nextUrl.searchParams.get("sessionIds");
 
@@ -92,6 +99,11 @@ export async function GET(req: NextRequest) {
       if (!found.has(id)) results.push({ id, status: "session_ended" });
     }
   }
+
+  // Collect fade-fire promises; Promise.all at the end so multiple sessions
+  // with simultaneous threshold hits don't serialize into a maxDuration
+  // overrun. Vercel kills background work after response, so we must await.
+  const firePromises: Promise<unknown>[] = [];
 
   for (const sess of sessions) {
     const account = await prisma.account.findFirst({
@@ -128,14 +140,19 @@ export async function GET(req: NextRequest) {
     }
 
     // Cron-fallback path: when deferFade=false and we're past threshold,
-    // fire the fade synchronously so the song doesn't keep playing.
+    // fire the fade. fade-transition has its own concurrency guard so this
+    // is safe even if multiple cron ticks land in the same window.
     if (!deferFade && decision.status === "needs_fade") {
-      await fireFade(req, sess.id, decision.currentTrackUri);
+      firePromises.push(fireFade(req, sess.id, decision.currentTrackUri));
       results.push({ id: sess.id, status: "needs_fade", fadeDurationMs: decision.fadeDurationMs, currentTrackUri: decision.currentTrackUri });
       continue;
     }
 
     results.push({ id: sess.id, ...decision });
+  }
+
+  if (firePromises.length > 0) {
+    await Promise.all(firePromises);
   }
 
   return NextResponse.json({ results });

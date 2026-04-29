@@ -46,6 +46,17 @@ export async function POST(
 
   const fadeDurationMs = Math.max(500, sess.fadeDurationSec * 1000);
 
+  // Concurrency guard against client-polling fallback + socket-driven cron
+  // racing on the same threshold. Atomic check-and-set on lastSyncAdvance.
+  const cooldownCutoff = new Date(Date.now() - 2 * fadeDurationMs);
+  const claimed = await prisma.bluegrassSession.updateMany({
+    where: { id: sess.id, lastSyncAdvance: { lt: cooldownCutoff } },
+    data: { lastSyncAdvance: new Date() },
+  });
+  if (claimed.count === 0) {
+    return NextResponse.json({ skipped: true, reason: "concurrent_transition_in_flight" });
+  }
+
   let originalVolume = sess.targetVolume;
   try {
     const playback = await getCurrentPlayback(accessToken);
@@ -79,10 +90,10 @@ export async function POST(
   await sleep(300);
   await restoreVolume(accessToken, sess.targetVolume);
 
-  // Debounce subsequent cron runs against this transition.
+  // lastSyncAdvance was already set by the concurrency guard above.
   await prisma.bluegrassSession.update({
     where: { id },
-    data: { lastSyncAdvance: new Date(), trackStartedAt: new Date(), currentTrackUri: null },
+    data: { trackStartedAt: new Date(), currentTrackUri: null },
   });
 
   return NextResponse.json({ ok: true, fadedFrom: originalVolume });

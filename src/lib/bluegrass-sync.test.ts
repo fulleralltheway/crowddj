@@ -38,6 +38,15 @@ describe("decideSyncStatus", () => {
     expect(r.currentTrackUri).toBe("spotify:track:abc");
   });
 
+  it("does NOT auto-disable at the spec's V7 scenario value (15s)", () => {
+    // Spec V7 + V14 + V15 all run at maxSongDurationSec = 15. The floor must
+    // permit this, otherwise the spec's own verification scenarios fail.
+    // (Edge cases at 15s are covered by the adaptive-lead test below.)
+    const sess = { ...baseSession, maxSongDurationSec: 15 };
+    const r = decideSyncStatus(sess, playback(2_000));
+    expect(r.status).toBe("playing"); // not auto_disabled
+  });
+
   it("reports playing when progress is well below threshold", () => {
     const r = decideSyncStatus(baseSession, playback(10_000));
     expect(r.status).toBe("playing");
@@ -60,9 +69,19 @@ describe("decideSyncStatus", () => {
   });
 
   it("reports prequeued_maxdur exactly at the lead boundary", () => {
+    // baseSession maxSongDurationSec=120 → adaptive lead = min(15s, 40s) = 15s
     const r = decideSyncStatus(baseSession, playback(120_000 - PREQUEUE_LEAD_MS));
     expect(r.status).toBe("prequeued_maxdur");
     expect(r.fadeInMs).toBe(PREQUEUE_LEAD_MS);
+  });
+
+  it("uses an adaptive lead window for short thresholds", () => {
+    // For maxSongDurationSec=15, lead = min(15000, 15000/3) = 5000ms
+    // So 0-10s = playing, 10-15s = prequeued, >=15s = needs_fade
+    const sess = { ...baseSession, maxSongDurationSec: 15 };
+    expect(decideSyncStatus(sess, playback(5_000)).status).toBe("playing");
+    expect(decideSyncStatus(sess, playback(11_000)).status).toBe("prequeued_maxdur");
+    expect(decideSyncStatus(sess, playback(15_000)).status).toBe("needs_fade");
   });
 
   it("reports needs_fade when progress is past threshold", () => {

@@ -640,7 +640,7 @@ function SettingsForm({ sess, onChange }: { sess: SessionRow; onChange: (data: P
           onPointerUp={(e) => commit({ maxSongDurationSec: Number((e.target as HTMLInputElement).value) })}
           className="w-full accent-accent"
         />
-        <div className="text-text-secondary text-xs mt-1">Below 30s = off (auto-fade disabled)</div>
+        <div className="text-text-secondary text-xs mt-1">Below 10s = off (auto-fade disabled)</div>
       </Field>
 
       <Field label={`Fade duration: ${fadeSec}s`}>
