@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getCurrentPlayback, getPlaylistTracks, setVolume, startPlaybackContext } from "@/lib/spotify";
+import { cachedPlaylistTracks } from "@/lib/spotify-cache";
 import { buildFadeCurve } from "@/lib/fade-curve";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -90,7 +91,7 @@ export async function POST(
   let resolvedIdx = -1;
   let lookupError: string | undefined;
   try {
-    const tracks = await getPlaylistTracks(accessToken, playlistId);
+    const tracks = await cachedPlaylistTracks(playlistId, () => getPlaylistTracks(accessToken, playlistId));
     trackCount = tracks.length;
     if (tracks.length > 0) {
       let idx = -1;

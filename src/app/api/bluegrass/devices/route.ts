@@ -1,5 +1,6 @@
 import { auth } from "@/lib/auth";
 import { getDevices } from "@/lib/spotify";
+import { cachedDevices } from "@/lib/spotify-cache";
 import { NextResponse } from "next/server";
 
 /**
@@ -7,6 +8,9 @@ import { NextResponse } from "next/server";
  * exists (the user has to pick a device to create a session in the first
  * place). Auth-gated like every bluegrass endpoint; access token comes
  * from the user's Spotify account, not from a session row.
+ *
+ * Cached per-user for 30s (devices come and go, but reload-heavy testing
+ * shouldn't repeatedly hit Spotify in the same window).
  */
 export async function GET() {
   const session = await auth();
@@ -18,7 +22,7 @@ export async function GET() {
     return NextResponse.json({ error: "no_token" }, { status: 401 });
   }
 
-  const devices = await getDevices(accessToken);
+  const devices = await cachedDevices(session.user.id, () => getDevices(accessToken));
   return NextResponse.json(
     devices.map((d: { id: string; name: string; type: string; is_active: boolean; volume_percent: number | null }) => ({
       id: d.id,

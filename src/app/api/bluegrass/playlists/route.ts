@@ -1,13 +1,27 @@
 import { auth } from "@/lib/auth";
+import { cachedPlaylistList } from "@/lib/spotify-cache";
 import { NextResponse } from "next/server";
 
 const SPOTIFY_API = "https://api.spotify.com/v1";
+
+class SpotifyError extends Error {
+  constructor(
+    public status: number,
+    public retryAfter: number | null,
+    public body: { error?: { message?: string; reason?: string } }
+  ) {
+    super(body?.error?.message || `Spotify ${status}`);
+  }
+}
 
 /**
  * Bluegrass-specific playlist fetch that surfaces the real Spotify error
  * code + body when the call fails. The shared /api/spotify/playlists
  * collapses every failure into a generic "Failed to fetch playlists"
  * which made the picker un-debuggable from the client.
+ *
+ * Successful responses are cached per-user for 5 min via spotify-cache so
+ * reload-heavy testing doesn't keep poking Spotify with /me/playlists.
  */
 export async function GET() {
   const session = await auth();
@@ -31,17 +45,29 @@ export async function GET() {
     );
   }
 
-  const res = await fetch(`${SPOTIFY_API}/me/playlists?limit=50`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
+  let items: unknown[];
+  try {
+    items = await cachedPlaylistList<unknown[]>(session.user.id, async () => {
+      const res = await fetch(`${SPOTIFY_API}/me/playlists?limit=50`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({} as { error?: { message?: string; reason?: string } }));
+        const retryAfterRaw = res.headers.get("retry-after");
+        const retryAfter = retryAfterRaw ? parseInt(retryAfterRaw, 10) || null : null;
+        throw new SpotifyError(res.status, retryAfter, body);
+      }
+      const data = await res.json();
+      return (data.items ?? []) as unknown[];
+    });
+  } catch (e) {
+    if (!(e instanceof SpotifyError)) {
+      return NextResponse.json({ error: "internal_error" }, { status: 500 });
+    }
+    const spotifyMsg = e.body?.error?.message ?? "";
+    const spotifyReason = e.body?.error?.reason ?? "";
 
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({} as { error?: { message?: string; reason?: string } }));
-    const spotifyMsg = body?.error?.message ?? "";
-    const spotifyReason = body?.error?.reason ?? "";
-
-    // 401 = token expired or invalid → user needs to re-auth
-    if (res.status === 401) {
+    if (e.status === 401) {
       return NextResponse.json(
         {
           error: "spotify_unauthorized",
@@ -53,8 +79,7 @@ export async function GET() {
       );
     }
 
-    // 403 = scope missing or premium required
-    if (res.status === 403) {
+    if (e.status === 403) {
       return NextResponse.json(
         {
           error: "spotify_forbidden",
@@ -66,12 +91,8 @@ export async function GET() {
       );
     }
 
-    // 429 = rate limit. Spotify includes a Retry-After header (in seconds)
-    // telling us how long to wait. Surface it to the client so it can
-    // show a countdown and auto-retry instead of flat-failing.
-    if (res.status === 429) {
-      const retryAfterRaw = res.headers.get("retry-after") ?? "10";
-      const retryAfter = Math.max(1, Math.min(600, parseInt(retryAfterRaw, 10) || 10));
+    if (e.status === 429) {
+      const retryAfter = Math.max(1, Math.min(600, e.retryAfter ?? 10));
       return NextResponse.json(
         {
           error: "spotify_rate_limited",
@@ -83,18 +104,16 @@ export async function GET() {
       );
     }
 
-    // Everything else (5xx outage, etc.)
     return NextResponse.json(
       {
         error: "spotify_error",
-        status: res.status,
-        detail: spotifyMsg || `Spotify returned ${res.status}`,
+        status: e.status,
+        detail: spotifyMsg || `Spotify returned ${e.status}`,
         reason: spotifyReason,
       },
       { status: 502 }
     );
   }
 
-  const data = await res.json();
-  return NextResponse.json(data.items ?? []);
+  return NextResponse.json(items);
 }

@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { getCurrentPlayback, getPlaylistTracks, pausePlayback, setVolume, startPlaybackContext } from "@/lib/spotify";
+import { cachedPlaylistTracks } from "@/lib/spotify-cache";
 import { buildFadeCurve } from "@/lib/fade-curve";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -160,7 +161,7 @@ export async function POST(req: NextRequest) {
   let nextTrackUri: string | undefined;
   if (!sess.stopAfterCurrent) {
     try {
-      const tracks = await getPlaylistTracks(accessToken, playlistId);
+      const tracks = await cachedPlaylistTracks(playlistId, () => getPlaylistTracks(accessToken, playlistId));
       if (tracks.length > 0) {
         let idx = -1;
         if (currentTrackUri) {
