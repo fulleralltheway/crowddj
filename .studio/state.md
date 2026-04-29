@@ -9,18 +9,18 @@
 
 - **Name:** Bluegrass DJ — PWA remote for PartyQueue's playback engine
 - **Slug:** bluegrass-dj
-- **Phase:** 1
-- **Status:** draft
+- **Phase:** 2
+- **Status:** signed-off
 - **Spec:** `specs/bluegrass-dj/spec.md`
-- **Branch:** not yet created (will be `feature/bluegrass-dj` worktree at `../bluegrass-dj` after sign-off)
+- **Branch:** not yet created (will be `feature/bluegrass-dj` worktree at `../bluegrass-dj` in Phase 3)
 
 ## Last Completed Step
 
-2026-04-28: Phase 0 bootstrap — `.studio/` scaffold created.
+2026-04-28: Phase 1 spec signed off by Jonathan. Vercel Pro upgrade prerequisite confirmed.
 
 ## Next Step
 
-Phase 1: write `specs/bluegrass-dj/spec.md`, send inline for sign-off. No code until "go".
+Phase 2: write `tasks.md` (every task has a verification criterion) and ADR `0001-bluegrass-session-model.md` (separate model vs `mode` field on Room). No code yet — Phase 3 (build) comes after Phase 2 outputs land.
 
 ## Active Sub-Agents
 
