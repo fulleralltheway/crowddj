@@ -594,19 +594,17 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
         </Sheet>
       )}
       {picker === "playlist" && (
-        <Sheet onClose={() => setPicker("none")} title="Pick playlist">
-          <PlaylistList
-            playlists={playlists}
-            playlistsState={playlistsState}
-            playlistsError={playlistsError}
-            selected={sess.playlistUri}
+        <Sheet onClose={() => setPicker("none")} title="Change playlist">
+          <PasteUrlPicker
+            disabled={busy}
             onPick={async (p) => {
               await patchSession({ playlistUri: p.uri, playlistName: p.name });
+              setStartedForSession(null); // /play needs to fire fresh for the new playlist
               await post(`/api/bluegrass/sessions/${sess.id}/play`);
+              setStartedForSession(sess.id);
               setPicker("none");
               void pollState();
             }}
-            onLoad={loadPlaylists}
           />
         </Sheet>
       )}
@@ -755,60 +753,175 @@ function PlaylistPicker({
         )}
       </div>
 
+      <PasteUrlPicker disabled={busy || !deviceId} onPick={(p) => onPick(p, deviceId)} />
+
       <div>
-        <div className="flex items-center justify-between mb-2">
-          <div className="text-xs text-text-secondary uppercase tracking-wide">Playlist</div>
-          <button onClick={onReloadPlaylists} className="text-xs text-accent">Refresh</button>
-        </div>
-        {playlistsState === "loading" && (
-          <div className="text-sm text-text-secondary">Loading playlists…</div>
-        )}
-        {playlistsState === "error" && (
-          <div className="text-sm text-red-400 space-y-2">
-            <div>{playlistsError ?? "Couldn't load playlists."}</div>
-            <div className="flex gap-3">
-              <button onClick={onReloadPlaylists} className="text-accent underline">Try again</button>
-              <button
-                onClick={() => signOut({ callbackUrl: "/login?callbackUrl=/bluegrass" })}
-                className="text-accent underline"
-              >
-                Sign out & back in
-              </button>
+        <details>
+          <summary className="text-xs text-text-secondary cursor-pointer select-none">Browse my Spotify playlists (rate-limited — paste a URL above is faster)</summary>
+          <div className="mt-3">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-xs text-text-secondary uppercase tracking-wide">Your Playlists</div>
+              <button onClick={onReloadPlaylists} className="text-xs text-accent">Refresh</button>
             </div>
+            {playlistsState === "loading" && (
+              <div className="text-sm text-text-secondary">Loading playlists…</div>
+            )}
+            {playlistsState === "error" && (
+              <div className="text-sm text-red-400 space-y-2">
+                <div>{playlistsError ?? "Couldn't load playlists."}</div>
+                <div className="flex gap-3">
+                  <button onClick={onReloadPlaylists} className="text-accent underline">Try again</button>
+                  <button
+                    onClick={() => signOut({ callbackUrl: "/login?callbackUrl=/bluegrass" })}
+                    className="text-accent underline"
+                  >
+                    Sign out & back in
+                  </button>
+                </div>
+              </div>
+            )}
+            {playlistsState === "idle" && playlists.length === 0 && (
+              <div className="text-sm text-text-secondary">
+                No playlists loaded.{" "}
+                <button onClick={onReloadPlaylists} className="text-accent underline">Refresh</button>
+              </div>
+            )}
+            {playlistsState === "idle" && playlists.length > 0 && (
+              <div className="space-y-2">
+                {playlists.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => onPick(p, deviceId)}
+                    disabled={busy || !deviceId}
+                    className="w-full flex items-center gap-3 text-left px-3 py-2 rounded-xl border border-white/[0.06] bg-bg-card/50 disabled:opacity-40"
+                  >
+                    {p.images?.[0]?.url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={p.images[0].url} alt="" className="w-10 h-10 rounded" />
+                    ) : (
+                      <div className="w-10 h-10 rounded bg-white/[0.06]" />
+                    )}
+                    <span className="font-medium truncate">{p.name}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-        )}
-        {playlistsState === "idle" && playlists.length === 0 && (
-          <div className="text-sm text-text-secondary">
-            No playlists found in your Spotify account.{" "}
-            <button onClick={onReloadPlaylists} className="text-accent underline">Refresh</button>
-          </div>
-        )}
-        {playlistsState === "idle" && playlists.length > 0 && (
-          <div className="space-y-2">
-            {playlists.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => onPick(p, deviceId)}
-                disabled={busy || !deviceId}
-                className="w-full flex items-center gap-3 text-left px-3 py-2 rounded-xl border border-white/[0.06] bg-bg-card/50 disabled:opacity-40"
-              >
-                {p.images?.[0]?.url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={p.images[0].url} alt="" className="w-10 h-10 rounded" />
-                ) : (
-                  <div className="w-10 h-10 rounded bg-white/[0.06]" />
-                )}
-                <span className="font-medium truncate">{p.name}</span>
-              </button>
-            ))}
-          </div>
-        )}
+        </details>
       </div>
 
       {error && (
         <div className="px-4 py-3 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl text-sm">
           {error}
         </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Manual playlist URL paste — primary path while /me/playlists is rate-limited.
+ * Hits /api/bluegrass/playlist which uses /v1/playlists/{id} (separate quota
+ * bucket) so the picker works even when the user-playlists list endpoint
+ * is throttled.
+ */
+function PasteUrlPicker({
+  disabled,
+  onPick,
+}: {
+  disabled: boolean;
+  onPick: (p: Playlist) => void;
+}) {
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<{
+    id: string;
+    uri: string;
+    name: string;
+    images?: { url: string }[];
+    owner?: string | null;
+    trackCount?: number | null;
+  } | null>(null);
+
+  const lookup = async () => {
+    setBusy(true);
+    setError(null);
+    setPreview(null);
+    try {
+      const res = await fetch(`/api/bluegrass/playlist?input=${encodeURIComponent(input)}`);
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data?.detail ?? data?.error ?? `HTTP ${res.status}`);
+        return;
+      }
+      setPreview(data);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Network error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div>
+      <div className="text-xs text-text-secondary uppercase tracking-wide mb-2">Playlist (paste URL)</div>
+      <div className="flex gap-2">
+        <input
+          type="url"
+          inputMode="url"
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
+          placeholder="https://open.spotify.com/playlist/..."
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && input) void lookup(); }}
+          className="flex-1 min-w-0 px-3 py-2 bg-bg-card border border-white/[0.06] rounded-xl text-sm"
+        />
+        <button
+          onClick={() => void lookup()}
+          disabled={busy || !input}
+          className="px-4 py-2 bg-bg-card border border-white/[0.06] rounded-xl text-sm disabled:opacity-40"
+        >
+          {busy ? "…" : "Find"}
+        </button>
+      </div>
+      <p className="text-text-secondary text-xs mt-2">
+        In Spotify, tap the playlist&apos;s … menu → Share → Copy link, paste it here.
+      </p>
+
+      {error && (
+        <div className="mt-3 px-3 py-2 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl text-sm">
+          {error}
+        </div>
+      )}
+
+      {preview && (
+        <button
+          onClick={() => {
+            onPick({ id: preview.id, uri: preview.uri, name: preview.name, images: preview.images ?? [] });
+            setInput("");
+            setPreview(null);
+          }}
+          disabled={disabled}
+          className="mt-3 w-full flex items-center gap-3 text-left px-3 py-3 rounded-xl border border-accent bg-accent/10 disabled:opacity-40"
+        >
+          {preview.images?.[0]?.url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={preview.images[0].url} alt="" className="w-12 h-12 rounded" />
+          ) : (
+            <div className="w-12 h-12 rounded bg-white/[0.06]" />
+          )}
+          <div className="min-w-0 flex-1">
+            <div className="font-medium truncate">{preview.name}</div>
+            <div className="text-text-secondary text-xs truncate">
+              {preview.owner ? `by ${preview.owner}` : ""}
+              {preview.trackCount != null ? `${preview.owner ? " · " : ""}${preview.trackCount} tracks` : ""}
+            </div>
+          </div>
+          <span className="text-accent text-sm shrink-0">Use this →</span>
+        </button>
       )}
     </div>
   );
