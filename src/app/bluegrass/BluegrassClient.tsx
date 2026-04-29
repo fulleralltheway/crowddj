@@ -206,9 +206,7 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
       retryTimerRef.current = null;
     }
 
-    // Cache-first: serve fresh cached list immediately, refresh in background.
-    // Especially useful after a 429 — last good list survives until Spotify
-    // unblocks us, so the user can keep working.
+    // Cache-first.
     if (!opts.skipCache) {
       const cached = readCachedPlaylists();
       if (cached && cached.length > 0) {
@@ -220,42 +218,37 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
     setPlaylistsState((s) => (s === "idle" ? "idle" : "loading"));
     setPlaylistsError(null);
     try {
-      const res = await fetch("/api/bluegrass/playlists");
+      // Use the proven shared endpoint that the PartyQueue dashboard uses.
+      // The Bluegrass-specific /api/bluegrass/playlists with its cache wrapper
+      // turned out to be flaky (worked sometimes, 429'd repeatedly other times)
+      // even when /api/spotify/playlists returned the same data fine. Until
+      // that's debugged, route through the working path.
+      const res = await fetch("/api/spotify/playlists");
 
-      // 429 → schedule auto-retry using the server's Retry-After.
       if (res.status === 429) {
-        const data = (await res.json().catch(() => ({}))) as { retryAfterSec?: number };
-        const wait = Math.max(1, data.retryAfterSec ?? 10);
         const cached = readCachedPlaylists();
         if (cached && cached.length > 0) {
           setPlaylists(cached);
           setPlaylistsState("idle");
-          // Don't surface the rate-limit error if we have a usable cache.
         } else {
-          setPlaylistsError(`Spotify is rate-limiting. Retrying in ${wait}s…`);
+          setPlaylistsError("Spotify is rate-limiting. Retrying in 15s…");
           setPlaylistsState("error");
         }
         retryTimerRef.current = setTimeout(() => {
           retryTimerRef.current = null;
           void loadPlaylistsRef.current({ skipCache: true });
-        }, wait * 1000);
+        }, 15_000);
         return;
       }
 
       if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as {
-          error?: string;
-          detail?: string;
-          status?: number;
-          reason?: string;
-        };
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
         const message =
-          data.detail ||
-          (data.error === "TokenRevoked"
+          data.error === "TokenRevoked"
             ? "Spotify access expired. Sign out and sign back in."
             : data.error
-            ? `${data.error}${data.status ? ` (Spotify ${data.status})` : ""}`
-            : `HTTP ${res.status}`);
+            ? `${data.error} (HTTP ${res.status})`
+            : `HTTP ${res.status}`;
         setPlaylistsError(message);
         setPlaylistsState("error");
         return;
