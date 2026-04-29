@@ -1,9 +1,14 @@
-const CACHE_NAME = 'partyqueue-v28';
+const CACHE_NAME = 'partyqueue-v29';
 const PRECACHE_URLS = [
   '/',
   '/manifest.json',
   '/icon-192.png',
   '/icon-512.png',
+  '/bluegrass',
+  '/bluegrass-manifest.webmanifest',
+  '/bluegrass/icon-192.png',
+  '/bluegrass/icon-512.png',
+  '/bluegrass/apple-touch-icon-180.png',
 ];
 
 // Install — precache essential assets

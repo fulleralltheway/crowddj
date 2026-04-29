@@ -120,6 +120,30 @@ export async function startPlayback(
   }
 }
 
+export async function startPlaybackContext(
+  accessToken: string,
+  contextUri: string,
+  deviceId?: string,
+  offsetUri?: string
+) {
+  const body: Record<string, unknown> = { context_uri: contextUri };
+  if (offsetUri) body.offset = { uri: offsetUri };
+  const params = deviceId ? `?device_id=${deviceId}` : "";
+  const res = await fetch(`${SPOTIFY_API}/me/player/play${params}`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok && res.status !== 204) {
+    const err = await res.json().catch(() => ({}));
+    if (res.status === 404) throw new Error("device_unavailable");
+    throw new Error(err.error?.message || "Failed to start playback (context)");
+  }
+}
+
 export async function pausePlayback(accessToken: string) {
   const res = await fetch(`${SPOTIFY_API}/me/player/pause`, {
     method: "PUT",
