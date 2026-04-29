@@ -124,10 +124,12 @@ export async function startPlaybackContext(
   accessToken: string,
   contextUri: string,
   deviceId?: string,
-  offsetUri?: string
+  offset?: { uri?: string; position?: number }
 ) {
   const body: Record<string, unknown> = { context_uri: contextUri };
-  if (offsetUri) body.offset = { uri: offsetUri };
+  if (offset && (offset.uri || typeof offset.position === "number")) {
+    body.offset = offset;
+  }
   const params = deviceId ? `?device_id=${deviceId}` : "";
   const res = await fetch(`${SPOTIFY_API}/me/player/play${params}`, {
     method: "PUT",

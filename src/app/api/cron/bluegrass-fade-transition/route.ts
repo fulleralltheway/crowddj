@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { getCurrentPlayback, pausePlayback, setVolume, skipToNext } from "@/lib/spotify";
+import { getCurrentPlayback, getPlaylistTracks, pausePlayback, setVolume, startPlaybackContext } from "@/lib/spotify";
 import { buildFadeCurve } from "@/lib/fade-curve";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -140,11 +140,30 @@ export async function POST(req: NextRequest) {
 
   const fadeDurationMs = Math.max(500, sess.fadeDurationSec * 1000);
 
+  // Capture current volume + currently-playing track URI BEFORE the fade.
   let originalVolume = sess.targetVolume;
+  let currentTrackUri: string | undefined;
   try {
     const playback = await getCurrentPlayback(accessToken);
     originalVolume = playback?.device?.volume_percent ?? sess.targetVolume;
+    currentTrackUri = playback?.item?.uri;
   } catch {}
+
+  // Look up next track URI so we can use the explicit-URI transition pattern
+  // PartyQueue's CLAUDE.md prescribes (skipToNext is unreliable). Skipped
+  // for stopAfterCurrent since we're pausing not advancing.
+  const playlistId = sess.playlistUri.replace(/^spotify:playlist:/, "");
+  let nextTrackUri: string | undefined;
+  if (!sess.stopAfterCurrent) {
+    try {
+      const tracks = await getPlaylistTracks(accessToken, playlistId);
+      if (tracks.length > 0) {
+        const idx = currentTrackUri ? tracks.findIndex((t: { spotifyUri: string }) => t.spotifyUri === currentTrackUri) : -1;
+        const nextIdx = idx >= 0 ? (idx + 1) % tracks.length : 0;
+        nextTrackUri = tracks[nextIdx].spotifyUri;
+      }
+    } catch {}
+  }
 
   const { multipliers, stepMs } = buildFadeCurve(fadeDurationMs);
 
@@ -171,8 +190,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, action: "stopped_after_song", fadedFrom: originalVolume });
   }
 
-  // Otherwise, skip to the next track on the playlist context.
-  try { await skipToNext(accessToken); } catch {
+  // Otherwise, advance via the playlist context with an explicit offset URI.
+  // Falls back to position 0 if we couldn't determine the next track —
+  // better than leaving the user at zero volume.
+  try {
+    const offset = nextTrackUri ? { uri: nextTrackUri } : { position: 0 };
+    await startPlaybackContext(accessToken, sess.playlistUri, sess.deviceId ?? undefined, offset);
+  } catch {
     await restoreVolume(accessToken, sess.targetVolume);
     await releaseCooldown();
     return NextResponse.json({ error: "skip_failed" }, { status: 502 });
@@ -186,9 +210,9 @@ export async function POST(req: NextRequest) {
     where: { id: sess.id },
     data: {
       trackStartedAt: new Date(),
-      currentTrackUri: null,
+      currentTrackUri: nextTrackUri ?? null,
     },
   });
 
-  return NextResponse.json({ ok: true, action: "advanced", fadedFrom: originalVolume });
+  return NextResponse.json({ ok: true, action: "advanced", fadedFrom: originalVolume, nextTrackUri });
 }

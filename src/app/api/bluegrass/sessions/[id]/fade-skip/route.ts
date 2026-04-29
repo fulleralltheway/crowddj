@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getCurrentPlayback, setVolume, skipToNext } from "@/lib/spotify";
+import { getCurrentPlayback, getPlaylistTracks, setVolume, startPlaybackContext } from "@/lib/spotify";
 import { buildFadeCurve } from "@/lib/fade-curve";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -59,10 +59,31 @@ export async function POST(
     return NextResponse.json({ skipped: true, reason: "concurrent_transition_in_flight" });
   }
 
+  // Determine current track + next track BEFORE fading. Doing this up-front
+  // also catches the "device went silent / Spotify lost the context" case
+  // before we've started ramping volume down.
   let originalVolume = sess.targetVolume;
+  let currentTrackUri: string | undefined;
   try {
     const playback = await getCurrentPlayback(accessToken);
     originalVolume = playback?.device?.volume_percent ?? sess.targetVolume;
+    currentTrackUri = playback?.item?.uri;
+  } catch {}
+
+  // Look up the next track URI in the playlist. PartyQueue's CLAUDE.md flags
+  // skipToNext as unreliable; the proven pattern is startPlayback with an
+  // explicit URI / context+offset. We use context+offset.uri so Spotify
+  // keeps the playlist as the queue context (continued auto-advance + the
+  // user's native crossfade work after our cut).
+  const playlistId = sess.playlistUri.replace(/^spotify:playlist:/, "");
+  let nextTrackUri: string | undefined;
+  try {
+    const tracks = await getPlaylistTracks(accessToken, playlistId);
+    if (tracks.length > 0) {
+      const idx = currentTrackUri ? tracks.findIndex((t: { spotifyUri: string }) => t.spotifyUri === currentTrackUri) : -1;
+      const nextIdx = idx >= 0 ? (idx + 1) % tracks.length : 0;
+      nextTrackUri = tracks[nextIdx].spotifyUri;
+    }
   } catch {}
 
   const { multipliers, stepMs } = buildFadeCurve(fadeDurationMs);
@@ -76,13 +97,13 @@ export async function POST(
     try { await setVolume(accessToken, 0); } catch {}
   }
 
-  // Skip on the playlist context. skipToNext is acceptable here because we're
-  // playing a vanilla playlist with no reorder semantics — Spotify's native
-  // playlist ordering is the source of truth.
-  try { await skipToNext(accessToken); } catch (e) {
-    // Hard to recover from; restore volume so the user isn't stuck quiet,
-    // and release the cooldown claim so a retry on the next tick isn't
-    // blocked for 2*fadeMs.
+  // Start the next track via the playlist context with explicit offset.
+  // If we couldn't determine a next URI, fall back to "play playlist from
+  // position 0" — better than leaving the user paused at zero volume.
+  try {
+    const offset = nextTrackUri ? { uri: nextTrackUri } : { position: 0 };
+    await startPlaybackContext(accessToken, sess.playlistUri, sess.deviceId ?? undefined, offset);
+  } catch (e) {
     await restoreVolume(accessToken, originalVolume || sess.targetVolume);
     try {
       await prisma.bluegrassSession.update({
@@ -103,8 +124,8 @@ export async function POST(
   // lastSyncAdvance was already set by the concurrency guard above.
   await prisma.bluegrassSession.update({
     where: { id },
-    data: { trackStartedAt: new Date(), currentTrackUri: null },
+    data: { trackStartedAt: new Date(), currentTrackUri: nextTrackUri ?? null },
   });
 
-  return NextResponse.json({ ok: true, fadedFrom: originalVolume });
+  return NextResponse.json({ ok: true, fadedFrom: originalVolume, nextTrackUri });
 }

@@ -30,7 +30,12 @@ export async function POST(
   }
 
   try {
-    await startPlaybackContext(accessToken, sess.playlistUri, sess.deviceId);
+    // Always start at position 0 of the playlist. Without an explicit offset,
+    // Spotify resumes from a remembered cursor for that context — and when
+    // switching FROM a different context, this sometimes manifests as "the
+    // previous track keeps playing" because Spotify treats the call as a
+    // no-op against its current state.
+    await startPlaybackContext(accessToken, sess.playlistUri, sess.deviceId, { position: 0 });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "playback_failed";
     if (msg === "device_unavailable") {
