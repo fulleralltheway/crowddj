@@ -66,7 +66,24 @@ export async function GET() {
       );
     }
 
-    // Everything else (429 rate limit, 5xx outage)
+    // 429 = rate limit. Spotify includes a Retry-After header (in seconds)
+    // telling us how long to wait. Surface it to the client so it can
+    // show a countdown and auto-retry instead of flat-failing.
+    if (res.status === 429) {
+      const retryAfterRaw = res.headers.get("retry-after") ?? "10";
+      const retryAfter = Math.max(1, Math.min(600, parseInt(retryAfterRaw, 10) || 10));
+      return NextResponse.json(
+        {
+          error: "spotify_rate_limited",
+          status: 429,
+          detail: `Spotify is rate-limiting the app. Retrying in ${retryAfter}s.`,
+          retryAfterSec: retryAfter,
+        },
+        { status: 429, headers: { "Retry-After": String(retryAfter) } }
+      );
+    }
+
+    // Everything else (5xx outage, etc.)
     return NextResponse.json(
       {
         error: "spotify_error",

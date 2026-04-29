@@ -60,6 +60,28 @@ type Playlist = {
 };
 
 const FADE_FIRED_KEY = "bluegrass.lastFadeFiredAt";
+const PLAYLIST_CACHE_KEY = "bluegrass.playlistCache";
+const PLAYLIST_CACHE_TTL_MS = 60 * 60 * 1000; // 1h
+
+type CachedPlaylists = { ts: number; items: Playlist[] };
+
+function readCachedPlaylists(): Playlist[] | null {
+  try {
+    const raw = localStorage.getItem(PLAYLIST_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as CachedPlaylists;
+    if (Date.now() - parsed.ts > PLAYLIST_CACHE_TTL_MS) return null;
+    return parsed.items;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedPlaylists(items: Playlist[]) {
+  try {
+    localStorage.setItem(PLAYLIST_CACHE_KEY, JSON.stringify({ ts: Date.now(), items }));
+  } catch {}
+}
 
 export default function BluegrassClient({ initialSession }: { initialSession: SessionRow | null }) {
   useAppHeight();
@@ -167,11 +189,56 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
   // silent failure doesn't leave the user staring at a blank list. Filters
   // out null/empty entries (Spotify's /me/playlists occasionally returns
   // them for inaccessible playlists).
-  const loadPlaylists = useCallback(async () => {
-    setPlaylistsState("loading");
+  // Auto-retry timer for 429 rate limits. Clears on unmount or new load.
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (retryTimerRef.current) clearTimeout(retryTimerRef.current); }, []);
+  // Ref-pointer to the latest loadPlaylists so the rate-limit setTimeout
+  // can invoke it without referencing a self-recursive const (which trips
+  // react-hooks/immutability).
+  const loadPlaylistsRef = useRef<(opts?: { skipCache?: boolean }) => Promise<void>>(() => Promise.resolve());
+
+  const loadPlaylists = useCallback(async (opts: { skipCache?: boolean } = {}) => {
+    if (retryTimerRef.current) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+
+    // Cache-first: serve fresh cached list immediately, refresh in background.
+    // Especially useful after a 429 — last good list survives until Spotify
+    // unblocks us, so the user can keep working.
+    if (!opts.skipCache) {
+      const cached = readCachedPlaylists();
+      if (cached && cached.length > 0) {
+        setPlaylists(cached);
+        setPlaylistsState("idle");
+      }
+    }
+
+    setPlaylistsState((s) => (s === "idle" ? "idle" : "loading"));
     setPlaylistsError(null);
     try {
       const res = await fetch("/api/bluegrass/playlists");
+
+      // 429 → schedule auto-retry using the server's Retry-After.
+      if (res.status === 429) {
+        const data = (await res.json().catch(() => ({}))) as { retryAfterSec?: number };
+        const wait = Math.max(1, data.retryAfterSec ?? 10);
+        const cached = readCachedPlaylists();
+        if (cached && cached.length > 0) {
+          setPlaylists(cached);
+          setPlaylistsState("idle");
+          // Don't surface the rate-limit error if we have a usable cache.
+        } else {
+          setPlaylistsError(`Spotify is rate-limiting. Retrying in ${wait}s…`);
+          setPlaylistsState("error");
+        }
+        retryTimerRef.current = setTimeout(() => {
+          retryTimerRef.current = null;
+          void loadPlaylistsRef.current({ skipCache: true });
+        }, wait * 1000);
+        return;
+      }
+
       if (!res.ok) {
         const data = (await res.json().catch(() => ({}))) as {
           error?: string;
@@ -179,7 +246,6 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
           status?: number;
           reason?: string;
         };
-        // Bluegrass-side endpoint includes detail + the Spotify status code.
         const message =
           data.detail ||
           (data.error === "TokenRevoked"
@@ -197,11 +263,16 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
         .map((p) => ({ id: p.id, uri: p.uri, name: p.name, images: p.images ?? [] }));
       setPlaylists(cleaned);
       setPlaylistsState("idle");
+      writeCachedPlaylists(cleaned);
     } catch (e) {
       setPlaylistsError(e instanceof Error ? e.message : "Network error");
       setPlaylistsState("error");
     }
   }, []);
+
+  // Keep the ref pointer current so the rate-limit retry uses the latest
+  // version of loadPlaylists.
+  useEffect(() => { loadPlaylistsRef.current = loadPlaylists; }, [loadPlaylists]);
 
   // Actions
   const post = async (path: string, body?: unknown) => {
