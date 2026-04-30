@@ -8,11 +8,21 @@ const baseSession = {
   isActive: true,
 };
 
-function playback(progress_ms: number, opts: Partial<{ is_playing: boolean; uri: string }> = {}) {
+function playback(
+  progress_ms: number,
+  opts: Partial<{
+    is_playing: boolean;
+    uri: string;
+    contextUri: string;
+    deviceId: string;
+  }> = {}
+) {
   return {
     is_playing: opts.is_playing ?? true,
     progress_ms,
     item: { uri: opts.uri ?? "spotify:track:abc", duration_ms: 180_000 },
+    context: opts.contextUri ? { uri: opts.contextUri } : null,
+    device: opts.deviceId ? { id: opts.deviceId } : null,
   };
 }
 
@@ -100,5 +110,38 @@ describe("decideSyncStatus", () => {
     const r = decideSyncStatus(sess, playback(125_000));
     expect(r.status).toBe("needs_fade");
     expect(r.fadeDurationMs).toBe(500);
+  });
+
+  it("reports external_context when Spotify is on a different playlist than the session", () => {
+    const sess = { ...baseSession, playlistUri: "spotify:playlist:bluegrass" };
+    const r = decideSyncStatus(
+      sess,
+      playback(60_000, { contextUri: "spotify:album:other" })
+    );
+    expect(r.status).toBe("external_context");
+    expect(r.currentTrackUri).toBe("spotify:track:abc");
+  });
+
+  it("does NOT report external_context when contexts match", () => {
+    const sess = { ...baseSession, playlistUri: "spotify:playlist:bluegrass" };
+    const r = decideSyncStatus(
+      sess,
+      playback(60_000, { contextUri: "spotify:playlist:bluegrass" })
+    );
+    expect(r.status).toBe("playing");
+  });
+
+  it("does NOT report external_context when context is unavailable (Spotify omits it)", () => {
+    // Sometimes Spotify returns no context (e.g. user playing a single track).
+    // Treat as "matches" rather than triggering a false positive.
+    const sess = { ...baseSession, playlistUri: "spotify:playlist:bluegrass" };
+    const r = decideSyncStatus(sess, playback(60_000));
+    expect(r.status).toBe("playing");
+  });
+
+  it("surfaces deviceId in the decision so sync can reconcile session.deviceId", () => {
+    const r = decideSyncStatus(baseSession, playback(60_000, { deviceId: "device-iphone" }));
+    expect(r.status).toBe("playing");
+    expect(r.deviceId).toBe("device-iphone");
   });
 });

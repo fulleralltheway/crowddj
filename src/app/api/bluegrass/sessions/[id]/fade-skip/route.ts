@@ -147,9 +147,17 @@ export async function POST(
   await restoreVolume(accessToken, sess.targetVolume);
 
   // lastSyncAdvance was already set by the concurrency guard above.
+  // Manual skip is an explicit user override — clear stopAfterCurrent so
+  // the user doesn't get a surprise stop on the *next* track threshold
+  // because they had the flag set before deciding to skip past the
+  // current song.
   await prisma.bluegrassSession.update({
     where: { id },
-    data: { trackStartedAt: new Date(), currentTrackUri: nextTrackUri ?? null },
+    data: {
+      trackStartedAt: new Date(),
+      currentTrackUri: nextTrackUri ?? null,
+      stopAfterCurrent: false,
+    },
   });
 
   return NextResponse.json({

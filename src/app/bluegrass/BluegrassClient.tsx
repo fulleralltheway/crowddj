@@ -81,7 +81,34 @@ type Playlist = {
   images: { url: string }[];
 };
 
-const FADE_FIRED_KEY = "bluegrass.lastFadeFiredAt";
+// Per-track idempotency record for the threshold-fallback fire. Storing the
+// trackUri alongside the timestamp prevents a fade fired on track A from
+// suppressing a legitimate fade on track B when Spotify auto-advances
+// (track shorter than maxSongDurationSec) within the dedup window.
+const FADE_FIRED_KEY = "bluegrass.lastFadeFired";
+type FadeFiredRecord = { firedAt: number; trackUri: string };
+function readFadeFired(): FadeFiredRecord | null {
+  try {
+    const raw = localStorage.getItem(FADE_FIRED_KEY);
+    if (!raw) return null;
+    if (raw.startsWith("{")) return JSON.parse(raw) as FadeFiredRecord;
+    // Legacy plain-timestamp value from before the refactor — treat as a
+    // null trackUri (will not match any current track, so won't suppress).
+    return { firedAt: parseInt(raw, 10) || 0, trackUri: "" };
+  } catch {
+    return null;
+  }
+}
+function writeFadeFired(trackUri: string) {
+  try {
+    const rec: FadeFiredRecord = { firedAt: Date.now(), trackUri };
+    localStorage.setItem(FADE_FIRED_KEY, JSON.stringify(rec));
+  } catch {}
+}
+// Persisted across reloads so a PWA reload mid-session (iOS PWA wakes,
+// soft-refresh, etc.) doesn't trick handlePlayPause into firing /play
+// (top-of-playlist) when it should be /fade-resume.
+const STARTED_FOR_SESSION_KEY = "bluegrass.startedForSession";
 const PLAYLIST_CACHE_KEY = "bluegrass.playlistCache";
 const PLAYLIST_CACHE_TTL_MS = 60 * 60 * 1000; // 1h
 // Spotify rate-limit cool-off. When we see a long Retry-After (>120s),
@@ -146,6 +173,57 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
   const sessRef = useRef<SessionRow | null>(initialSession);
   useEffect(() => { sessRef.current = sess; }, [sess]);
 
+  // Wall-clock timestamp of the last user-initiated /play or /fade-resume
+  // success. Used by the threshold fallback to suppress an immediate fire
+  // when the user manually paused mid-song, made an announcement, then
+  // resumed past the maxSongDuration mark.
+  const lastResumeAtRef = useRef<number>(0);
+
+  // Track which session id we've already fired /play for. Comparing this
+  // against sess?.id lets handlePlayPause distinguish "first start" (calls
+  // /play with explicit offset 0) from "resume after pause" (fade-resume).
+  //
+  // Persisted to localStorage so iOS PWA reload / wake-from-background /
+  // soft-refresh doesn't reset us to "first start" and silently restart
+  // the playlist from track 1 when the user hits Play.
+  //
+  // Lazy initializer (not a useEffect-based hydration) closes the 1-frame
+  // tap-during-hydration window where handlePlayPause could see hasStarted
+  // = false and fire /play before localStorage was read. The function only
+  // runs on the client because BluegrassClient is a "use client" component
+  // mounted under Next.js App Router; SSR sees the same null initial value
+  // because initialSession is the prop that drives sess, not this state.
+  // Hoisted above the socket effect so its setter is in TDZ-safe scope.
+  const [startedForSession, setStartedForSession] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      return localStorage.getItem(STARTED_FOR_SESSION_KEY);
+    } catch {
+      return null;
+    }
+  });
+  // Mirror the state to localStorage whenever it changes. Decoupling the
+  // persistence from the setter (vs wrapping setState in a useCallback)
+  // keeps `setStartedForSession` as the stable useState setter, which
+  // means it doesn't need to appear in any useEffect dep array.
+  useEffect(() => {
+    try {
+      if (startedForSession) localStorage.setItem(STARTED_FOR_SESSION_KEY, startedForSession);
+      else localStorage.removeItem(STARTED_FOR_SESSION_KEY);
+    } catch {}
+  }, [startedForSession]);
+
+  // Refetch the session row from the server. The cron-driven fade-transition
+  // path mutates server-side fields (e.g. clears stopAfterCurrent after it
+  // pauses), but our local sess state doesn't see that without a refetch.
+  // Declared before pollState so the threshold-fallback closure can call it.
+  const refreshSession = useCallback(async () => {
+    const s = sessRef.current;
+    if (!s) return;
+    const res = await fetch(`/api/bluegrass/sessions/${s.id}`);
+    if (res.ok) setSess(await res.json());
+  }, []);
+
   // 1s state poll loop + client-polling threshold fallback (T11). Declared
   // before the socket effect so it's hoisted; the socket effect references it.
   const pollState = useCallback(async () => {
@@ -170,39 +248,56 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
         const fadeMs = Math.max(500, s.fadeDurationSec * 1000);
         const fireAtMs = maxMs - fadeMs;
         if (data.positionMs >= fireAtMs) {
-          const last = parseInt(localStorage.getItem(FADE_FIRED_KEY) || "0", 10);
-          // Idempotency: don't refire within fadeMs + 2s (transition is in flight).
-          if (Date.now() - last > fadeMs + 2000) {
-            localStorage.setItem(FADE_FIRED_KEY, String(Date.now()));
-            const path = s.stopAfterCurrent ? "fade-pause" : "fade-skip";
-            void fetch(`/api/bluegrass/sessions/${s.id}/${path}`, { method: "POST" });
-            // Mirror the cron-path's stopAfterCurrent reset so behavior is
-            // identical regardless of socket connectivity. Optimistically
-            // update local state so the checkbox UI reflects the change
-            // without waiting for refreshSession.
-            if (s.stopAfterCurrent) {
-              void fetch(`/api/bluegrass/sessions/${s.id}`, {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ stopAfterCurrent: false }),
-              });
-              setSess((prev) => prev ? { ...prev, stopAfterCurrent: false } : prev);
-            }
+          // Per-track idempotency: skip if we already fired on THIS trackUri
+          // within the fade-in-flight window. Track-scoped so a fade on
+          // track A doesn't suppress a legitimate fade on track B if
+          // Spotify auto-advanced within the window.
+          const last = readFadeFired();
+          const sameTrackDedup =
+            last &&
+            last.trackUri === (data.trackUri ?? "") &&
+            Date.now() - last.firedAt <= fadeMs + 2000;
+          // Resume debounce: if user manually paused for an announcement
+          // and resumes past the threshold, give them 5s of grace before
+          // firing — otherwise the song rips out the moment they unpause.
+          const justResumed =
+            lastResumeAtRef.current > 0 &&
+            Date.now() - lastResumeAtRef.current < 5000;
+          if (!sameTrackDedup && !justResumed) {
+            writeFadeFired(data.trackUri ?? "");
+            // Single endpoint for both stopAfterCurrent and normal advance.
+            // The server reads sess.stopAfterCurrent and runs the matching
+            // branch in src/lib/bluegrass-fade.ts — identical to the
+            // socket-driven cron path. Refresh the session row after so
+            // local state mirrors the server-side stopAfterCurrent reset.
+            void (async () => {
+              try {
+                const res = await fetch(`/api/bluegrass/sessions/${s.id}/fade-transition`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ expectedTrackUri: data.trackUri }),
+                });
+                // Server-side reason `session_inactive` means the session
+                // was deleted under us (e.g. ended from another device).
+                // Tear down local state so we stop polling a dead session.
+                if (res.ok) {
+                  const body = await res.json().catch(() => null);
+                  if (body?.skipped && body?.reason === "session_inactive") {
+                    setStartedForSession(null);
+                    setSess(null);
+                    setPicker("ended");
+                    return;
+                  }
+                }
+              } finally {
+                void refreshSession();
+              }
+            })();
           }
         }
       }
     } catch {}
-  }, [socketConnected]);
-
-  // Refetch the session row from the server. The cron-driven fade-transition
-  // path mutates server-side fields (e.g. clears stopAfterCurrent after it
-  // pauses), but our local sess state doesn't see that without a refetch.
-  const refreshSession = useCallback(async () => {
-    const s = sessRef.current;
-    if (!s) return;
-    const res = await fetch(`/api/bluegrass/sessions/${s.id}`);
-    if (res.ok) setSess(await res.json());
-  }, []);
+  }, [socketConnected, refreshSession]);
 
   // Socket — join the session room, react to push events from the server.
   // Re-joins on reconnect so server-side activeSessions is restored.
@@ -210,7 +305,16 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
     if (!sess) return;
     const socket = getSocket();
     const onConnect = () => socket.emit("join-session", sess.id);
-    const onSessionEnded = () => setPicker("ended");
+    const onSessionEnded = () => {
+      // Mirror the local-side endSession() cleanup so an end fired from
+      // another device clears persisted state too. Otherwise the next
+      // session start could resurrect stale flags.
+      try { localStorage.removeItem(FADE_FIRED_KEY); } catch {}
+      setStartedForSession(null);
+      setSess(null);
+      setPlayback(null);
+      setPicker("ended");
+    };
     // session-state-changed fires on any server-driven transition. Refresh
     // both the playback poll AND the session row so flags like
     // stopAfterCurrent reflect the just-applied server-side update.
@@ -236,6 +340,30 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
     const t = setInterval(pollState, 2000);
     return () => clearInterval(t);
   }, [sess?.id, pollState]);
+
+  // PWA wake / tab refocus resync. iOS suspends background JS and the
+  // socket; when the user returns, the position read from the next poll
+  // can be far past the threshold. Without this handler the threshold
+  // fallback fires immediately at full volume on a track that has already
+  // been replaced — or worse, fires on the freshly-loaded next track.
+  //
+  // Two safeguards on resume:
+  //   1. Treat the resume itself like a manual play for the 5s debounce
+  //      window (lastResumeAtRef). Suppresses an immediate threshold fire.
+  //   2. Refresh state + session row immediately so we react on the
+  //      latest server-side data instead of stale 30-min-old fields.
+  useEffect(() => {
+    if (!sess) return;
+    if (typeof document === "undefined") return;
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      lastResumeAtRef.current = Date.now();
+      void pollState();
+      void refreshSession();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [sess?.id, pollState, refreshSession]);
 
   // Load devices. Falls back to the sessionless endpoint when no active
   // session exists yet (the playlist picker is shown BEFORE a session is
@@ -405,12 +533,6 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
     if (res.ok) setSess(await res.json());
   };
 
-  // Track which session id we've already fired /play for. Comparing this
-  // against sess?.id lets handlePlayPause distinguish "first start" (calls
-  // /play with explicit offset 0) from "resume after pause" (fade-resume).
-  // Storing the id-or-null instead of a boolean avoids the
-  // setState-on-id-change effect that the React lint rule flags.
-  const [startedForSession, setStartedForSession] = useState<string | null>(null);
   const hasStarted = sess?.id != null && startedForSession === sess.id;
 
   const startWithPlaylist = async (playlist: Playlist, deviceId: string) => {
@@ -437,10 +559,14 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
       // offset 0 so we always start at track 1 of the chosen playlist
       // (regardless of whatever Spotify was doing before).
       const r = await post(`/api/bluegrass/sessions/${sess.id}/play`);
-      if (r?.ok !== false) setStartedForSession(sess.id);
+      if (r?.ok !== false) {
+        setStartedForSession(sess.id);
+        lastResumeAtRef.current = Date.now();
+      }
     } else {
       // Mid-session: smoothly resume whatever's loaded.
-      await post(`/api/bluegrass/sessions/${sess.id}/fade-resume`);
+      const r = await post(`/api/bluegrass/sessions/${sess.id}/fade-resume`);
+      if (r?.ok !== false) lastResumeAtRef.current = Date.now();
     }
     void pollState();
   };
@@ -466,6 +592,7 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
       if (res.ok) {
         try { getSocket().emit("session-ended", sess.id); } catch {}
         localStorage.removeItem(FADE_FIRED_KEY);
+        setStartedForSession(null);
         setSess(null);
         setPlayback(null);
         setPicker("ended");

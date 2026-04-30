@@ -118,6 +118,18 @@ export async function PATCH(
     );
   }
 
+  // Lowering maxSongDurationSec or fadeDurationSec mid-song can leave the
+  // current track already past the (newly-shorter) threshold, which would
+  // chop it off in the next 2s poll. Bump lastSyncAdvance so the cooldown
+  // guard suppresses an immediate fire — the new value applies to the NEXT
+  // transition, which is the intuitive expectation.
+  if (
+    ("maxSongDurationSec" in data && newMax < sess.maxSongDurationSec) ||
+    ("fadeDurationSec" in data && newFade !== sess.fadeDurationSec)
+  ) {
+    data.lastSyncAdvance = new Date();
+  }
+
   const updated = await prisma.bluegrassSession.update({
     where: { id },
     data,
