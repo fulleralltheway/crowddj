@@ -7,21 +7,11 @@
 
 ## Current Feature
 
-- **Name:** Bluegrass Queue Management
-- **Slug:** bluegrass-queue
-- **Phase:** 3 (ready)
-- **Status:** signed-off (Phase 2 outputs landed)
-- **Spec:** `specs/bluegrass-queue/spec.md`
-- **Tasks:** `specs/bluegrass-queue/tasks.md` (14 tasks, T0–T13)
-- **Branch:** not yet created — first action of Phase 3 is `git worktree add ../bluegrass-queue -b feature/bluegrass-queue`
+- **Name:** none — between features
 
 ## Last Completed Step
 
-2026-04-29: Phase 1 sign-off received from Jonathan. Phase 2 outputs landed — `tasks.md` (14 tasks T0-T13, every one with a falsifiable verification criterion) and ADR 0002 explaining why `BluegrassSessionTrack` is its own model rather than a reuse of `RoomSong`.
-
-## Next Step
-
-Phase 3 build, starting with T0 (worktree). When Vercel Pro upgrade and the Spotify Dev-mode rate limit are still relevant constraints — but neither blocks Phase 3 since the build doesn't need to hit playlist-metadata endpoints (search and `/me/player/*` are open).
+2026-04-29: bluegrass-queue **shipped** to production. Merged `feature/bluegrass-queue` → `main` as commit `f04a2f6` with 5 surgical commits + Phase 5 fix. Build clean, 30/30 tests, ESLint clean, lockfile matches main exactly. Schema migration to Neon prod completed before merge. Phase 5 cold-context review caught three critical bugs (getNextSessionTrack ordering, package-lock regression, stuck-pending UI) — all fixed in `0746615` before merge.
 
 ## Active Sub-Agents
 
@@ -34,12 +24,13 @@ Phase 3 build, starting with T0 (worktree). When Vercel Pro upgrade and the Spot
 ## Recent Decisions
 
 - ADR 0001: `BluegrassSession` as a separate Prisma model (status: accepted) — 2026-04-28
-- ADR 0002: `BluegrassSessionTrack` as a separate model from `RoomSong` (status: proposed; flips to accepted at Phase 5 review) — 2026-04-29
+- ADR 0002: `BluegrassSessionTrack` as a separate model from `RoomSong` (status: accepted) — 2026-04-29
 
 ## Shipped Features (most recent 5)
 
 | Date | Slug | Description |
 |------|------|-------------|
+| 2026-04-29 | bluegrass-queue | DB-backed queue for Bluegrass DJ — see upcoming tracks, search Spotify, insert at "Play next" / "Add to end". Replaces per-skip /v1/playlists/{id}/tracks lookups with one-shot import + DB lookups, eliminating the rate-limit pressure that triggered the recent debug episode. |
 | 2026-04-29 | bluegrass-dj | Phone-first installable PWA at /bluegrass — Spotify playback control with auto-fade at threshold, announcement-fade pause/resume, kill-switch End Session. Reuses PartyQueue's socket+cron transition pipeline via a parallel BluegrassSession model. |
 
 ---

@@ -1,7 +1,7 @@
 ---
 number: 0002
 slug: bluegrass-session-track-model
-status: proposed
+status: accepted
 date: 2026-04-29
 supersedes: none
 ---

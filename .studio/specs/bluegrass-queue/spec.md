@@ -1,10 +1,10 @@
 ---
 name: Bluegrass Queue Management
 slug: bluegrass-queue
-status: signed-off
+status: shipped
 created: 2026-04-29
 signed_off: 2026-04-29
-shipped: pending
+shipped: 2026-04-29
 ---
 
 # Bluegrass Queue Management
