@@ -2,9 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { signOut } from "next-auth/react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Play, Pause } from "lucide-react";
 import { getSocket } from "@/lib/socket";
 import { useAppHeight } from "@/lib/pwa";
 import { AUTO_DURATION_MIN_SEC } from "@/lib/bluegrass-sync";
+import { cn } from "@/lib/utils";
 
 // Single source of truth for socket connection state, satisfies the
 // react-hooks/set-state-in-effect rule (no synchronous setState in effects).
@@ -752,9 +755,14 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
         <span className="font-medium truncate">{selectedDevice?.name ?? "Pick device →"}</span>
       </button>
 
-      {/* Now playing */}
-      <div className="flex flex-col items-center gap-4 mt-6">
-        <div className="aspect-square w-full max-w-xs rounded-2xl bg-bg-card overflow-hidden flex items-center justify-center">
+      {/* Now playing — album art with subtle blue glow when playing */}
+      <div className="flex flex-col items-center gap-5 mt-6">
+        <div
+          className={cn(
+            "relative aspect-square w-full max-w-xs rounded-2xl bg-bg-card overflow-hidden flex items-center justify-center transition-shadow duration-500",
+            playback?.isPlaying && "shadow-[0_0_48px_rgba(0,87,225,0.32)]"
+          )}
+        >
           {playback?.albumArt ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={playback.albumArt} alt="" className="w-full h-full object-cover" />
@@ -763,26 +771,54 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
           )}
         </div>
         <div className="text-center w-full">
-          <div className="text-xl font-semibold truncate">{playback?.trackName ?? "—"}</div>
-          <div className="text-text-secondary text-sm truncate">{playback?.artistName ?? sess.playlistName}</div>
-          <div className="text-text-secondary text-xs mt-1">
-            {fmt(positionSec)} / {fmt(durationCap)}
+          <div className="text-xl font-semibold truncate tracking-tight">{playback?.trackName ?? "—"}</div>
+          <div className="text-text-secondary text-sm truncate mt-0.5">{playback?.artistName ?? sess.playlistName}</div>
+          <div className="text-text-secondary text-[11px] mt-2 font-mono tabular-nums tracking-wider">
+            {fmt(positionSec)} <span className="opacity-40">·</span> {fmt(durationCap)}
             {sess.maxSongDurationSec >= AUTO_DURATION_MIN_SEC && playback?.durationMs && playback.durationMs / 1000 > sess.maxSongDurationSec
-              ? " (limit)"
-              : ""}
+              ? <span className="ml-1.5 text-accent">limit</span>
+              : null}
           </div>
         </div>
       </div>
 
-      {/* Controls */}
-      <div className="mt-6 space-y-4">
-        <button
+      {/* Play/Pause hero — circular, blue, glowing */}
+      <div className="mt-8 flex justify-center">
+        <motion.button
           onClick={handlePlayPause}
           disabled={busy}
-          className="w-full py-5 bg-accent text-black font-semibold rounded-2xl text-lg disabled:opacity-50"
+          whileTap={{ scale: 0.92 }}
+          transition={{ type: "spring", stiffness: 600, damping: 30 }}
+          aria-label={playback?.isPlaying ? "Pause" : "Play"}
+          className={cn(
+            "relative w-20 h-20 rounded-full flex items-center justify-center",
+            "bg-primary text-primary-foreground shadow-[var(--shadow-glow-blue)]",
+            "transition-colors duration-200",
+            "hover:bg-[color:var(--bb-blue-hover)]",
+            "disabled:opacity-50 disabled:shadow-none disabled:pointer-events-none"
+          )}
         >
-          {playback?.isPlaying ? "Pause" : "Play"}
-        </button>
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.span
+              key={playback?.isPlaying ? "pause" : "play"}
+              initial={{ scale: 0.6, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.6, opacity: 0 }}
+              transition={{ duration: 0.15 }}
+              className="flex"
+            >
+              {playback?.isPlaying ? (
+                <Pause className="w-8 h-8 fill-current" />
+              ) : (
+                <Play className="w-8 h-8 fill-current ml-0.5" />
+              )}
+            </motion.span>
+          </AnimatePresence>
+        </motion.button>
+      </div>
+
+      {/* Controls */}
+      <div className="mt-7 space-y-4">
         <div className="grid grid-cols-2 gap-3">
           <button
             onClick={handleSkip}
