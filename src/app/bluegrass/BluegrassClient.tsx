@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { signOut } from "next-auth/react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Play, Pause, SkipForward, Square, X, Volume1, Volume2, Clock, ListMusic, ChevronRight } from "lucide-react";
+import { Play, Pause, SkipForward, Square, X, Volume1, Volume2, Clock, Timer, ListMusic, ChevronRight } from "lucide-react";
 import { getSocket } from "@/lib/socket";
 import { useAppHeight } from "@/lib/pwa";
 import { AUTO_DURATION_MIN_SEC } from "@/lib/bluegrass-sync";
@@ -176,7 +176,7 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [playlistsState, setPlaylistsState] = useState<"idle" | "loading" | "error">("idle");
   const [playlistsError, setPlaylistsError] = useState<string | null>(null);
-  const [picker, setPicker] = useState<"none" | "device" | "playlist" | "settings" | "queue" | "ended" | "scheduled-stops">("none");
+  const [picker, setPicker] = useState<"none" | "device" | "playlist" | "auto-fade" | "queue" | "ended" | "scheduled-stops">("none");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Local volume mirror for the always-visible main-panel slider.
@@ -958,7 +958,7 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
         </div>
       </section>
 
-      {/* AUTOMATION — stop-after toggle + scheduled stops glanceable */}
+      {/* AUTOMATION — stop-after toggle + auto-fade + scheduled stops */}
       <section className="mt-7">
         <div className="bg-bg-card/40 border border-separator rounded-2xl divide-y divide-separator overflow-hidden">
           <label className="flex items-center justify-between gap-3 px-4 py-3.5 cursor-pointer hover:bg-bg-card transition-colors">
@@ -970,6 +970,30 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
               className="w-[18px] h-[18px] accent-primary cursor-pointer"
             />
           </label>
+
+          {/* Auto-fade row — surfaces what was buried in Settings */}
+          <button
+            onClick={() => setPicker("auto-fade")}
+            className="w-full flex items-center justify-between gap-3 px-4 py-3.5 text-left hover:bg-bg-card transition-colors"
+            aria-label="Adjust auto-fade settings"
+          >
+            <span className="flex items-center gap-2.5 min-w-0">
+              <Timer className={cn(
+                "w-4 h-4 shrink-0 transition-colors",
+                sess.maxSongDurationSec >= AUTO_DURATION_MIN_SEC ? "text-primary" : "text-text-secondary"
+              )} />
+              <span className="text-sm font-medium">Auto-fade</span>
+            </span>
+            <span className="flex items-center gap-1.5 text-xs text-text-secondary min-w-0">
+              <span className="font-mono tabular-nums truncate">
+                {sess.maxSongDurationSec >= AUTO_DURATION_MIN_SEC
+                  ? `Cap ${sess.maxSongDurationSec}s · Fade ${sess.fadeDurationSec}s`
+                  : "Off"}
+              </span>
+              <ChevronRight className="w-4 h-4 text-text-secondary/60 shrink-0" />
+            </span>
+          </button>
+
           <button
             onClick={() => setPicker("scheduled-stops")}
             className="w-full flex items-center justify-between gap-3 px-4 py-3.5 text-left hover:bg-bg-card transition-colors"
@@ -1060,9 +1084,9 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
         )}
       </AnimatePresence>
       <AnimatePresence>
-        {picker === "settings" && (
-          <Sheet key="settings" onClose={() => setPicker("none")} title="Settings">
-            <SettingsForm sess={sess} onChange={patchSession} />
+        {picker === "auto-fade" && (
+          <Sheet key="auto-fade" onClose={() => setPicker("none")} title="Auto-fade">
+            <AutoFadeForm sess={sess} onChange={patchSession} />
           </Sheet>
         )}
       </AnimatePresence>
@@ -1964,7 +1988,7 @@ function AddStopForm({
   );
 }
 
-function SettingsForm({
+function AutoFadeForm({
   sess,
   onChange,
 }: {
@@ -2002,10 +2026,6 @@ function SettingsForm({
           className="py-2"
         />
       </Field>
-
-      <div className="text-xs text-text-secondary">
-        Volume lives on the main panel for quick access.
-      </div>
     </div>
   );
 }
