@@ -5,16 +5,16 @@ import type { Metadata, Viewport } from "next";
 import BluegrassClient from "./BluegrassClient";
 
 export const metadata: Metadata = {
-  title: "Bluegrass DJ",
-  description: "Class music remote for Bluegrass Ballroom",
+  title: "Party Player",
+  description: "Class music remote",
   manifest: "/bluegrass-manifest.webmanifest",
   appleWebApp: {
     capable: true,
-    title: "Bluegrass DJ",
+    title: "Party Player",
     statusBarStyle: "black-translucent",
   },
   icons: {
-    apple: "/bluegrass/apple-touch-icon-180.png",
+    apple: "/apple-touch-icon.png",
   },
 };
 
