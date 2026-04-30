@@ -205,6 +205,14 @@ export async function DELETE(
       // Spotify use afterward doesn't start at near-zero.
       if (currentVol < sess.targetVolume - 5) {
         const rampMs = Math.min(2000, sess.fadeDurationSec * 1000);
+        // Block live-volume during the ramp so a settings drag mid-DELETE
+        // doesn't fight the restore.
+        try {
+          await prisma.bluegrassSession.update({
+            where: { id: sess.id },
+            data: { fadingUntil: new Date(Date.now() + rampMs + 1000) },
+          });
+        } catch {}
         const { multipliers, stepMs } = buildFadeCurve(rampMs);
         // multipliers ramps DOWN from 1→0; for an UP ramp, traverse reversed.
         const upMults = [...multipliers].reverse();
@@ -227,7 +235,7 @@ export async function DELETE(
 
   const updated = await prisma.bluegrassSession.update({
     where: { id },
-    data: { isActive: false, closedAt: new Date() },
+    data: { isActive: false, closedAt: new Date(), fadingUntil: null },
   });
 
   return NextResponse.json({ ok: true, session: updated, restoredFromVolume });

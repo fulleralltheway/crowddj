@@ -33,21 +33,45 @@ export async function POST(
   const fadeDurationMs = Math.max(500, sess.fadeDurationSec * 1000);
   const target = sess.targetVolume;
 
+  // Mark in-flight so the volume slider can't push live setVolume against the
+  // fade-up. Auto-expires if the route crashes between set and clear.
+  try {
+    await prisma.bluegrassSession.update({
+      where: { id: sess.id },
+      data: { fadingUntil: new Date(Date.now() + fadeDurationMs + 3000) },
+    });
+  } catch {}
+
   // Start at 0 and resume, then ramp up. Reverse the down-curve to get an up-curve.
   try { await setVolume(accessToken, 0); } catch {}
   try { await resumePlayback(accessToken); } catch (e) {
+    try {
+      await prisma.bluegrassSession.update({
+        where: { id: sess.id },
+        data: { fadingUntil: null },
+      });
+    } catch {}
     return NextResponse.json({ error: "resume_failed", detail: e instanceof Error ? e.message : "" }, { status: 502 });
   }
 
-  const { multipliers, stepMs } = buildFadeCurve(fadeDurationMs);
-  // multipliers ramps ~1 → 0 (down). For an up-ramp, walk it in reverse so
-  // the multiplier we pass to setVolume goes 0 → ~1.
-  const upMults = [...multipliers].reverse();
-  for (const mult of upMults) {
-    try { await setVolume(accessToken, Math.round(target * mult)); } catch {}
-    await sleep(stepMs);
+  try {
+    const { multipliers, stepMs } = buildFadeCurve(fadeDurationMs);
+    // multipliers ramps ~1 → 0 (down). For an up-ramp, walk it in reverse so
+    // the multiplier we pass to setVolume goes 0 → ~1.
+    const upMults = [...multipliers].reverse();
+    for (const mult of upMults) {
+      try { await setVolume(accessToken, Math.round(target * mult)); } catch {}
+      await sleep(stepMs);
+    }
+    try { await setVolume(accessToken, target); } catch {}
+  } finally {
+    try {
+      await prisma.bluegrassSession.update({
+        where: { id: sess.id },
+        data: { fadingUntil: null },
+      });
+    } catch {}
   }
-  try { await setVolume(accessToken, target); } catch {}
 
   return NextResponse.json({ ok: true, target });
 }

@@ -54,7 +54,12 @@ export async function POST(
   const cooldownCutoff = new Date(Date.now() - 2 * fadeDurationMs);
   const claimed = await prisma.bluegrassSession.updateMany({
     where: { id: sess.id, lastSyncAdvance: { lt: cooldownCutoff } },
-    data: { lastSyncAdvance: new Date() },
+    data: {
+      lastSyncAdvance: new Date(),
+      // 3s buffer past calculated fade end covers post-fade restoreVolume +
+      // verify latency. Cleared on every exit path below.
+      fadingUntil: new Date(Date.now() + fadeDurationMs + 3000),
+    },
   });
   if (claimed.count === 0) {
     return NextResponse.json({ skipped: true, reason: "concurrent_transition_in_flight" });
@@ -133,7 +138,7 @@ export async function POST(
     try {
       await prisma.bluegrassSession.update({
         where: { id },
-        data: { lastSyncAdvance: cooldownCutoff },
+        data: { lastSyncAdvance: cooldownCutoff, fadingUntil: null },
       });
     } catch {}
     return NextResponse.json(
@@ -157,6 +162,7 @@ export async function POST(
       trackStartedAt: new Date(),
       currentTrackUri: nextTrackUri ?? null,
       stopAfterCurrent: false,
+      fadingUntil: null,
     },
   });
 

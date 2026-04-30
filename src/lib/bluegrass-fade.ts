@@ -93,7 +93,13 @@ export async function executeFadeTransition(
   const cooldownCutoff = new Date(Date.now() - 2 * fadeDurationMs);
   const claimed = await prisma.bluegrassSession.updateMany({
     where: { id: sess.id, lastSyncAdvance: { lt: cooldownCutoff } },
-    data: { lastSyncAdvance: new Date() },
+    data: {
+      lastSyncAdvance: new Date(),
+      // 3s buffer past the calculated fade end covers Spotify post-fade
+      // restore + verify latency. Cleared explicitly on success/error
+      // below; auto-expires if the route ever crashes between set and clear.
+      fadingUntil: new Date(Date.now() + fadeDurationMs + 3000),
+    },
   });
   if (claimed.count === 0) {
     return { skipped: true, reason: "concurrent_transition_in_flight" };
@@ -103,7 +109,7 @@ export async function executeFadeTransition(
     try {
       await prisma.bluegrassSession.update({
         where: { id: sess.id },
-        data: { lastSyncAdvance: cooldownCutoff },
+        data: { lastSyncAdvance: cooldownCutoff, fadingUntil: null },
       });
     } catch {}
   };
@@ -244,8 +250,9 @@ export async function executeFadeTransition(
     // DB writes wrapped — even if Postgres flakes, the response still tells
     // the client what happened. stopAfterCurrent=false is the critical one
     // (so the next threshold doesn't re-fire stop mode).
-    const updateData: { stopAfterCurrent: false; currentTrackUri?: string; trackStartedAt?: Date } = {
+    const updateData: { stopAfterCurrent: false; currentTrackUri?: string; trackStartedAt?: Date; fadingUntil: null } = {
       stopAfterCurrent: false,
+      fadingUntil: null,
     };
     if (preloadedUri) {
       updateData.currentTrackUri = preloadedUri;
@@ -311,7 +318,7 @@ export async function executeFadeTransition(
 
   await prisma.bluegrassSession.update({
     where: { id: sess.id },
-    data: { trackStartedAt: new Date(), currentTrackUri: nextTrackUri ?? null },
+    data: { trackStartedAt: new Date(), currentTrackUri: nextTrackUri ?? null, fadingUntil: null },
   });
 
   return {

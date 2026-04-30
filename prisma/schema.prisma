@@ -169,6 +169,7 @@ model BluegrassSession {
   maxSongDurationSec Int                     @default(120)
   fadeDurationSec    Int                     @default(3)
   targetVolume       Int                     @default(75)
+  fadingUntil        DateTime?               // set at fade start to fadeEnd + 3s buffer; cleared on success. Live-volume endpoint refuses while in window so the slider can't fight an in-flight fade.
   stopAfterCurrent   Boolean                 @default(false)
   currentTrackUri    String?                 // last-seen playing track URI (cron uses this to detect threshold)
   trackStartedAt     DateTime?               // when the current track first started playing (for threshold timing)

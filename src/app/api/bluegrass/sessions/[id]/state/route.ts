@@ -23,8 +23,11 @@ export async function GET(
   }
 
   const playback = await getCurrentPlayback(accessToken).catch(() => null);
+  // Surfaced so the client volume slider can refuse to push live setVolume
+  // calls while a server-driven fade is in flight (would fight the fade).
+  const fadingUntil = sess.fadingUntil ? sess.fadingUntil.toISOString() : null;
   if (!playback || !playback.item) {
-    return NextResponse.json({ trackName: null, isPlaying: false });
+    return NextResponse.json({ trackName: null, isPlaying: false, fadingUntil });
   }
 
   return NextResponse.json({
@@ -37,5 +40,6 @@ export async function GET(
     deviceId: playback.device?.id ?? null,
     deviceVolume: playback.device?.volume_percent ?? null,
     trackUri: playback.item.uri,
+    fadingUntil,
   });
 }

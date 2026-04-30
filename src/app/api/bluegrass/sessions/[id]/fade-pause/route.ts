@@ -45,12 +45,30 @@ export async function POST(
     return NextResponse.json({ ok: true, fadedFrom: originalVolume, skipped: "already_quiet" });
   }
 
-  for (const mult of multipliers) {
-    try { await setVolume(accessToken, Math.round(originalVolume * mult)); } catch {}
-    await sleep(stepMs);
+  // Mark in-flight so the volume slider can't push live setVolume against the
+  // fade. Auto-expires if the route crashes between set and clear.
+  try {
+    await prisma.bluegrassSession.update({
+      where: { id: sess.id },
+      data: { fadingUntil: new Date(Date.now() + fadeDurationMs + 3000) },
+    });
+  } catch {}
+
+  try {
+    for (const mult of multipliers) {
+      try { await setVolume(accessToken, Math.round(originalVolume * mult)); } catch {}
+      await sleep(stepMs);
+    }
+    try { await setVolume(accessToken, 0); } catch {}
+    try { await pausePlayback(accessToken); } catch {}
+  } finally {
+    try {
+      await prisma.bluegrassSession.update({
+        where: { id: sess.id },
+        data: { fadingUntil: null },
+      });
+    } catch {}
   }
-  try { await setVolume(accessToken, 0); } catch {}
-  try { await pausePlayback(accessToken); } catch {}
 
   return NextResponse.json({ ok: true, fadedFrom: originalVolume });
 }
