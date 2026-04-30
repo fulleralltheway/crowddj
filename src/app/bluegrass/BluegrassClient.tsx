@@ -172,7 +172,7 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [playlistsState, setPlaylistsState] = useState<"idle" | "loading" | "error">("idle");
   const [playlistsError, setPlaylistsError] = useState<string | null>(null);
-  const [picker, setPicker] = useState<"none" | "device" | "playlist" | "settings" | "queue" | "ended" | "add-stop">("none");
+  const [picker, setPicker] = useState<"none" | "device" | "playlist" | "settings" | "queue" | "ended" | "scheduled-stops">("none");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -809,11 +809,9 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
               className="w-5 h-5 accent-accent"
             />
           </label>
-          <ScheduledStopsSection
-            sessionId={sess.id}
+          <ScheduledStopsRow
             stops={sess.scheduledStops ?? []}
-            onAdd={() => setPicker("add-stop")}
-            onRefresh={refreshSession}
+            onTap={() => setPicker("scheduled-stops")}
           />
         </div>
       </div>
@@ -892,14 +890,12 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
           <SettingsForm sess={sess} onChange={patchSession} onLiveVolume={liveVolumePush} />
         </Sheet>
       )}
-      {picker === "add-stop" && (
-        <Sheet onClose={() => setPicker("none")} title="Schedule a stop">
-          <AddStopForm
+      {picker === "scheduled-stops" && (
+        <Sheet onClose={() => setPicker("none")} title="Scheduled stops">
+          <ScheduledStopsSheet
             sessionId={sess.id}
-            onSaved={() => {
-              setPicker("none");
-              void refreshSession();
-            }}
+            stops={sess.scheduledStops ?? []}
+            onRefresh={refreshSession}
           />
         </Sheet>
       )}
@@ -1603,15 +1599,48 @@ function PlaylistList({
   );
 }
 
-function ScheduledStopsSection({
+function ScheduledStopsRow({
+  stops,
+  onTap,
+}: {
+  stops: ScheduledStop[];
+  onTap: () => void;
+}) {
+  // Glanceable preview: show next stop's time + a "+N" badge if more are
+  // queued. Single row regardless of count keeps main-player height fixed.
+  const next = stops[0];
+  const more = stops.length > 1 ? ` +${stops.length - 1}` : "";
+  return (
+    <button
+      onClick={onTap}
+      className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left"
+    >
+      <span className="text-sm">Scheduled stops</span>
+      <span className="flex items-center gap-2 text-sm text-text-secondary">
+        {next ? (
+          <span className="tabular-nums">
+            {new Date(next.stopAt).toLocaleTimeString([], {
+              hour: "numeric",
+              minute: "2-digit",
+            })}
+            {more}
+          </span>
+        ) : (
+          <span>None</span>
+        )}
+        <span className="text-text-secondary/60 text-base leading-none">›</span>
+      </span>
+    </button>
+  );
+}
+
+function ScheduledStopsSheet({
   sessionId,
   stops,
-  onAdd,
   onRefresh,
 }: {
   sessionId: string;
   stops: ScheduledStop[];
-  onAdd: () => void;
   onRefresh: () => Promise<void> | void;
 }) {
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -1627,51 +1656,50 @@ function ScheduledStopsSection({
     }
   };
   return (
-    <div className="px-4 py-3">
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-sm">Scheduled stops</span>
-        <button
-          onClick={onAdd}
-          className="text-accent text-sm font-medium px-2 py-1 -mr-2 -my-1"
-        >
-          + Add
-        </button>
-      </div>
-      {stops.length === 0 ? (
-        <div className="text-text-secondary text-xs mt-2">
-          No stops scheduled. Add a time to auto-pause the music after the song
-          playing at that moment ends.
-        </div>
-      ) : (
-        <ul className="mt-2 space-y-1.5">
-          {stops.map((s) => (
-            <li
-              key={s.id}
-              className="flex items-center justify-between gap-3 text-sm"
-            >
-              <div className="min-w-0 flex-1">
-                <span className="font-medium tabular-nums">
-                  {new Date(s.stopAt).toLocaleTimeString([], {
-                    hour: "numeric",
-                    minute: "2-digit",
-                  })}
-                </span>
-                {s.label ? (
-                  <span className="text-text-secondary"> · {s.label}</span>
-                ) : null}
-              </div>
-              <button
-                onClick={() => void handleDelete(s.id)}
-                disabled={busyId === s.id}
-                className="text-text-secondary hover:text-red-400 disabled:opacity-40 px-2 py-1 -mr-2 -my-1 text-base leading-none"
-                aria-label="Delete scheduled stop"
+    <div className="space-y-5">
+      <div>
+        <div className="text-sm font-medium mb-2">Upcoming</div>
+        {stops.length === 0 ? (
+          <div className="text-text-secondary text-xs">
+            None yet. Add one below — the music will fade out at the end of
+            whatever song is playing when the time hits, so you can do an
+            announcement.
+          </div>
+        ) : (
+          <ul className="space-y-1.5">
+            {stops.map((s) => (
+              <li
+                key={s.id}
+                className="flex items-center justify-between gap-3 px-3 py-2 bg-bg-card/50 border border-white/[0.06] rounded-xl text-sm"
               >
-                ×
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+                <div className="min-w-0 flex-1">
+                  <span className="font-medium tabular-nums">
+                    {new Date(s.stopAt).toLocaleTimeString([], {
+                      hour: "numeric",
+                      minute: "2-digit",
+                    })}
+                  </span>
+                  {s.label ? (
+                    <span className="text-text-secondary"> · {s.label}</span>
+                  ) : null}
+                </div>
+                <button
+                  onClick={() => void handleDelete(s.id)}
+                  disabled={busyId === s.id}
+                  className="text-text-secondary hover:text-red-400 disabled:opacity-40 px-2 py-1 -mr-2 -my-1 text-base leading-none"
+                  aria-label="Delete scheduled stop"
+                >
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <div className="border-t border-white/[0.06] pt-4">
+        <div className="text-sm font-medium mb-3">Add a stop</div>
+        <AddStopForm sessionId={sessionId} onSaved={onRefresh} />
+      </div>
     </div>
   );
 }
@@ -1681,17 +1709,17 @@ function AddStopForm({
   onSaved,
 }: {
   sessionId: string;
-  onSaved: () => void;
+  onSaved: () => Promise<void> | void;
 }) {
   // Default the time picker to the next 5-minute increment in local time —
   // gives the operator a sane starting point that's almost always in the
   // future, instead of an empty field they have to navigate from scratch.
-  const defaultTime = (() => {
+  const computeDefaultTime = () => {
     const d = new Date(Date.now() + 5 * 60 * 1000);
     d.setMinutes(Math.ceil(d.getMinutes() / 5) * 5, 0, 0);
     return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-  })();
-  const [time, setTime] = useState(defaultTime);
+  };
+  const [time, setTime] = useState(computeDefaultTime);
   const [label, setLabel] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1726,15 +1754,19 @@ function AddStopForm({
         setError(body?.error ?? "Failed to save");
         return;
       }
-      onSaved();
+      // Reset for batch entry — operator can keep adding more stops without
+      // closing the sheet. Time bumps to a new sensible default; label clears.
+      setLabel("");
+      setTime(computeDefaultTime());
+      await onSaved();
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <div className="space-y-4">
-      <Field label="Stop time">
+    <div className="space-y-3">
+      <Field label="Time">
         <input
           type="time"
           value={time}
@@ -1759,9 +1791,9 @@ function AddStopForm({
       <button
         onClick={() => void handleSave()}
         disabled={busy}
-        className="w-full py-4 bg-accent text-black font-semibold rounded-2xl disabled:opacity-50"
+        className="w-full py-3 bg-accent text-black font-semibold rounded-2xl disabled:opacity-50"
       >
-        {busy ? "Saving..." : "Save"}
+        {busy ? "Adding..." : "Add stop"}
       </button>
     </div>
   );
