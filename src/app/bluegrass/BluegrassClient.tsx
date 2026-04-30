@@ -29,7 +29,29 @@ type SessionRow = {
   fadeDurationSec: number;
   targetVolume: number;
   stopAfterCurrent: boolean;
+  tracksImported?: "pending" | "importing" | "imported" | "failed";
   isActive: boolean;
+};
+
+type QueueTrack = {
+  id: string;
+  spotifyUri: string;
+  trackName: string;
+  artistName: string;
+  albumArt: string | null;
+  durationMs: number;
+  sortOrder: number;
+  isPlaying: boolean;
+  isPlayed: boolean;
+  addedManually: boolean;
+};
+
+type SearchResult = {
+  uri: string;
+  name: string;
+  artist: string;
+  image: string | null;
+  durationMs: number;
 };
 
 type PlaybackState = {
@@ -113,7 +135,7 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [playlistsState, setPlaylistsState] = useState<"idle" | "loading" | "error">("idle");
   const [playlistsError, setPlaylistsError] = useState<string | null>(null);
-  const [picker, setPicker] = useState<"none" | "device" | "playlist" | "settings" | "ended">("none");
+  const [picker, setPicker] = useState<"none" | "device" | "playlist" | "settings" | "queue" | "ended">("none");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -400,8 +422,13 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
     if (created?.id) {
       setSess(created);
       setPicker("none");
-      // Do NOT auto-play. The user picks a playlist, sees the now-playing
-      // panel, then presses Play themselves — that's the expected UX.
+      // Fire-and-forget the playlist import. The queue sheet will show
+      // "Loading queue…" until tracksImported flips to "imported", and
+      // surfaces a Retry button if it lands in "failed". Don't block
+      // session start — user can press Play immediately.
+      void fetch(`/api/bluegrass/sessions/${created.id}/queue/import`, { method: "POST" })
+        .then(() => refreshSession())
+        .catch(() => {});
     }
   };
 
@@ -575,6 +602,16 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
         </button>
       </div>
 
+      {/* Queue */}
+      <div className="mt-3">
+        <button
+          onClick={() => setPicker("queue")}
+          className="w-full py-3 bg-bg-card border border-white/[0.06] rounded-2xl text-sm font-medium"
+        >
+          View queue + add songs
+        </button>
+      </div>
+
       {/* Settings + End Session */}
       <div className="mt-6 grid grid-cols-2 gap-3">
         <button
@@ -620,7 +657,21 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
               setStartedForSession(sess.id);
               setPicker("none");
               void pollState();
+              // Re-import queue for the new playlist (replaces existing rows).
+              void fetch(`/api/bluegrass/sessions/${sess.id}/queue/import`, { method: "POST" })
+                .then(() => refreshSession())
+                .catch(() => {});
             }}
+          />
+        </Sheet>
+      )}
+      {picker === "queue" && (
+        <Sheet onClose={() => setPicker("none")} title="Queue">
+          <QueueSheet
+            sessionId={sess.id}
+            tracksImported={sess.tracksImported ?? "pending"}
+            currentTrackUri={playback?.trackUri}
+            onSessionChanged={refreshSession}
           />
         </Sheet>
       )}
@@ -856,6 +907,286 @@ function extractPlaylistId(input: string): string | null {
  * playlist themselves (we can't look up the real name while
  * /v1/playlists/{id} is rate-limited).
  */
+/**
+ * Queue panel — shows the imported playlist tracks for the active session,
+ * lets the user search Spotify and insert tracks at "Play next" or
+ * "Add to end". The queue is the source of truth for fade-skip and the
+ * cron-driven fade-transition (ADR 0002), so any insert/remove here
+ * directly affects the next track that plays.
+ */
+function QueueSheet({
+  sessionId,
+  tracksImported,
+  currentTrackUri,
+  onSessionChanged,
+}: {
+  sessionId: string;
+  tracksImported: "pending" | "importing" | "imported" | "failed";
+  currentTrackUri: string | undefined;
+  onSessionChanged: () => Promise<void> | void;
+}) {
+  const [queue, setQueue] = useState<QueueTrack[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [importBusy, setImportBusy] = useState(false);
+
+  const [search, setSearch] = useState("");
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [searchBusy, setSearchBusy] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+
+  const refreshQueue = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const r = await fetch(`/api/bluegrass/sessions/${sessionId}/queue`);
+      if (!r.ok) {
+        setError(`HTTP ${r.status}`);
+        return;
+      }
+      const data = (await r.json()) as { queue: QueueTrack[] };
+      setQueue(data.queue);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Network error");
+    } finally {
+      setLoading(false);
+    }
+  }, [sessionId]);
+
+  useEffect(() => {
+    // Initial fetch on mount. refreshQueue does an async setState which the
+    // react-hooks lint flags — but "fetch on mount" is the intended use of
+    // useEffect here. Defer to a microtask so the synchronous setLoading
+    // call inside refreshQueue happens *after* this effect body returns.
+    queueMicrotask(() => { void refreshQueue(); });
+  }, [refreshQueue]);
+
+  // Refresh queue when the imported status flips to "imported".
+  useEffect(() => {
+    if (tracksImported === "imported") {
+      queueMicrotask(() => { void refreshQueue(); });
+    }
+  }, [tracksImported, refreshQueue]);
+
+  const retryImport = async () => {
+    setImportBusy(true);
+    setError(null);
+    try {
+      const r = await fetch(`/api/bluegrass/sessions/${sessionId}/queue/import`, { method: "POST" });
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({}));
+        setError((data as { detail?: string }).detail ?? `Import failed (HTTP ${r.status})`);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Network error");
+    } finally {
+      setImportBusy(false);
+      void onSessionChanged();
+      void refreshQueue();
+    }
+  };
+
+  // Debounced search — fires 300ms after the last keystroke. The setState
+  // calls inside the timeout callback are NOT synchronous-in-effect (they
+  // run in a separate task), so they're fine. The early-return path used
+  // to call setSearchResults([]) synchronously, which the lint rule
+  // flagged; we now derive the visible results below instead.
+  useEffect(() => {
+    const q = search.trim();
+    if (q.length < 2) return;
+    const t = setTimeout(async () => {
+      setSearchBusy(true);
+      setSearchError(null);
+      try {
+        const r = await fetch(`/api/bluegrass/search?q=${encodeURIComponent(q)}`);
+        const data = await r.json();
+        if (!r.ok) {
+          setSearchError(data?.detail ?? `HTTP ${r.status}`);
+          setSearchResults([]);
+        } else {
+          setSearchResults(data.results ?? []);
+        }
+      } catch (e) {
+        setSearchError(e instanceof Error ? e.message : "Network error");
+      } finally {
+        setSearchBusy(false);
+      }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  // Hide stale results when the user clears the input or types <2 chars.
+  // Derived view, not state — keeps the lint rule happy.
+  const visibleSearchResults = search.trim().length < 2 ? [] : searchResults;
+  const visibleSearchError = search.trim().length < 2 ? null : searchError;
+
+  const insertTrack = async (track: SearchResult, position: "next" | "end") => {
+    const r = await fetch(`/api/bluegrass/sessions/${sessionId}/queue/insert`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        uri: track.uri,
+        name: track.name,
+        artist: track.artist,
+        image: track.image,
+        durationMs: track.durationMs,
+        position,
+      }),
+    });
+    if (!r.ok) {
+      const data = await r.json().catch(() => ({}));
+      const code = (data as { error?: string }).error;
+      if (code === "already_queued") {
+        setSearchError("Already in the queue.");
+        return;
+      }
+      setSearchError((data as { detail?: string }).detail ?? `Insert failed (${r.status})`);
+      return;
+    }
+    setSearch("");
+    setSearchResults([]);
+    setSearchError(null);
+    void refreshQueue();
+  };
+
+  const removeTrack = async (trackId: string) => {
+    const r = await fetch(`/api/bluegrass/sessions/${sessionId}/queue/${trackId}`, {
+      method: "DELETE",
+    });
+    if (!r.ok) {
+      setError(`Remove failed (${r.status})`);
+      return;
+    }
+    void refreshQueue();
+  };
+
+  const upcomingTracks = queue.filter((t) => !t.isPlayed);
+
+  return (
+    <div className="space-y-4">
+      {/* Search + insert */}
+      <div>
+        <input
+          type="search"
+          inputMode="search"
+          autoCapitalize="off"
+          autoCorrect="off"
+          placeholder="Search Spotify…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-full px-3 py-2 bg-bg-card border border-white/[0.06] rounded-xl text-sm"
+        />
+        {searchBusy && <div className="text-xs text-text-secondary mt-1">Searching…</div>}
+        {visibleSearchError && (
+          <div className="mt-2 px-3 py-2 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl text-xs">
+            {visibleSearchError}
+          </div>
+        )}
+        {visibleSearchResults.length > 0 && (
+          <div className="mt-2 space-y-2 max-h-64 overflow-y-auto">
+            {visibleSearchResults.map((r) => (
+              <div key={r.uri} className="flex items-center gap-3 px-2 py-2 bg-bg-card/50 border border-white/[0.06] rounded-xl">
+                {r.image ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={r.image} alt="" className="w-10 h-10 rounded shrink-0" />
+                ) : (
+                  <div className="w-10 h-10 rounded bg-white/[0.06] shrink-0" />
+                )}
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium truncate">{r.name}</div>
+                  <div className="text-xs text-text-secondary truncate">{r.artist}</div>
+                </div>
+                <div className="flex flex-col gap-1 shrink-0">
+                  <button
+                    onClick={() => void insertTrack(r, "next")}
+                    className="px-2 py-1 bg-accent/20 text-accent rounded text-xs"
+                  >
+                    Play next
+                  </button>
+                  <button
+                    onClick={() => void insertTrack(r, "end")}
+                    className="px-2 py-1 bg-bg-card border border-white/[0.06] rounded text-xs"
+                  >
+                    Add to end
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Queue list */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-xs text-text-secondary uppercase tracking-wide">
+            Up next ({upcomingTracks.length})
+          </div>
+          <button onClick={() => void refreshQueue()} className="text-xs text-accent">Refresh</button>
+        </div>
+
+        {tracksImported === "pending" || tracksImported === "importing" ? (
+          <div className="text-sm text-text-secondary">Loading queue…</div>
+        ) : tracksImported === "failed" ? (
+          <div className="text-sm space-y-2">
+            <div className="text-red-400">Couldn&apos;t import the playlist (Spotify rate-limit).</div>
+            <button
+              onClick={() => void retryImport()}
+              disabled={importBusy}
+              className="px-3 py-1 bg-accent/20 text-accent rounded text-xs disabled:opacity-40"
+            >
+              {importBusy ? "Retrying…" : "Retry import"}
+            </button>
+          </div>
+        ) : loading && queue.length === 0 ? (
+          <div className="text-sm text-text-secondary">Loading queue…</div>
+        ) : error ? (
+          <div className="text-sm text-red-400">{error}</div>
+        ) : upcomingTracks.length === 0 ? (
+          <div className="text-sm text-text-secondary">Queue is empty. Search above to add a song.</div>
+        ) : (
+          <div className="space-y-2">
+            {upcomingTracks.map((t) => {
+              const isCurrent =
+                currentTrackUri != null && t.spotifyUri === currentTrackUri;
+              return (
+                <div
+                  key={t.id}
+                  className={`flex items-center gap-3 px-2 py-2 rounded-xl border ${isCurrent ? "border-accent bg-accent/10" : "border-white/[0.06] bg-bg-card/50"}`}
+                >
+                  {t.albumArt ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={t.albumArt} alt="" className="w-10 h-10 rounded shrink-0" />
+                  ) : (
+                    <div className="w-10 h-10 rounded bg-white/[0.06] shrink-0" />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium truncate">
+                      {isCurrent && <span className="text-accent text-xs mr-1">▶</span>}
+                      {t.trackName}
+                      {t.addedManually && <span className="text-xs text-accent ml-2">added</span>}
+                    </div>
+                    <div className="text-xs text-text-secondary truncate">{t.artistName}</div>
+                  </div>
+                  {!isCurrent && (
+                    <button
+                      onClick={() => void removeTrack(t.id)}
+                      className="px-2 py-1 text-text-secondary text-xs shrink-0"
+                      aria-label="Remove from queue"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function PasteUrlPicker({
   disabled,
   onPick,
