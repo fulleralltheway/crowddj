@@ -751,7 +751,7 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
       {/* Top: device pill */}
       <button
         onClick={() => { setPicker("device"); void loadDevices(); }}
-        className="flex items-center justify-between gap-2 w-full px-4 py-3 bg-bg-card/50 border border-white/[0.06] rounded-2xl text-sm"
+        className="flex items-center justify-between gap-2 w-full px-4 py-3 bg-bg-card/50 border border-separator rounded-2xl text-sm"
       >
         <span className="text-text-secondary">Device</span>
         <span className="font-medium truncate">{selectedDevice?.name ?? "Pick device →"}</span>
@@ -1077,7 +1077,7 @@ function DeviceList({
     return (
       <div className="space-y-3 text-sm text-text-secondary">
         <p>No Spotify devices found. Open Spotify on the laptop and play any track briefly so it shows up.</p>
-        <button onClick={onRefresh} className="w-full py-3 bg-bg-card border border-white/[0.06] rounded-xl">
+        <button onClick={onRefresh} className="w-full py-3 bg-bg-card border border-separator rounded-xl">
           Refresh
         </button>
       </div>
@@ -1089,7 +1089,7 @@ function DeviceList({
         <button
           key={d.id}
           onClick={() => onPick(d.id)}
-          className={`w-full text-left px-4 py-3 rounded-xl border ${selected === d.id ? "border-accent bg-accent/10" : "border-white/[0.06] bg-bg-card/50"}`}
+          className={`w-full text-left px-4 py-3 rounded-xl border ${selected === d.id ? "border-accent bg-accent/10" : "border-separator bg-bg-card/50"}`}
         >
           <div className="font-medium">{d.name}</div>
           <div className="text-text-secondary text-xs">{d.type}{d.isActive ? " · active" : ""}</div>
@@ -1144,7 +1144,7 @@ function PlaylistPicker({
           <select
             value={deviceId}
             onChange={(e) => setExplicitDeviceId(e.target.value)}
-            className="w-full px-4 py-3 bg-bg-card border border-white/[0.06] rounded-xl"
+            className="w-full px-4 py-3 bg-bg-card border border-separator rounded-xl"
           >
             {devices.map((d) => (
               <option key={d.id} value={d.id}>{d.name} ({d.type})</option>
@@ -1198,13 +1198,13 @@ function PlaylistPicker({
                 key={p.id}
                 onClick={() => onPick(p, deviceId)}
                 disabled={busy || !deviceId}
-                className="w-full flex items-center gap-3 text-left px-3 py-2 rounded-xl border border-white/[0.06] bg-bg-card/50 disabled:opacity-40"
+                className="w-full flex items-center gap-3 text-left px-3 py-2 rounded-xl border border-separator bg-bg-card/50 disabled:opacity-40"
               >
                 {p.images?.[0]?.url ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={p.images[0].url} alt="" className="w-10 h-10 rounded" />
                 ) : (
-                  <div className="w-10 h-10 rounded bg-white/[0.06]" />
+                  <div className="w-10 h-10 rounded bg-separator" />
                 )}
                 <span className="font-medium truncate">{p.name}</span>
               </button>
@@ -1410,7 +1410,7 @@ function QueueSheet({
           placeholder="Search Spotify…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="w-full px-3 py-2 bg-bg-card border border-white/[0.06] rounded-xl text-sm"
+          className="w-full px-3 py-2 bg-bg-card border border-separator rounded-xl text-sm"
         />
         {searchBusy && <div className="text-xs text-text-secondary mt-1">Searching…</div>}
         {visibleSearchError && (
@@ -1421,12 +1421,12 @@ function QueueSheet({
         {visibleSearchResults.length > 0 && (
           <div className="mt-2 space-y-2 max-h-64 overflow-y-auto">
             {visibleSearchResults.map((r) => (
-              <div key={r.uri} className="flex items-center gap-3 px-2 py-2 bg-bg-card/50 border border-white/[0.06] rounded-xl">
+              <div key={r.uri} className="flex items-center gap-3 px-2 py-2 bg-bg-card/50 border border-separator rounded-xl">
                 {r.image ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={r.image} alt="" className="w-10 h-10 rounded shrink-0" />
                 ) : (
-                  <div className="w-10 h-10 rounded bg-white/[0.06] shrink-0" />
+                  <div className="w-10 h-10 rounded bg-separator shrink-0" />
                 )}
                 <div className="min-w-0 flex-1">
                   <div className="text-sm font-medium truncate">{r.name}</div>
@@ -1441,7 +1441,7 @@ function QueueSheet({
                   </button>
                   <button
                     onClick={() => void insertTrack(r, "end")}
-                    className="px-2 py-1 bg-bg-card border border-white/[0.06] rounded text-xs"
+                    className="px-2 py-1 bg-bg-card border border-separator rounded text-xs"
                   >
                     Add to end
                   </button>
@@ -1470,7 +1470,7 @@ function QueueSheet({
             <button
               onClick={() => void retryImport()}
               disabled={importBusy}
-              className="px-3 py-1 bg-bg-card border border-white/[0.06] rounded text-xs disabled:opacity-40"
+              className="px-3 py-1 bg-bg-card border border-separator rounded text-xs disabled:opacity-40"
             >
               {importBusy ? "…" : "Retry import"}
             </button>
@@ -1500,13 +1500,13 @@ function QueueSheet({
               return (
                 <div
                   key={t.id}
-                  className={`flex items-center gap-3 px-2 py-2 rounded-xl border ${isCurrent ? "border-accent bg-accent/10" : "border-white/[0.06] bg-bg-card/50"}`}
+                  className={`flex items-center gap-3 px-2 py-2 rounded-xl border ${isCurrent ? "border-accent bg-accent/10" : "border-separator bg-bg-card/50"}`}
                 >
                   {t.albumArt ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={t.albumArt} alt="" className="w-10 h-10 rounded shrink-0" />
                   ) : (
-                    <div className="w-10 h-10 rounded bg-white/[0.06] shrink-0" />
+                    <div className="w-10 h-10 rounded bg-separator shrink-0" />
                   )}
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-medium truncate">
@@ -1576,7 +1576,7 @@ function PasteUrlPicker({
         placeholder="https://open.spotify.com/playlist/..."
         value={input}
         onChange={(e) => setInput(e.target.value)}
-        className="w-full px-3 py-2 bg-bg-card border border-white/[0.06] rounded-xl text-sm"
+        className="w-full px-3 py-2 bg-bg-card border border-separator rounded-xl text-sm"
       />
       <input
         type="text"
@@ -1584,7 +1584,7 @@ function PasteUrlPicker({
         value={label}
         onChange={(e) => setLabel(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter" && id) submit(); }}
-        className="w-full mt-2 px-3 py-2 bg-bg-card border border-white/[0.06] rounded-xl text-sm"
+        className="w-full mt-2 px-3 py-2 bg-bg-card border border-separator rounded-xl text-sm"
       />
       <p className="text-text-secondary text-xs mt-2">
         In Spotify, tap the playlist&apos;s … menu → Share → Copy link.
@@ -1650,13 +1650,13 @@ function PlaylistList({
         <button
           key={p.id}
           onClick={() => onPick(p)}
-          className={`w-full flex items-center gap-3 text-left px-3 py-2 rounded-xl border ${selected === p.uri ? "border-accent bg-accent/10" : "border-white/[0.06] bg-bg-card/50"}`}
+          className={`w-full flex items-center gap-3 text-left px-3 py-2 rounded-xl border ${selected === p.uri ? "border-accent bg-accent/10" : "border-separator bg-bg-card/50"}`}
         >
           {p.images?.[0]?.url ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={p.images[0].url} alt="" className="w-10 h-10 rounded" />
           ) : (
-            <div className="w-10 h-10 rounded bg-white/[0.06]" />
+            <div className="w-10 h-10 rounded bg-separator" />
           )}
           <span className="font-medium truncate">{p.name}</span>
         </button>
@@ -1736,7 +1736,7 @@ function ScheduledStopsSheet({
             {stops.map((s) => (
               <li
                 key={s.id}
-                className="flex items-center justify-between gap-3 px-3 py-2 bg-bg-card/50 border border-white/[0.06] rounded-xl text-sm"
+                className="flex items-center justify-between gap-3 px-3 py-2 bg-bg-card/50 border border-separator rounded-xl text-sm"
               >
                 <div className="min-w-0 flex-1">
                   <span className="font-medium tabular-nums">
@@ -1762,7 +1762,7 @@ function ScheduledStopsSheet({
           </ul>
         )}
       </div>
-      <div className="border-t border-white/[0.06] pt-4">
+      <div className="border-t border-separator pt-4">
         <div className="text-sm font-medium mb-3">Add a stop</div>
         <AddStopForm sessionId={sessionId} onSaved={onRefresh} />
       </div>
@@ -1837,7 +1837,7 @@ function AddStopForm({
           type="time"
           value={time}
           onChange={(e) => setTime(e.target.value)}
-          className="w-full px-4 py-3 bg-bg-card border border-white/[0.06] rounded-2xl text-base"
+          className="w-full px-4 py-3 bg-bg-card border border-separator rounded-2xl text-base"
         />
       </Field>
       <Field label="Label (optional)">
@@ -1846,7 +1846,7 @@ function AddStopForm({
           value={label}
           onChange={(e) => setLabel(e.target.value.slice(0, 80))}
           placeholder="e.g. Welcome announcement"
-          className="w-full px-4 py-3 bg-bg-card border border-white/[0.06] rounded-2xl text-base"
+          className="w-full px-4 py-3 bg-bg-card border border-separator rounded-2xl text-base"
         />
       </Field>
       {error ? (
