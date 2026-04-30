@@ -18,17 +18,34 @@ export type FadeTransitionResult =
   | { skipped: true; reason: string }
   | { error: string; status: number; detail?: string };
 
-async function restoreVolume(accessToken: string, target: number, maxRetries = 3) {
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    try {
-      await setVolume(accessToken, target);
-      await sleep(500);
-      const check = await getCurrentPlayback(accessToken);
-      const actual = check?.device?.volume_percent ?? 0;
-      if (actual >= target - 10) return;
-    } catch {}
-    await sleep(1000);
+/**
+ * Restore device volume to `target` after a fade. Capped at one verify-and-
+ * retry so total runtime is bounded (worst case ~2.5s of Spotify calls)
+ * and stays well under the route's maxDuration=60s budget even when the fade
+ * itself was slow.
+ *
+ * The verify step also distinguishes "Spotify dropped the setVolume" from
+ * "the user manually lowered the slider during/after the fade" — in the
+ * second case, `actual` is below `target` for legitimate reasons and we
+ * MUST NOT keep forcing it back up. Heuristic: if the verify reads a value
+ * lower than what we just set, treat it as user override and stop.
+ */
+async function restoreVolume(accessToken: string, target: number) {
+  try { await setVolume(accessToken, target); } catch {}
+  await sleep(500);
+  let actual: number | undefined;
+  try {
+    const check = await getCurrentPlayback(accessToken);
+    actual = check?.device?.volume_percent ?? undefined;
+  } catch {}
+  if (actual === undefined) return; // Spotify unavailable — give up rather than retry-storm.
+  if (actual >= target - 10) return; // Took on the first try.
+  if (actual < target - 10 && actual > 5) {
+    // User likely lowered it manually (volume came back below our setpoint
+    // but isn't muted). Respect their choice — don't fight it.
+    return;
   }
+  // Probably Spotify dropped the call (rate-limit). One last attempt.
   try { await setVolume(accessToken, target); } catch {}
 }
 
@@ -91,6 +108,11 @@ export async function executeFadeTransition(
     } catch {}
   };
 
+  // Wrap the entire post-claim body so any unexpected throw (DB pool drop,
+  // Spotify SDK bug, prisma timeout) releases the cooldown before bubbling.
+  // Without this, the cooldown sits at now() for 2*fadeMs and silently
+  // rejects the next legitimate fade as `concurrent_transition_in_flight`.
+  try {
   // Capture device volume + currently-playing URI BEFORE the fade.
   let originalVolume = sess.targetVolume;
   let currentTrackUri: string | undefined;
@@ -101,6 +123,22 @@ export async function executeFadeTransition(
     currentTrackUri = playback?.item?.uri;
     currentLinkedFromUri = playback?.item?.linked_from?.uri;
   } catch {}
+
+  // Race-safety re-check against LIVE Spotify state. The earlier check
+  // against sess.currentTrackUri can pass even when the song already
+  // changed because sess is whatever the DB row was at function entry —
+  // sync-bluegrass only updates currentTrackUri when it changes, so a
+  // stale row + a fast natural Spotify auto-advance can sneak past the
+  // first guard.
+  if (
+    expectedTrackUri &&
+    currentTrackUri &&
+    currentTrackUri !== expectedTrackUri &&
+    currentLinkedFromUri !== expectedTrackUri
+  ) {
+    await releaseCooldown();
+    return { skipped: true, reason: "track_already_changed" };
+  }
 
   // CRITICAL ORDERING: mark the playing row as PLAYED before looking up the
   // next one, otherwise getNextSessionTrack returns the playing row (lowest
@@ -246,4 +284,12 @@ export async function executeFadeTransition(
     nextTrackUri,
     source: nextRow ? "db_queue" : "spotify_native_skip",
   };
+  } catch (e) {
+    // Last-resort guard: any uncaught throw inside the post-claim body.
+    // We don't know what state Spotify is in, so try to restore volume
+    // best-effort and ALWAYS release the cooldown so a retry is possible.
+    try { await restoreVolume(accessToken, sess.targetVolume); } catch {}
+    await releaseCooldown();
+    return { error: "transition_threw", status: 500, detail: e instanceof Error ? e.message : "" };
+  }
 }
