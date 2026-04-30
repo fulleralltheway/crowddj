@@ -1067,8 +1067,12 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
       <AnimatePresence>
         {picker === "playlist" && (
           <Sheet key="playlist" onClose={() => setPicker("none")} title="Change playlist">
-            <PasteUrlPicker
+            <ChangePlaylistSheetBody
+              playlists={playlists}
+              playlistsState={playlistsState}
+              playlistsError={playlistsError}
               disabled={busy}
+              onReload={() => void loadPlaylists({ force: true })}
               onPick={async (p) => {
                 await patchSession({ playlistUri: p.uri, playlistName: p.name });
                 setStartedForSession(null); // /play needs to fire fresh for the new playlist
@@ -1258,6 +1262,145 @@ function DeviceList({
   );
 }
 
+/**
+ * Reusable scrollable list of the operator's Spotify playlists. Renders
+ * loading / error / empty / list states. Used both on the no-session
+ * landing screen (inside PlaylistPicker) and in the in-session
+ * Change Playlist sheet (inside ChangePlaylistSheetBody).
+ */
+function PlaylistList({
+  playlists,
+  playlistsState,
+  playlistsError,
+  disabled,
+  onPick,
+  onReload,
+}: {
+  playlists: Playlist[];
+  playlistsState: "idle" | "loading" | "error";
+  playlistsError: string | null;
+  disabled: boolean;
+  onPick: (p: Playlist) => void;
+  onReload: () => void;
+}) {
+  if (playlistsState === "loading" && playlists.length === 0) {
+    return <div className="text-sm text-text-secondary py-2">Loading playlists…</div>;
+  }
+
+  if (playlistsState === "error") {
+    return (
+      <div className="text-sm text-red-400 space-y-2">
+        <div>{playlistsError ?? "Couldn't load playlists."}</div>
+        <div className="flex gap-3">
+          <button onClick={onReload} className="text-accent underline">Try again</button>
+          <button
+            onClick={() => signOut({ callbackUrl: "/login?callbackUrl=/bluegrass" })}
+            className="text-accent underline"
+          >
+            Sign out & back in
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (playlists.length === 0) {
+    return (
+      <div className="text-sm text-text-secondary py-2">
+        No playlists loaded.{" "}
+        <button onClick={onReload} className="text-accent underline">Refresh</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {playlists.map((p, i) => (
+        <motion.button
+          key={p.id}
+          onClick={() => onPick(p)}
+          disabled={disabled}
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: Math.min(i * 0.025, 0.3), duration: 0.2 }}
+          whileTap={{ scale: 0.985 }}
+          className="w-full flex items-center gap-3 text-left px-3 py-2.5 rounded-xl border border-separator bg-bg-card/50 hover:border-separator-strong hover:bg-bg-card transition-colors disabled:opacity-40 disabled:pointer-events-none"
+        >
+          {p.images?.[0]?.url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={p.images[0].url} alt="" className="w-10 h-10 rounded shrink-0" />
+          ) : (
+            <div className="w-10 h-10 rounded bg-separator shrink-0" />
+          )}
+          <span className="font-medium truncate">{p.name}</span>
+        </motion.button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Body of the in-session "Change playlist" sheet. Search field + the
+ * shared PlaylistList + a collapsed "Or paste a URL" section with
+ * PasteUrlPicker. All state is local; selection bubbles via onPick.
+ */
+function ChangePlaylistSheetBody({
+  playlists,
+  playlistsState,
+  playlistsError,
+  disabled,
+  onPick,
+  onReload,
+}: {
+  playlists: Playlist[];
+  playlistsState: "idle" | "loading" | "error";
+  playlistsError: string | null;
+  disabled: boolean;
+  onPick: (p: { uri: string; name: string }) => void;
+  onReload: () => void;
+}) {
+  const [filter, setFilter] = useState("");
+  const filtered = filter.trim()
+    ? playlists.filter((p) => p.name.toLowerCase().includes(filter.toLowerCase()))
+    : playlists;
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <input
+          type="search"
+          inputMode="search"
+          autoCapitalize="off"
+          autoCorrect="off"
+          placeholder="Filter playlists…"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          className="w-full px-3.5 py-2.5 bg-bg-card border border-separator rounded-xl text-sm placeholder:text-text-secondary/60 focus:outline-none focus:border-separator-strong transition-colors"
+        />
+      </div>
+
+      <PlaylistList
+        playlists={filtered}
+        playlistsState={playlistsState}
+        playlistsError={playlistsError}
+        disabled={disabled}
+        onPick={(p) => onPick({ uri: p.uri, name: p.name })}
+        onReload={onReload}
+      />
+
+      <details className="group">
+        <summary className="text-xs text-text-secondary cursor-pointer select-none py-2 hover:text-foreground transition-colors flex items-center gap-1.5">
+          <ChevronRight className="w-3.5 h-3.5 transition-transform group-open:rotate-90" />
+          Or paste a Spotify URL
+        </summary>
+        <div className="pt-3">
+          <PasteUrlPicker disabled={disabled} onPick={onPick} />
+        </div>
+      </details>
+    </div>
+  );
+}
+
 function PlaylistPicker({
   playlists,
   playlistsState,
@@ -1313,62 +1456,19 @@ function PlaylistPicker({
 
       <PasteUrlPicker disabled={busy || !deviceId} onPick={(p) => onPick(p, deviceId)} />
 
-      {/* Playlist browser — auto-loaded inline (was previously gated behind a
-          <details> dropdown to defer the rate-limited /me/playlists call).
-          The cache + back-off in loadPlaylists() makes this safe: 1h
-          localStorage cache means subsequent picker opens skip the network
-          entirely, and a long Spotify timeout still surfaces a "wait it out"
-          banner instead of hammering the endpoint. If we ever do hit a
-          regression, this whole block can be reverted in one commit and
-          re-collapse the list under <details>. */}
       <div>
         <div className="flex items-center justify-between mb-2">
           <div className="text-xs text-text-secondary uppercase tracking-wide">Or pick from your playlists</div>
           <button onClick={onReloadPlaylists} className="text-xs text-accent">Refresh</button>
         </div>
-        {playlistsState === "loading" && playlists.length === 0 && (
-          <div className="text-sm text-text-secondary">Loading playlists…</div>
-        )}
-        {playlistsState === "error" && (
-          <div className="text-sm text-red-400 space-y-2">
-            <div>{playlistsError ?? "Couldn't load playlists."}</div>
-            <div className="flex gap-3">
-              <button onClick={onReloadPlaylists} className="text-accent underline">Try again</button>
-              <button
-                onClick={() => signOut({ callbackUrl: "/login?callbackUrl=/bluegrass" })}
-                className="text-accent underline"
-              >
-                Sign out & back in
-              </button>
-            </div>
-          </div>
-        )}
-        {playlistsState === "idle" && playlists.length === 0 && (
-          <div className="text-sm text-text-secondary">
-            No playlists loaded.{" "}
-            <button onClick={onReloadPlaylists} className="text-accent underline">Refresh</button>
-          </div>
-        )}
-        {playlists.length > 0 && (
-          <div className="space-y-2">
-            {playlists.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => onPick(p, deviceId)}
-                disabled={busy || !deviceId}
-                className="w-full flex items-center gap-3 text-left px-3 py-2 rounded-xl border border-separator bg-bg-card/50 disabled:opacity-40"
-              >
-                {p.images?.[0]?.url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={p.images[0].url} alt="" className="w-10 h-10 rounded" />
-                ) : (
-                  <div className="w-10 h-10 rounded bg-separator" />
-                )}
-                <span className="font-medium truncate">{p.name}</span>
-              </button>
-            ))}
-          </div>
-        )}
+        <PlaylistList
+          playlists={playlists}
+          playlistsState={playlistsState}
+          playlistsError={playlistsError}
+          disabled={busy || !deviceId}
+          onPick={(p) => onPick(p, deviceId)}
+          onReload={onReloadPlaylists}
+        />
       </div>
 
       {error && (
@@ -1761,64 +1861,6 @@ function PasteUrlPicker({
       >
         {id ? `Use playlist ${id.slice(0, 8)}…` : "Paste a playlist URL above"}
       </button>
-    </div>
-  );
-}
-
-function PlaylistList({
-  playlists,
-  playlistsState,
-  playlistsError,
-  selected,
-  onPick,
-  onLoad,
-}: {
-  playlists: Playlist[];
-  playlistsState: "idle" | "loading" | "error";
-  playlistsError: string | null;
-  selected: string;
-  onPick: (p: Playlist) => void;
-  onLoad: () => void;
-}) {
-  useEffect(() => { onLoad(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
-
-  if (playlistsState === "loading") {
-    return <div className="text-sm text-text-secondary">Loading playlists…</div>;
-  }
-  if (playlistsState === "error") {
-    return (
-      <div className="text-sm text-red-400">
-        {playlistsError ?? "Couldn't load playlists."}{" "}
-        <button onClick={onLoad} className="text-accent underline">Try again</button>
-      </div>
-    );
-  }
-  if (playlists.length === 0) {
-    return (
-      <div className="text-sm text-text-secondary">
-        No playlists found.{" "}
-        <button onClick={onLoad} className="text-accent underline">Refresh</button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-2">
-      {playlists.map((p) => (
-        <button
-          key={p.id}
-          onClick={() => onPick(p)}
-          className={`w-full flex items-center gap-3 text-left px-3 py-2 rounded-xl border ${selected === p.uri ? "border-accent bg-accent/10" : "border-separator bg-bg-card/50"}`}
-        >
-          {p.images?.[0]?.url ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={p.images[0].url} alt="" className="w-10 h-10 rounded" />
-          ) : (
-            <div className="w-10 h-10 rounded bg-separator" />
-          )}
-          <span className="font-medium truncate">{p.name}</span>
-        </button>
-      ))}
     </div>
   );
 }
