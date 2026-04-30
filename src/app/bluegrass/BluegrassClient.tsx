@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { signOut } from "next-auth/react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Play, Pause, SkipForward, Square, X, Volume1, Volume2, Clock, ListMusic, ChevronRight } from "lucide-react";
+import { Play, Pause, SkipForward, Square, X, Volume1, Volume2, Clock, Timer, ListMusic, ChevronRight } from "lucide-react";
 import { getSocket } from "@/lib/socket";
 import { useAppHeight } from "@/lib/pwa";
 import { AUTO_DURATION_MIN_SEC } from "@/lib/bluegrass-sync";
@@ -176,7 +176,7 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [playlistsState, setPlaylistsState] = useState<"idle" | "loading" | "error">("idle");
   const [playlistsError, setPlaylistsError] = useState<string | null>(null);
-  const [picker, setPicker] = useState<"none" | "device" | "playlist" | "settings" | "queue" | "ended" | "scheduled-stops">("none");
+  const [picker, setPicker] = useState<"none" | "device" | "playlist" | "auto-fade" | "queue" | "ended" | "scheduled-stops">("none");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Local volume mirror for the always-visible main-panel slider.
@@ -757,31 +757,48 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
 
   return (
     <Shell>
-      {/* HEADER — title + device row */}
+      {/* HEADER — title + stacked device/playlist rows */}
       <header className="pt-1 mb-5">
-        <h1 className="text-[28px] font-bold leading-none tracking-tight mb-3">Bluegrass</h1>
-        <button
-          onClick={() => { setPicker("device"); void loadDevices(); }}
-          className="flex items-center justify-between gap-2 w-full px-4 py-2.5 bg-bg-card/40 border border-separator rounded-xl text-sm hover:border-separator-strong hover:bg-bg-card transition-colors"
-        >
-          <span className="flex items-center gap-2.5 min-w-0">
-            <span className={cn(
-              "w-2 h-2 rounded-full shrink-0 transition-colors",
-              selectedDevice?.isActive
-                ? "bg-primary shadow-[0_0_8px_var(--bb-blue)]"
-                : "bg-text-secondary/40"
-            )} />
-            <span className="font-medium truncate">{selectedDevice?.name ?? "Pick device"}</span>
-          </span>
-          <ChevronRight className="w-4 h-4 text-text-secondary shrink-0" />
-        </button>
+        <h1 className="text-[26px] font-bold leading-none tracking-tight mb-3">Bluegrass Ballroom</h1>
+        <div className="space-y-2">
+          {/* Device row */}
+          <button
+            onClick={() => { setPicker("device"); void loadDevices(); }}
+            className="flex items-center justify-between gap-2 w-full px-4 py-2.5 bg-bg-card/40 border border-separator rounded-xl text-sm hover:border-separator-strong hover:bg-bg-card transition-colors"
+            aria-label="Change playback device"
+          >
+            <span className="flex items-center gap-2.5 min-w-0">
+              <span className={cn(
+                "w-2 h-2 rounded-full shrink-0 transition-colors",
+                selectedDevice?.isActive
+                  ? "bg-primary shadow-[0_0_8px_var(--bb-blue)]"
+                  : "bg-text-secondary/40"
+              )} />
+              <span className="font-medium truncate">{selectedDevice?.name ?? "Pick device"}</span>
+            </span>
+            <ChevronRight className="w-4 h-4 text-text-secondary shrink-0" />
+          </button>
+
+          {/* Playlist row */}
+          <button
+            onClick={() => { setPicker("playlist"); void loadPlaylists(); }}
+            className="flex items-center justify-between gap-2 w-full px-4 py-2.5 bg-bg-card/40 border border-separator rounded-xl text-sm hover:border-separator-strong hover:bg-bg-card transition-colors"
+            aria-label="Change playlist"
+          >
+            <span className="flex items-center gap-2.5 min-w-0">
+              <ListMusic className="w-4 h-4 text-text-secondary shrink-0" />
+              <span className="font-medium truncate">{sess.playlistName}</span>
+            </span>
+            <ChevronRight className="w-4 h-4 text-text-secondary shrink-0" />
+          </button>
+        </div>
       </header>
 
       {/* NOW PLAYING — album art + track + progress */}
-      <section className="flex flex-col items-center gap-4">
+      <section className="flex flex-col items-center gap-3">
         <div
           className={cn(
-            "relative aspect-square w-full max-w-[260px] rounded-2xl bg-bg-card overflow-hidden flex items-center justify-center transition-shadow duration-500",
+            "relative aspect-square w-full max-w-[220px] rounded-2xl bg-bg-card overflow-hidden flex items-center justify-center transition-shadow duration-500",
             playback?.isPlaying && "shadow-[0_0_48px_rgba(0,87,225,0.32)]"
           )}
         >
@@ -849,7 +866,7 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
       </section>
 
       {/* TRANSPORT — Stop · Play/Pause hero · Skip */}
-      <section className="mt-7 flex items-center justify-center gap-5">
+      <section className="mt-5 flex items-center justify-center gap-5">
         <motion.button
           onClick={handleStop}
           disabled={busy || !playback?.isPlaying}
@@ -915,7 +932,7 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
       </section>
 
       {/* VOLUME — always-visible slider */}
-      <section className="mt-7 px-1">
+      <section className="mt-5 px-1">
         <div className="flex items-center gap-3">
           <Volume1 className="w-[18px] h-[18px] text-text-secondary shrink-0" />
           <Slider
@@ -941,8 +958,8 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
         </div>
       </section>
 
-      {/* AUTOMATION — stop-after toggle + scheduled stops glanceable */}
-      <section className="mt-7">
+      {/* AUTOMATION — stop-after toggle + auto-fade + scheduled stops */}
+      <section className="mt-6">
         <div className="bg-bg-card/40 border border-separator rounded-2xl divide-y divide-separator overflow-hidden">
           <label className="flex items-center justify-between gap-3 px-4 py-3.5 cursor-pointer hover:bg-bg-card transition-colors">
             <span className="text-sm font-medium">Stop after this song</span>
@@ -953,6 +970,30 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
               className="w-[18px] h-[18px] accent-primary cursor-pointer"
             />
           </label>
+
+          {/* Auto-fade row — surfaces what was buried in Settings */}
+          <button
+            onClick={() => setPicker("auto-fade")}
+            className="w-full flex items-center justify-between gap-3 px-4 py-3.5 text-left hover:bg-bg-card transition-colors"
+            aria-label="Adjust auto-fade settings"
+          >
+            <span className="flex items-center gap-2.5 min-w-0">
+              <Timer className={cn(
+                "w-4 h-4 shrink-0 transition-colors",
+                sess.maxSongDurationSec >= AUTO_DURATION_MIN_SEC ? "text-primary" : "text-text-secondary"
+              )} />
+              <span className="text-sm font-medium">Auto-fade</span>
+            </span>
+            <span className="flex items-center gap-1.5 text-xs text-text-secondary min-w-0">
+              <span className="font-mono tabular-nums truncate">
+                {sess.maxSongDurationSec >= AUTO_DURATION_MIN_SEC
+                  ? `Cap ${sess.maxSongDurationSec}s · Fade ${sess.fadeDurationSec}s`
+                  : "Off"}
+              </span>
+              <ChevronRight className="w-4 h-4 text-text-secondary/60 shrink-0" />
+            </span>
+          </button>
+
           <button
             onClick={() => setPicker("scheduled-stops")}
             className="w-full flex items-center justify-between gap-3 px-4 py-3.5 text-left hover:bg-bg-card transition-colors"
@@ -986,36 +1027,12 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
         </div>
       </section>
 
-      {/* PLAYLIST card */}
-      <section className="mt-3">
-        <button
-          onClick={() => { setPicker("playlist"); void loadPlaylists(); }}
-          className="w-full flex items-center justify-between gap-3 px-4 py-3.5 bg-bg-card/40 border border-separator rounded-2xl hover:bg-bg-card hover:border-separator-strong transition-colors text-left"
-        >
-          <span className="flex items-center gap-2.5 min-w-0 flex-1">
-            <ListMusic className="w-4 h-4 text-text-secondary shrink-0" />
-            <span className="text-sm font-medium truncate">{sess.playlistName}</span>
-          </span>
-          <span className="flex items-center gap-1 text-xs text-text-secondary shrink-0">
-            Change
-            <ChevronRight className="w-4 h-4 text-text-secondary/60" />
-          </span>
-        </button>
-      </section>
-
-      {/* FOOTER — text-link sized secondary actions */}
-      <footer className="mt-8 mb-2 flex items-center justify-center gap-5 text-sm">
-        <button
-          onClick={() => setPicker("settings")}
-          className="text-text-secondary hover:text-foreground transition-colors px-2 py-1.5"
-        >
-          Settings
-        </button>
-        <span aria-hidden className="text-text-secondary/30">·</span>
+      {/* FOOTER — End Session only */}
+      <footer className="mt-6 mb-2 flex items-center justify-center text-sm">
         <button
           onClick={endSession}
           disabled={busy}
-          className="text-[#f87171] hover:text-[#fca5a5] transition-colors px-2 py-1.5 disabled:opacity-40"
+          className="text-[#f87171] hover:text-[#fca5a5] transition-colors px-3 py-1.5 disabled:opacity-40"
         >
           End Session
         </button>
@@ -1050,8 +1067,12 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
       <AnimatePresence>
         {picker === "playlist" && (
           <Sheet key="playlist" onClose={() => setPicker("none")} title="Change playlist">
-            <PasteUrlPicker
+            <ChangePlaylistSheetBody
+              playlists={playlists}
+              playlistsState={playlistsState}
+              playlistsError={playlistsError}
               disabled={busy}
+              onReload={() => void loadPlaylists({ force: true })}
               onPick={async (p) => {
                 await patchSession({ playlistUri: p.uri, playlistName: p.name });
                 setStartedForSession(null); // /play needs to fire fresh for the new playlist
@@ -1067,9 +1088,9 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
         )}
       </AnimatePresence>
       <AnimatePresence>
-        {picker === "settings" && (
-          <Sheet key="settings" onClose={() => setPicker("none")} title="Settings">
-            <SettingsForm sess={sess} onChange={patchSession} />
+        {picker === "auto-fade" && (
+          <Sheet key="auto-fade" onClose={() => setPicker("none")} title="Auto-fade">
+            <AutoFadeForm sess={sess} onChange={patchSession} />
           </Sheet>
         )}
       </AnimatePresence>
@@ -1173,18 +1194,22 @@ function Sheet({ title, children, onClose }: { title: string; children: React.Re
         // hidden, so the chain dies) and the inner panel locks until the
         // sheet is closed and reopened. Symptom: list visible, taps work,
         // pan gestures do nothing — the freeze Jonathan reported.
-        className="w-full max-w-md bg-card border-t border-[color:var(--surface-3)] sm:border rounded-t-3xl sm:rounded-3xl px-5 pt-5 pb-8 max-h-[85vh] overflow-y-auto overscroll-contain shadow-[0_-12px_40px_rgba(0,0,0,0.5)]"
+        className="w-full max-w-md bg-card border-t border-[color:var(--surface-3)] sm:border rounded-t-3xl sm:rounded-3xl px-6 pt-3 pb-8 max-h-[85vh] overflow-y-auto overscroll-contain shadow-[0_-12px_40px_rgba(0,0,0,0.5)]"
         style={{
           paddingBottom: "max(env(safe-area-inset-bottom), 2rem)",
           WebkitOverflowScrolling: "touch",
         }}
       >
-        <div className="sticky top-0 -mt-5 -mx-5 mb-4 px-5 pt-5 pb-3 bg-card/95 backdrop-blur-md border-b border-[color:var(--surface-3)] flex items-center justify-between">
-          <h2 className="text-base font-semibold tracking-tight">{title}</h2>
+        {/* Drag-handle pill — iOS-native cue, even though sheets are tap-to-close */}
+        <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-[color:var(--surface-4)]" />
+
+        {/* Sticky header — generous breathing room top + bottom */}
+        <div className="sticky top-0 -mt-3 -mx-6 mb-6 px-6 pt-4 pb-5 bg-card/95 backdrop-blur-md border-b border-[color:var(--surface-3)] flex items-center justify-between">
+          <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
           <button
             onClick={onClose}
             aria-label="Close"
-            className="w-8 h-8 -mr-1 rounded-full flex items-center justify-center text-text-secondary hover:text-foreground hover:bg-[color:var(--surface-3)] transition-colors"
+            className="w-9 h-9 -mr-1 rounded-full flex items-center justify-center text-text-secondary hover:text-foreground hover:bg-[color:var(--surface-3)] transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
@@ -1233,6 +1258,145 @@ function DeviceList({
         </motion.button>
       ))}
       <button onClick={onRefresh} className="w-full mt-2 py-2 text-sm text-accent">Refresh</button>
+    </div>
+  );
+}
+
+/**
+ * Reusable scrollable list of the operator's Spotify playlists. Renders
+ * loading / error / empty / list states. Used both on the no-session
+ * landing screen (inside PlaylistPicker) and in the in-session
+ * Change Playlist sheet (inside ChangePlaylistSheetBody).
+ */
+function PlaylistList({
+  playlists,
+  playlistsState,
+  playlistsError,
+  disabled,
+  onPick,
+  onReload,
+}: {
+  playlists: Playlist[];
+  playlistsState: "idle" | "loading" | "error";
+  playlistsError: string | null;
+  disabled: boolean;
+  onPick: (p: Playlist) => void;
+  onReload: () => void;
+}) {
+  if (playlistsState === "loading" && playlists.length === 0) {
+    return <div className="text-sm text-text-secondary py-2">Loading playlists…</div>;
+  }
+
+  if (playlistsState === "error") {
+    return (
+      <div className="text-sm text-red-400 space-y-2">
+        <div>{playlistsError ?? "Couldn't load playlists."}</div>
+        <div className="flex gap-3">
+          <button onClick={onReload} className="text-accent underline">Try again</button>
+          <button
+            onClick={() => signOut({ callbackUrl: "/login?callbackUrl=/bluegrass" })}
+            className="text-accent underline"
+          >
+            Sign out & back in
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (playlists.length === 0) {
+    return (
+      <div className="text-sm text-text-secondary py-2">
+        No playlists loaded.{" "}
+        <button onClick={onReload} className="text-accent underline">Refresh</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {playlists.map((p, i) => (
+        <motion.button
+          key={p.id}
+          onClick={() => onPick(p)}
+          disabled={disabled}
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: Math.min(i * 0.025, 0.3), duration: 0.2 }}
+          whileTap={{ scale: 0.985 }}
+          className="w-full flex items-center gap-3 text-left px-3 py-2.5 rounded-xl border border-separator bg-bg-card/50 hover:border-separator-strong hover:bg-bg-card transition-colors disabled:opacity-40 disabled:pointer-events-none"
+        >
+          {p.images?.[0]?.url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={p.images[0].url} alt="" className="w-10 h-10 rounded shrink-0" />
+          ) : (
+            <div className="w-10 h-10 rounded bg-separator shrink-0" />
+          )}
+          <span className="font-medium truncate">{p.name}</span>
+        </motion.button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Body of the in-session "Change playlist" sheet. Search field + the
+ * shared PlaylistList + a collapsed "Or paste a URL" section with
+ * PasteUrlPicker. All state is local; selection bubbles via onPick.
+ */
+function ChangePlaylistSheetBody({
+  playlists,
+  playlistsState,
+  playlistsError,
+  disabled,
+  onPick,
+  onReload,
+}: {
+  playlists: Playlist[];
+  playlistsState: "idle" | "loading" | "error";
+  playlistsError: string | null;
+  disabled: boolean;
+  onPick: (p: { uri: string; name: string }) => void;
+  onReload: () => void;
+}) {
+  const [filter, setFilter] = useState("");
+  const filtered = filter.trim()
+    ? playlists.filter((p) => p.name.toLowerCase().includes(filter.toLowerCase()))
+    : playlists;
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <input
+          type="search"
+          inputMode="search"
+          autoCapitalize="off"
+          autoCorrect="off"
+          placeholder="Filter playlists…"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          className="w-full px-3.5 py-2.5 bg-bg-card border border-separator rounded-xl text-sm placeholder:text-text-secondary/60 focus:outline-none focus:border-separator-strong transition-colors"
+        />
+      </div>
+
+      <PlaylistList
+        playlists={filtered}
+        playlistsState={playlistsState}
+        playlistsError={playlistsError}
+        disabled={disabled}
+        onPick={(p) => onPick({ uri: p.uri, name: p.name })}
+        onReload={onReload}
+      />
+
+      <details className="group">
+        <summary className="text-xs text-text-secondary cursor-pointer select-none py-2 hover:text-foreground transition-colors flex items-center gap-1.5">
+          <ChevronRight className="w-3.5 h-3.5 transition-transform group-open:rotate-90" />
+          Or paste a Spotify URL
+        </summary>
+        <div className="pt-3">
+          <PasteUrlPicker disabled={disabled} onPick={onPick} />
+        </div>
+      </details>
     </div>
   );
 }
@@ -1292,62 +1456,19 @@ function PlaylistPicker({
 
       <PasteUrlPicker disabled={busy || !deviceId} onPick={(p) => onPick(p, deviceId)} />
 
-      {/* Playlist browser — auto-loaded inline (was previously gated behind a
-          <details> dropdown to defer the rate-limited /me/playlists call).
-          The cache + back-off in loadPlaylists() makes this safe: 1h
-          localStorage cache means subsequent picker opens skip the network
-          entirely, and a long Spotify timeout still surfaces a "wait it out"
-          banner instead of hammering the endpoint. If we ever do hit a
-          regression, this whole block can be reverted in one commit and
-          re-collapse the list under <details>. */}
       <div>
         <div className="flex items-center justify-between mb-2">
           <div className="text-xs text-text-secondary uppercase tracking-wide">Or pick from your playlists</div>
           <button onClick={onReloadPlaylists} className="text-xs text-accent">Refresh</button>
         </div>
-        {playlistsState === "loading" && playlists.length === 0 && (
-          <div className="text-sm text-text-secondary">Loading playlists…</div>
-        )}
-        {playlistsState === "error" && (
-          <div className="text-sm text-red-400 space-y-2">
-            <div>{playlistsError ?? "Couldn't load playlists."}</div>
-            <div className="flex gap-3">
-              <button onClick={onReloadPlaylists} className="text-accent underline">Try again</button>
-              <button
-                onClick={() => signOut({ callbackUrl: "/login?callbackUrl=/bluegrass" })}
-                className="text-accent underline"
-              >
-                Sign out & back in
-              </button>
-            </div>
-          </div>
-        )}
-        {playlistsState === "idle" && playlists.length === 0 && (
-          <div className="text-sm text-text-secondary">
-            No playlists loaded.{" "}
-            <button onClick={onReloadPlaylists} className="text-accent underline">Refresh</button>
-          </div>
-        )}
-        {playlists.length > 0 && (
-          <div className="space-y-2">
-            {playlists.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => onPick(p, deviceId)}
-                disabled={busy || !deviceId}
-                className="w-full flex items-center gap-3 text-left px-3 py-2 rounded-xl border border-separator bg-bg-card/50 disabled:opacity-40"
-              >
-                {p.images?.[0]?.url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={p.images[0].url} alt="" className="w-10 h-10 rounded" />
-                ) : (
-                  <div className="w-10 h-10 rounded bg-separator" />
-                )}
-                <span className="font-medium truncate">{p.name}</span>
-              </button>
-            ))}
-          </div>
-        )}
+        <PlaylistList
+          playlists={playlists}
+          playlistsState={playlistsState}
+          playlistsError={playlistsError}
+          disabled={busy || !deviceId}
+          onPick={(p) => onPick(p, deviceId)}
+          onReload={onReloadPlaylists}
+        />
       </div>
 
       {error && (
@@ -1744,64 +1865,6 @@ function PasteUrlPicker({
   );
 }
 
-function PlaylistList({
-  playlists,
-  playlistsState,
-  playlistsError,
-  selected,
-  onPick,
-  onLoad,
-}: {
-  playlists: Playlist[];
-  playlistsState: "idle" | "loading" | "error";
-  playlistsError: string | null;
-  selected: string;
-  onPick: (p: Playlist) => void;
-  onLoad: () => void;
-}) {
-  useEffect(() => { onLoad(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
-
-  if (playlistsState === "loading") {
-    return <div className="text-sm text-text-secondary">Loading playlists…</div>;
-  }
-  if (playlistsState === "error") {
-    return (
-      <div className="text-sm text-red-400">
-        {playlistsError ?? "Couldn't load playlists."}{" "}
-        <button onClick={onLoad} className="text-accent underline">Try again</button>
-      </div>
-    );
-  }
-  if (playlists.length === 0) {
-    return (
-      <div className="text-sm text-text-secondary">
-        No playlists found.{" "}
-        <button onClick={onLoad} className="text-accent underline">Refresh</button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-2">
-      {playlists.map((p) => (
-        <button
-          key={p.id}
-          onClick={() => onPick(p)}
-          className={`w-full flex items-center gap-3 text-left px-3 py-2 rounded-xl border ${selected === p.uri ? "border-accent bg-accent/10" : "border-separator bg-bg-card/50"}`}
-        >
-          {p.images?.[0]?.url ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={p.images[0].url} alt="" className="w-10 h-10 rounded" />
-          ) : (
-            <div className="w-10 h-10 rounded bg-separator" />
-          )}
-          <span className="font-medium truncate">{p.name}</span>
-        </button>
-      ))}
-    </div>
-  );
-}
-
 function ScheduledStopsSheet({
   sessionId,
   stops,
@@ -1967,7 +2030,7 @@ function AddStopForm({
   );
 }
 
-function SettingsForm({
+function AutoFadeForm({
   sess,
   onChange,
 }: {
@@ -2005,10 +2068,6 @@ function SettingsForm({
           className="py-2"
         />
       </Field>
-
-      <div className="text-xs text-text-secondary">
-        Volume lives on the main panel for quick access.
-      </div>
     </div>
   );
 }
