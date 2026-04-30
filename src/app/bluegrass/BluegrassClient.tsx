@@ -834,15 +834,51 @@ function fmt(seconds: number): string {
 }
 
 function Sheet({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
+  // Track touch movement on the backdrop so a fling-scroll inside the panel
+  // that ends with the user's finger crossing into the backdrop region
+  // doesn't fire the close handler. Without this, scrolling near the panel
+  // edge can dismiss the sheet mid-gesture on iOS.
+  const dragRef = useRef<{ x: number; y: number; moved: boolean } | null>(null);
+  const onBackdropPointerDown = (e: React.PointerEvent) => {
+    dragRef.current = { x: e.clientX, y: e.clientY, moved: false };
+  };
+  const onBackdropPointerMove = (e: React.PointerEvent) => {
+    const start = dragRef.current;
+    if (!start) return;
+    if (Math.abs(e.clientX - start.x) > 6 || Math.abs(e.clientY - start.y) > 6) {
+      start.moved = true;
+    }
+  };
+  const onBackdropClick = () => {
+    if (dragRef.current?.moved) {
+      dragRef.current = null;
+      return;
+    }
+    dragRef.current = null;
+    onClose();
+  };
+
   return (
     <div
       className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center justify-center"
-      onClick={onClose}
+      onPointerDown={onBackdropPointerDown}
+      onPointerMove={onBackdropPointerMove}
+      onClick={onBackdropClick}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md bg-bg-card border-t border-white/[0.06] rounded-t-3xl sm:rounded-3xl px-4 pt-4 pb-8 max-h-[80vh] overflow-y-auto"
-        style={{ paddingBottom: "max(env(safe-area-inset-bottom), 2rem)" }}
+        // overscroll-contain + -webkit-overflow-scrolling:touch are both
+        // load-bearing on iOS PWA. Without them, a fling-scroll inside the
+        // panel that hits the top or bottom boundary leaves iOS thinking
+        // the scroll was "consumed" by an ancestor (html has overflow:
+        // hidden, so the chain dies) and the inner panel locks until the
+        // sheet is closed and reopened. Symptom: list visible, taps work,
+        // pan gestures do nothing — the freeze Jonathan reported.
+        className="w-full max-w-md bg-bg-card border-t border-white/[0.06] rounded-t-3xl sm:rounded-3xl px-4 pt-4 pb-8 max-h-[80vh] overflow-y-auto overscroll-contain"
+        style={{
+          paddingBottom: "max(env(safe-area-inset-bottom), 2rem)",
+          WebkitOverflowScrolling: "touch",
+        }}
       >
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-semibold">{title}</h2>
@@ -947,59 +983,62 @@ function PlaylistPicker({
 
       <PasteUrlPicker disabled={busy || !deviceId} onPick={(p) => onPick(p, deviceId)} />
 
+      {/* Playlist browser — auto-loaded inline (was previously gated behind a
+          <details> dropdown to defer the rate-limited /me/playlists call).
+          The cache + back-off in loadPlaylists() makes this safe: 1h
+          localStorage cache means subsequent picker opens skip the network
+          entirely, and a long Spotify timeout still surfaces a "wait it out"
+          banner instead of hammering the endpoint. If we ever do hit a
+          regression, this whole block can be reverted in one commit and
+          re-collapse the list under <details>. */}
       <div>
-        <details>
-          <summary className="text-xs text-text-secondary cursor-pointer select-none">Browse my Spotify playlists (rate-limited — paste a URL above is faster)</summary>
-          <div className="mt-3">
-            <div className="flex items-center justify-between mb-2">
-              <div className="text-xs text-text-secondary uppercase tracking-wide">Your Playlists</div>
-              <button onClick={onReloadPlaylists} className="text-xs text-accent">Refresh</button>
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-xs text-text-secondary uppercase tracking-wide">Or pick from your playlists</div>
+          <button onClick={onReloadPlaylists} className="text-xs text-accent">Refresh</button>
+        </div>
+        {playlistsState === "loading" && playlists.length === 0 && (
+          <div className="text-sm text-text-secondary">Loading playlists…</div>
+        )}
+        {playlistsState === "error" && (
+          <div className="text-sm text-red-400 space-y-2">
+            <div>{playlistsError ?? "Couldn't load playlists."}</div>
+            <div className="flex gap-3">
+              <button onClick={onReloadPlaylists} className="text-accent underline">Try again</button>
+              <button
+                onClick={() => signOut({ callbackUrl: "/login?callbackUrl=/bluegrass" })}
+                className="text-accent underline"
+              >
+                Sign out & back in
+              </button>
             </div>
-            {playlistsState === "loading" && (
-              <div className="text-sm text-text-secondary">Loading playlists…</div>
-            )}
-            {playlistsState === "error" && (
-              <div className="text-sm text-red-400 space-y-2">
-                <div>{playlistsError ?? "Couldn't load playlists."}</div>
-                <div className="flex gap-3">
-                  <button onClick={onReloadPlaylists} className="text-accent underline">Try again</button>
-                  <button
-                    onClick={() => signOut({ callbackUrl: "/login?callbackUrl=/bluegrass" })}
-                    className="text-accent underline"
-                  >
-                    Sign out & back in
-                  </button>
-                </div>
-              </div>
-            )}
-            {playlistsState === "idle" && playlists.length === 0 && (
-              <div className="text-sm text-text-secondary">
-                No playlists loaded.{" "}
-                <button onClick={onReloadPlaylists} className="text-accent underline">Refresh</button>
-              </div>
-            )}
-            {playlistsState === "idle" && playlists.length > 0 && (
-              <div className="space-y-2">
-                {playlists.map((p) => (
-                  <button
-                    key={p.id}
-                    onClick={() => onPick(p, deviceId)}
-                    disabled={busy || !deviceId}
-                    className="w-full flex items-center gap-3 text-left px-3 py-2 rounded-xl border border-white/[0.06] bg-bg-card/50 disabled:opacity-40"
-                  >
-                    {p.images?.[0]?.url ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={p.images[0].url} alt="" className="w-10 h-10 rounded" />
-                    ) : (
-                      <div className="w-10 h-10 rounded bg-white/[0.06]" />
-                    )}
-                    <span className="font-medium truncate">{p.name}</span>
-                  </button>
-                ))}
-              </div>
-            )}
           </div>
-        </details>
+        )}
+        {playlistsState === "idle" && playlists.length === 0 && (
+          <div className="text-sm text-text-secondary">
+            No playlists loaded.{" "}
+            <button onClick={onReloadPlaylists} className="text-accent underline">Refresh</button>
+          </div>
+        )}
+        {playlists.length > 0 && (
+          <div className="space-y-2">
+            {playlists.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => onPick(p, deviceId)}
+                disabled={busy || !deviceId}
+                className="w-full flex items-center gap-3 text-left px-3 py-2 rounded-xl border border-white/[0.06] bg-bg-card/50 disabled:opacity-40"
+              >
+                {p.images?.[0]?.url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={p.images[0].url} alt="" className="w-10 h-10 rounded" />
+                ) : (
+                  <div className="w-10 h-10 rounded bg-white/[0.06]" />
+                )}
+                <span className="font-medium truncate">{p.name}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {error && (
