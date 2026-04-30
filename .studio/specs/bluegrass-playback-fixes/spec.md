@@ -1,10 +1,10 @@
 ---
 name: Bluegrass Playback Bug Fixes
 slug: bluegrass-playback-fixes
-status: signed-off
+status: shipped
 created: 2026-04-29
 signed_off: 2026-04-29
-shipped: pending
+shipped: 2026-04-29
 ---
 
 # Bluegrass Playback Bug Fixes

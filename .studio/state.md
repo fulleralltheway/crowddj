@@ -7,13 +7,7 @@
 
 ## Current Feature
 
-- **Name:** Bluegrass Playback Bug Fixes
-- **Slug:** bluegrass-playback-fixes
-- **Phase:** 3 (build active)
-- **Status:** signed-off
-- **Spec:** `specs/bluegrass-playback-fixes/spec.md`
-- **Tasks:** `specs/bluegrass-playback-fixes/tasks.md` (6 tasks T0-T5)
-- **Branch:** about to create `feature/bluegrass-playback-fixes`
+- **Name:** none — between features
 
 ## Last Completed Step
 
@@ -36,7 +30,8 @@
 
 | Date | Slug | Description |
 |------|------|-------------|
-| 2026-04-29 | bluegrass-queue | DB-backed queue for Bluegrass DJ — see upcoming tracks, search Spotify, insert at "Play next" / "Add to end". Replaces per-skip /v1/playlists/{id}/tracks lookups with one-shot import + DB lookups, eliminating the rate-limit pressure that triggered the recent debug episode. |
+| 2026-04-29 | bluegrass-playback-fixes | Two playback bugs fixed: (1) music no longer stops after a song ends — advance paths use startPlaybackContext({uri}) instead of startPlayback([uri]) so the playlist context survives the explicit-track jump and Spotify auto-advances naturally. (2) "Stop after this song" no longer bleeds the tail — preloads the next track in a paused state so Resume plays cleanly from position 0. |
+| 2026-04-29 | bluegrass-queue | DB-backed queue for Bluegrass DJ — see upcoming tracks, search Spotify, insert at "Play next" / "Add to end". Replaces per-skip /v1/playlists/{id}/tracks lookups with one-shot import + DB lookups, eliminating the rate-limit pressure that triggered the recent debug episode. (UI hidden in production per Jonathan; backend live.) |
 | 2026-04-29 | bluegrass-dj | Phone-first installable PWA at /bluegrass — Spotify playback control with auto-fade at threshold, announcement-fade pause/resume, kill-switch End Session. Reuses PartyQueue's socket+cron transition pipeline via a parallel BluegrassSession model. |
 
 ---
