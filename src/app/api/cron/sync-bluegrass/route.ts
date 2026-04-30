@@ -127,6 +127,36 @@ export async function GET(req: NextRequest) {
       // Treat fetch failure like no_playback; next tick will retry.
     }
 
+    // Scheduled stops: any unfired stop whose stopAt has passed should fire.
+    // Firing means (a) marking the row fired so it doesn't loop, and (b)
+    // flipping stopAfterCurrent IF music is actively playing right now —
+    // otherwise the operator already paused for an early announcement and
+    // we'd be queueing up a phantom stop on the next track they play.
+    // If `playback` is null (Spotify API hiccup) we skip the whole block so
+    // the next tick retries with a definitive playback state — better to
+    // fire a few seconds late than fire incorrectly while paused.
+    if (playback) {
+      const due = await prisma.bluegrassScheduledStop.findMany({
+        where: { sessionId: sess.id, fired: false, stopAt: { lte: new Date() } },
+        select: { id: true },
+      });
+      if (due.length > 0) {
+        await prisma.bluegrassScheduledStop.updateMany({
+          where: { id: { in: due.map((d) => d.id) } },
+          data: { fired: true, firedAt: new Date() },
+        });
+        if (playback.is_playing === true && !sess.stopAfterCurrent) {
+          // updateMany with the false-guard avoids a no-op write when the
+          // operator already toggled it manually.
+          await prisma.bluegrassSession.updateMany({
+            where: { id: sess.id, stopAfterCurrent: false },
+            data: { stopAfterCurrent: true },
+          });
+          sess.stopAfterCurrent = true;
+        }
+      }
+    }
+
     const decision = decideSyncStatus(sess, playback);
 
     // Track current track URI + start time for our own audit trail. Only

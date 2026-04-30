@@ -180,6 +180,7 @@ model BluegrassSession {
   createdAt          DateTime                @default(now())
   updatedAt          DateTime                @updatedAt
   tracks             BluegrassSessionTrack[]
+  scheduledStops     BluegrassScheduledStop[]
 
   @@index([userId, isActive])
 }
@@ -207,4 +208,21 @@ model BluegrassSessionTrack {
   addedAt       DateTime         @default(now())
 
   @@index([sessionId, isPlayed, sortOrder])
+}
+
+// Wall-clock time at which the session's stopAfterCurrent flag should
+// auto-flip — i.e. announcement scheduling. The cron sync flips the flag
+// only if music is actively playing at that moment; if paused, the
+// scheduled stop is treated as already-handled.
+model BluegrassScheduledStop {
+  id        String           @id @default(cuid())
+  sessionId String
+  session   BluegrassSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  stopAt    DateTime
+  label     String?
+  fired     Boolean          @default(false)
+  firedAt   DateTime?
+  createdAt DateTime         @default(now())
+
+  @@index([sessionId, fired, stopAt])
 }

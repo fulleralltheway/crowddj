@@ -20,6 +20,12 @@ function subscribeSocket(cb: () => void): () => void {
 const getSocketConnected = () => getSocket().connected;
 const getSocketConnectedServer = () => false;
 
+type ScheduledStop = {
+  id: string;
+  stopAt: string; // ISO string from server
+  label: string | null;
+};
+
 type SessionRow = {
   id: string;
   playlistUri: string;
@@ -29,6 +35,7 @@ type SessionRow = {
   fadeDurationSec: number;
   targetVolume: number;
   stopAfterCurrent: boolean;
+  scheduledStops?: ScheduledStop[];
   tracksImported?: "pending" | "importing" | "imported" | "failed";
   isActive: boolean;
 };
@@ -165,7 +172,7 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [playlistsState, setPlaylistsState] = useState<"idle" | "loading" | "error">("idle");
   const [playlistsError, setPlaylistsError] = useState<string | null>(null);
-  const [picker, setPicker] = useState<"none" | "device" | "playlist" | "settings" | "queue" | "ended">("none");
+  const [picker, setPicker] = useState<"none" | "device" | "playlist" | "settings" | "queue" | "ended" | "add-stop">("none");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -792,15 +799,23 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
             Stop
           </button>
         </div>
-        <label className="flex items-center justify-between gap-3 px-4 py-3 bg-bg-card/50 border border-white/[0.06] rounded-2xl">
-          <span className="text-sm">Stop after this song</span>
-          <input
-            type="checkbox"
-            checked={sess.stopAfterCurrent}
-            onChange={(e) => void patchSession({ stopAfterCurrent: e.target.checked })}
-            className="w-5 h-5 accent-accent"
+        <div className="bg-bg-card/50 border border-white/[0.06] rounded-2xl divide-y divide-white/[0.06]">
+          <label className="flex items-center justify-between gap-3 px-4 py-3">
+            <span className="text-sm">Stop after this song</span>
+            <input
+              type="checkbox"
+              checked={sess.stopAfterCurrent}
+              onChange={(e) => void patchSession({ stopAfterCurrent: e.target.checked })}
+              className="w-5 h-5 accent-accent"
+            />
+          </label>
+          <ScheduledStopsSection
+            sessionId={sess.id}
+            stops={sess.scheduledStops ?? []}
+            onAdd={() => setPicker("add-stop")}
+            onRefresh={refreshSession}
           />
-        </label>
+        </div>
       </div>
 
       {/* Playlist row */}
@@ -875,6 +890,17 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
       {picker === "settings" && (
         <Sheet onClose={() => setPicker("none")} title="Settings">
           <SettingsForm sess={sess} onChange={patchSession} onLiveVolume={liveVolumePush} />
+        </Sheet>
+      )}
+      {picker === "add-stop" && (
+        <Sheet onClose={() => setPicker("none")} title="Schedule a stop">
+          <AddStopForm
+            sessionId={sess.id}
+            onSaved={() => {
+              setPicker("none");
+              void refreshSession();
+            }}
+          />
         </Sheet>
       )}
     </Shell>
@@ -1573,6 +1599,170 @@ function PlaylistList({
           <span className="font-medium truncate">{p.name}</span>
         </button>
       ))}
+    </div>
+  );
+}
+
+function ScheduledStopsSection({
+  sessionId,
+  stops,
+  onAdd,
+  onRefresh,
+}: {
+  sessionId: string;
+  stops: ScheduledStop[];
+  onAdd: () => void;
+  onRefresh: () => Promise<void> | void;
+}) {
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const handleDelete = async (stopId: string) => {
+    setBusyId(stopId);
+    try {
+      await fetch(`/api/bluegrass/sessions/${sessionId}/scheduled-stops/${stopId}`, {
+        method: "DELETE",
+      });
+      await onRefresh();
+    } finally {
+      setBusyId(null);
+    }
+  };
+  return (
+    <div className="px-4 py-3">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-sm">Scheduled stops</span>
+        <button
+          onClick={onAdd}
+          className="text-accent text-sm font-medium px-2 py-1 -mr-2 -my-1"
+        >
+          + Add
+        </button>
+      </div>
+      {stops.length === 0 ? (
+        <div className="text-text-secondary text-xs mt-2">
+          No stops scheduled. Add a time to auto-pause the music after the song
+          playing at that moment ends.
+        </div>
+      ) : (
+        <ul className="mt-2 space-y-1.5">
+          {stops.map((s) => (
+            <li
+              key={s.id}
+              className="flex items-center justify-between gap-3 text-sm"
+            >
+              <div className="min-w-0 flex-1">
+                <span className="font-medium tabular-nums">
+                  {new Date(s.stopAt).toLocaleTimeString([], {
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })}
+                </span>
+                {s.label ? (
+                  <span className="text-text-secondary"> · {s.label}</span>
+                ) : null}
+              </div>
+              <button
+                onClick={() => void handleDelete(s.id)}
+                disabled={busyId === s.id}
+                className="text-text-secondary hover:text-red-400 disabled:opacity-40 px-2 py-1 -mr-2 -my-1 text-base leading-none"
+                aria-label="Delete scheduled stop"
+              >
+                ×
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function AddStopForm({
+  sessionId,
+  onSaved,
+}: {
+  sessionId: string;
+  onSaved: () => void;
+}) {
+  // Default the time picker to the next 5-minute increment in local time —
+  // gives the operator a sane starting point that's almost always in the
+  // future, instead of an empty field they have to navigate from scratch.
+  const defaultTime = (() => {
+    const d = new Date(Date.now() + 5 * 60 * 1000);
+    d.setMinutes(Math.ceil(d.getMinutes() / 5) * 5, 0, 0);
+    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  })();
+  const [time, setTime] = useState(defaultTime);
+  const [label, setLabel] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSave = async () => {
+    setError(null);
+    if (!/^\d{2}:\d{2}$/.test(time)) {
+      setError("Pick a time");
+      return;
+    }
+    const [hh, mm] = time.split(":").map(Number);
+    // Build a Date for "today at HH:MM" in local time. If that's already in
+    // the past (operator is scheduling for tomorrow night, or the time slot
+    // for today already slipped by), roll forward to the same time tomorrow.
+    const target = new Date();
+    target.setHours(hh, mm, 0, 0);
+    if (target.getTime() <= Date.now()) {
+      target.setDate(target.getDate() + 1);
+    }
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/bluegrass/sessions/${sessionId}/scheduled-stops`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          stopAt: target.toISOString(),
+          label: label.trim() || undefined,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        setError(body?.error ?? "Failed to save");
+        return;
+      }
+      onSaved();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <Field label="Stop time">
+        <input
+          type="time"
+          value={time}
+          onChange={(e) => setTime(e.target.value)}
+          className="w-full px-4 py-3 bg-bg-card border border-white/[0.06] rounded-2xl text-base"
+        />
+      </Field>
+      <Field label="Label (optional)">
+        <input
+          type="text"
+          value={label}
+          onChange={(e) => setLabel(e.target.value.slice(0, 80))}
+          placeholder="e.g. Welcome announcement"
+          className="w-full px-4 py-3 bg-bg-card border border-white/[0.06] rounded-2xl text-base"
+        />
+      </Field>
+      {error ? (
+        <div className="px-4 py-3 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl text-sm">
+          {error}
+        </div>
+      ) : null}
+      <button
+        onClick={() => void handleSave()}
+        disabled={busy}
+        className="w-full py-4 bg-accent text-black font-semibold rounded-2xl disabled:opacity-50"
+      >
+        {busy ? "Saving..." : "Save"}
+      </button>
     </div>
   );
 }

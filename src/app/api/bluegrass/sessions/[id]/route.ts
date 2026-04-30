@@ -30,7 +30,15 @@ export async function GET(
   const { id } = await params;
   const sess = await loadOwnedSession(id, auth_.user.id);
   if (!sess) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  return NextResponse.json(sess);
+  // Include only unfired stops in the response — fired ones are audit
+  // trail and shouldn't clutter the UI list. Ordered earliest-first so the
+  // client can render directly.
+  const scheduledStops = await prisma.bluegrassScheduledStop.findMany({
+    where: { sessionId: id, fired: false },
+    orderBy: { stopAt: "asc" },
+    select: { id: true, stopAt: true, label: true },
+  });
+  return NextResponse.json({ ...sess, scheduledStops });
 }
 
 export async function PATCH(
