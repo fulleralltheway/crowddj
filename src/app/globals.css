@@ -51,12 +51,19 @@
   /* Legacy aliases — existing components keep working with new palette */
   --color-bg-primary: var(--surface-1);
   --color-bg-secondary: var(--surface-0);
+  --color-bg-base: var(--surface-1);
   --color-bg-card: var(--surface-2);
   --color-bg-card-hover: var(--surface-3);
   --color-text-primary: var(--foreground);
   --color-text-secondary: var(--muted-foreground);
   --color-upvote: var(--amber);
   --color-downvote: var(--muted-foreground);
+
+  /* Hairline separator — load-bearing for /bluegrass and other dark surfaces.
+     Maps to white/0.06 so the visual is identical to legacy hardcoded
+     `border-white/[0.06]` while letting components reference a token. */
+  --color-separator: rgba(255, 255, 255, 0.06);
+  --color-separator-strong: rgba(255, 255, 255, 0.12);
   /* Old token names kept for v1-tokens-still-in-tree */
   --color-gold: var(--bb-blue);
   --color-gold-hover: var(--bb-blue-hover);

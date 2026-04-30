@@ -2,9 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { signOut } from "next-auth/react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Play, Pause, SkipForward, Square, X } from "lucide-react";
 import { getSocket } from "@/lib/socket";
 import { useAppHeight } from "@/lib/pwa";
 import { AUTO_DURATION_MIN_SEC } from "@/lib/bluegrass-sync";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Slider } from "@/components/ui/slider";
 
 // Single source of truth for socket connection state, satisfies the
 // react-hooks/set-state-in-effect rule (no synchronous setState in effects).
@@ -746,67 +751,133 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
       {/* Top: device pill */}
       <button
         onClick={() => { setPicker("device"); void loadDevices(); }}
-        className="flex items-center justify-between gap-2 w-full px-4 py-3 bg-bg-card/50 border border-white/[0.06] rounded-2xl text-sm"
+        className="flex items-center justify-between gap-2 w-full px-4 py-3 bg-bg-card/50 border border-separator rounded-2xl text-sm hover:border-separator-strong hover:bg-bg-card transition-colors"
       >
         <span className="text-text-secondary">Device</span>
         <span className="font-medium truncate">{selectedDevice?.name ?? "Pick device →"}</span>
       </button>
 
-      {/* Now playing */}
-      <div className="flex flex-col items-center gap-4 mt-6">
-        <div className="aspect-square w-full max-w-xs rounded-2xl bg-bg-card overflow-hidden flex items-center justify-center">
-          {playback?.albumArt ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={playback.albumArt} alt="" className="w-full h-full object-cover" />
-          ) : (
-            <div className="text-text-secondary text-sm">No track</div>
+      {/* Now playing — album art with subtle blue glow when playing,
+          crossfade on track change */}
+      <div className="flex flex-col items-center gap-5 mt-6">
+        <div
+          className={cn(
+            "relative aspect-square w-full max-w-xs rounded-2xl bg-bg-card overflow-hidden flex items-center justify-center transition-shadow duration-500",
+            playback?.isPlaying && "shadow-[0_0_48px_rgba(0,87,225,0.32)]"
           )}
+        >
+          <AnimatePresence mode="wait" initial={false}>
+            {playback?.albumArt ? (
+              <motion.img
+                key={playback.trackUri ?? playback.albumArt}
+                src={playback.albumArt}
+                alt=""
+                initial={{ opacity: 0, scale: 1.04 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.98 }}
+                transition={{ duration: 0.35, ease: [0.4, 0, 0.2, 1] }}
+                className="absolute inset-0 w-full h-full object-cover"
+              />
+            ) : (
+              <motion.div
+                key="no-track"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="text-text-secondary text-sm"
+              >
+                No track
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
         <div className="text-center w-full">
-          <div className="text-xl font-semibold truncate">{playback?.trackName ?? "—"}</div>
-          <div className="text-text-secondary text-sm truncate">{playback?.artistName ?? sess.playlistName}</div>
-          <div className="text-text-secondary text-xs mt-1">
-            {fmt(positionSec)} / {fmt(durationCap)}
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.div
+              key={playback?.trackUri ?? playback?.trackName ?? "no-track"}
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.25 }}
+            >
+              <div className="text-xl font-semibold truncate tracking-tight">{playback?.trackName ?? "—"}</div>
+              <div className="text-text-secondary text-sm truncate mt-0.5">{playback?.artistName ?? sess.playlistName}</div>
+            </motion.div>
+          </AnimatePresence>
+          <div className="text-text-secondary text-[11px] mt-2 font-mono tabular-nums tracking-wider">
+            {fmt(positionSec)} <span className="opacity-40">·</span> {fmt(durationCap)}
             {sess.maxSongDurationSec >= AUTO_DURATION_MIN_SEC && playback?.durationMs && playback.durationMs / 1000 > sess.maxSongDurationSec
-              ? " (limit)"
-              : ""}
+              ? <span className="ml-1.5 text-accent">limit</span>
+              : null}
           </div>
         </div>
       </div>
 
-      {/* Controls */}
-      <div className="mt-6 space-y-4">
-        <button
+      {/* Play/Pause hero — circular, blue, glowing */}
+      <div className="mt-8 flex justify-center">
+        <motion.button
           onClick={handlePlayPause}
           disabled={busy}
-          className="w-full py-5 bg-accent text-black font-semibold rounded-2xl text-lg disabled:opacity-50"
+          whileTap={{ scale: 0.92 }}
+          transition={{ type: "spring", stiffness: 600, damping: 30 }}
+          aria-label={playback?.isPlaying ? "Pause" : "Play"}
+          className={cn(
+            "relative w-20 h-20 rounded-full flex items-center justify-center",
+            "bg-primary text-primary-foreground shadow-[var(--shadow-glow-blue)]",
+            "transition-colors duration-200",
+            "hover:bg-[color:var(--bb-blue-hover)]",
+            "disabled:opacity-50 disabled:shadow-none disabled:pointer-events-none"
+          )}
         >
-          {playback?.isPlaying ? "Pause" : "Play"}
-        </button>
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.span
+              key={playback?.isPlaying ? "pause" : "play"}
+              initial={{ scale: 0.6, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.6, opacity: 0 }}
+              transition={{ duration: 0.15 }}
+              className="flex"
+            >
+              {playback?.isPlaying ? (
+                <Pause className="w-8 h-8 fill-current" />
+              ) : (
+                <Play className="w-8 h-8 fill-current ml-0.5" />
+              )}
+            </motion.span>
+          </AnimatePresence>
+        </motion.button>
+      </div>
+
+      {/* Controls */}
+      <div className="mt-7 space-y-4">
         <div className="grid grid-cols-2 gap-3">
-          <button
+          <Button
+            variant="outline"
             onClick={handleSkip}
             disabled={busy || !playback?.isPlaying}
-            className="py-4 bg-bg-card border border-white/[0.06] rounded-2xl font-medium disabled:opacity-40"
+            className="h-14 rounded-2xl bg-bg-card border-[color:var(--surface-3)] text-base font-medium gap-2"
           >
+            <SkipForward className="w-[18px] h-[18px]" />
             Skip
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="outline"
             onClick={handleStop}
             disabled={busy || !playback?.isPlaying}
-            className="py-4 bg-bg-card border border-white/[0.06] rounded-2xl font-medium disabled:opacity-40"
+            className="h-14 rounded-2xl bg-bg-card border-[color:var(--surface-3)] text-base font-medium gap-2"
           >
+            <Square className="w-[14px] h-[14px] fill-current" />
             Stop
-          </button>
+          </Button>
         </div>
-        <div className="bg-bg-card/50 border border-white/[0.06] rounded-2xl divide-y divide-white/[0.06]">
-          <label className="flex items-center justify-between gap-3 px-4 py-3">
+        <div className="bg-bg-card/50 border border-[color:var(--surface-3)] rounded-2xl divide-y divide-[color:var(--surface-3)]">
+          <label className="flex items-center justify-between gap-3 px-4 py-3.5 cursor-pointer">
             <span className="text-sm">Stop after this song</span>
             <input
               type="checkbox"
               checked={sess.stopAfterCurrent}
               onChange={(e) => void patchSession({ stopAfterCurrent: e.target.checked })}
-              className="w-5 h-5 accent-accent"
+              className="w-[18px] h-[18px] accent-primary cursor-pointer"
             />
           </label>
           <ScheduledStopsRow
@@ -829,19 +900,21 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
 
       {/* Settings + End Session */}
       <div className="mt-6 grid grid-cols-2 gap-3">
-        <button
+        <Button
+          variant="outline"
           onClick={() => setPicker("settings")}
-          className="py-3 bg-bg-card border border-white/[0.06] rounded-2xl text-sm"
+          className="h-12 rounded-2xl bg-bg-card border-[color:var(--surface-3)] text-sm font-medium"
         >
           Settings
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="ghost"
           onClick={endSession}
           disabled={busy}
-          className="py-3 bg-red-500/10 border border-red-500/20 text-red-400 rounded-2xl text-sm font-medium disabled:opacity-40"
+          className="h-12 rounded-2xl bg-[rgba(239,68,68,0.1)] hover:bg-[rgba(239,68,68,0.18)] border border-[rgba(239,68,68,0.25)] text-[#f87171] hover:text-[#f87171] text-sm font-medium shadow-none disabled:opacity-40"
         >
           End Session
-        </button>
+        </Button>
       </div>
 
       {error && (
@@ -850,55 +923,63 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
         </div>
       )}
 
-      {/* Sheets */}
-      {picker === "device" && (
-        <Sheet onClose={() => setPicker("none")} title="Pick playback device">
-          <DeviceList
-            devices={devices}
-            selected={sess.deviceId}
-            onPick={async (id) => {
-              const ok = await patchSession({ deviceId: id });
-              // Only close the sheet on success — if the transfer failed
-              // (e.g. device asleep) the error banner is now visible and the
-              // user should still be able to pick a different device or
-              // dismiss manually.
-              if (ok) setPicker("none");
-            }}
-            onRefresh={loadDevices}
-          />
-        </Sheet>
-      )}
-      {picker === "playlist" && (
-        <Sheet onClose={() => setPicker("none")} title="Change playlist">
-          <PasteUrlPicker
-            disabled={busy}
-            onPick={async (p) => {
-              await patchSession({ playlistUri: p.uri, playlistName: p.name });
-              setStartedForSession(null); // /play needs to fire fresh for the new playlist
-              await post(`/api/bluegrass/sessions/${sess.id}/play`);
-              setStartedForSession(sess.id);
-              setPicker("none");
-              void pollState();
-              // Queue UI hidden — re-import not fired. See startWithPlaylist
-              // for the symmetrical comment.
-            }}
-          />
-        </Sheet>
-      )}
-      {picker === "settings" && (
-        <Sheet onClose={() => setPicker("none")} title="Settings">
-          <SettingsForm sess={sess} onChange={patchSession} onLiveVolume={liveVolumePush} />
-        </Sheet>
-      )}
-      {picker === "scheduled-stops" && (
-        <Sheet onClose={() => setPicker("none")} title="Scheduled stops">
-          <ScheduledStopsSheet
-            sessionId={sess.id}
-            stops={sess.scheduledStops ?? []}
-            onRefresh={refreshSession}
-          />
-        </Sheet>
-      )}
+      {/* Sheets — each in its own AnimatePresence so enter+exit animate cleanly */}
+      <AnimatePresence>
+        {picker === "device" && (
+          <Sheet key="device" onClose={() => setPicker("none")} title="Pick playback device">
+            <DeviceList
+              devices={devices}
+              selected={sess.deviceId}
+              onPick={async (id) => {
+                const ok = await patchSession({ deviceId: id });
+                // Only close the sheet on success — if the transfer failed
+                // (e.g. device asleep) the error banner is now visible and the
+                // user should still be able to pick a different device or
+                // dismiss manually.
+                if (ok) setPicker("none");
+              }}
+              onRefresh={loadDevices}
+            />
+          </Sheet>
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {picker === "playlist" && (
+          <Sheet key="playlist" onClose={() => setPicker("none")} title="Change playlist">
+            <PasteUrlPicker
+              disabled={busy}
+              onPick={async (p) => {
+                await patchSession({ playlistUri: p.uri, playlistName: p.name });
+                setStartedForSession(null); // /play needs to fire fresh for the new playlist
+                await post(`/api/bluegrass/sessions/${sess.id}/play`);
+                setStartedForSession(sess.id);
+                setPicker("none");
+                void pollState();
+                // Queue UI hidden — re-import not fired. See startWithPlaylist
+                // for the symmetrical comment.
+              }}
+            />
+          </Sheet>
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {picker === "settings" && (
+          <Sheet key="settings" onClose={() => setPicker("none")} title="Settings">
+            <SettingsForm sess={sess} onChange={patchSession} onLiveVolume={liveVolumePush} />
+          </Sheet>
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {picker === "scheduled-stops" && (
+          <Sheet key="scheduled-stops" onClose={() => setPicker("none")} title="Scheduled stops">
+            <ScheduledStopsSheet
+              sessionId={sess.id}
+              stops={sess.scheduledStops ?? []}
+              onRefresh={refreshSession}
+            />
+          </Sheet>
+        )}
+      </AnimatePresence>
     </Shell>
   );
 }
@@ -965,13 +1046,21 @@ function Sheet({ title, children, onClose }: { title: string; children: React.Re
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center justify-center"
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.2 }}
+      className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center"
       onPointerDown={onBackdropPointerDown}
       onPointerMove={onBackdropPointerMove}
       onClick={onBackdropClick}
     >
-      <div
+      <motion.div
+        initial={{ y: "100%" }}
+        animate={{ y: 0 }}
+        exit={{ y: "100%" }}
+        transition={{ type: "spring", stiffness: 320, damping: 34 }}
         onClick={(e) => e.stopPropagation()}
         // overscroll-contain + -webkit-overflow-scrolling:touch are both
         // load-bearing on iOS PWA. Without them, a fling-scroll inside the
@@ -980,19 +1069,25 @@ function Sheet({ title, children, onClose }: { title: string; children: React.Re
         // hidden, so the chain dies) and the inner panel locks until the
         // sheet is closed and reopened. Symptom: list visible, taps work,
         // pan gestures do nothing — the freeze Jonathan reported.
-        className="w-full max-w-md bg-bg-card border-t border-white/[0.06] rounded-t-3xl sm:rounded-3xl px-4 pt-4 pb-8 max-h-[80vh] overflow-y-auto overscroll-contain"
+        className="w-full max-w-md bg-card border-t border-[color:var(--surface-3)] sm:border rounded-t-3xl sm:rounded-3xl px-5 pt-5 pb-8 max-h-[85vh] overflow-y-auto overscroll-contain shadow-[0_-12px_40px_rgba(0,0,0,0.5)]"
         style={{
           paddingBottom: "max(env(safe-area-inset-bottom), 2rem)",
           WebkitOverflowScrolling: "touch",
         }}
       >
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-lg font-semibold">{title}</h2>
-          <button onClick={onClose} className="text-text-secondary text-sm">Close</button>
+        <div className="sticky top-0 -mt-5 -mx-5 mb-4 px-5 pt-5 pb-3 bg-card/95 backdrop-blur-md border-b border-[color:var(--surface-3)] flex items-center justify-between">
+          <h2 className="text-base font-semibold tracking-tight">{title}</h2>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            className="w-8 h-8 -mr-1 rounded-full flex items-center justify-center text-text-secondary hover:text-foreground hover:bg-[color:var(--surface-3)] transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
         {children}
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }
 
@@ -1011,7 +1106,7 @@ function DeviceList({
     return (
       <div className="space-y-3 text-sm text-text-secondary">
         <p>No Spotify devices found. Open Spotify on the laptop and play any track briefly so it shows up.</p>
-        <button onClick={onRefresh} className="w-full py-3 bg-bg-card border border-white/[0.06] rounded-xl">
+        <button onClick={onRefresh} className="w-full py-3 bg-bg-card border border-separator rounded-xl">
           Refresh
         </button>
       </div>
@@ -1019,15 +1114,19 @@ function DeviceList({
   }
   return (
     <div className="space-y-2">
-      {devices.map((d) => (
-        <button
+      {devices.map((d, i) => (
+        <motion.button
           key={d.id}
           onClick={() => onPick(d.id)}
-          className={`w-full text-left px-4 py-3 rounded-xl border ${selected === d.id ? "border-accent bg-accent/10" : "border-white/[0.06] bg-bg-card/50"}`}
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: i * 0.04, duration: 0.2 }}
+          whileTap={{ scale: 0.985 }}
+          className={`w-full text-left px-4 py-3 rounded-xl border transition-colors ${selected === d.id ? "border-accent bg-accent/10" : "border-separator bg-bg-card/50 hover:border-separator-strong hover:bg-bg-card"}`}
         >
           <div className="font-medium">{d.name}</div>
           <div className="text-text-secondary text-xs">{d.type}{d.isActive ? " · active" : ""}</div>
-        </button>
+        </motion.button>
       ))}
       <button onClick={onRefresh} className="w-full mt-2 py-2 text-sm text-accent">Refresh</button>
     </div>
@@ -1078,7 +1177,7 @@ function PlaylistPicker({
           <select
             value={deviceId}
             onChange={(e) => setExplicitDeviceId(e.target.value)}
-            className="w-full px-4 py-3 bg-bg-card border border-white/[0.06] rounded-xl"
+            className="w-full px-4 py-3 bg-bg-card border border-separator rounded-xl"
           >
             {devices.map((d) => (
               <option key={d.id} value={d.id}>{d.name} ({d.type})</option>
@@ -1132,13 +1231,13 @@ function PlaylistPicker({
                 key={p.id}
                 onClick={() => onPick(p, deviceId)}
                 disabled={busy || !deviceId}
-                className="w-full flex items-center gap-3 text-left px-3 py-2 rounded-xl border border-white/[0.06] bg-bg-card/50 disabled:opacity-40"
+                className="w-full flex items-center gap-3 text-left px-3 py-2 rounded-xl border border-separator bg-bg-card/50 disabled:opacity-40"
               >
                 {p.images?.[0]?.url ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={p.images[0].url} alt="" className="w-10 h-10 rounded" />
                 ) : (
-                  <div className="w-10 h-10 rounded bg-white/[0.06]" />
+                  <div className="w-10 h-10 rounded bg-separator" />
                 )}
                 <span className="font-medium truncate">{p.name}</span>
               </button>
@@ -1344,7 +1443,7 @@ function QueueSheet({
           placeholder="Search Spotify…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="w-full px-3 py-2 bg-bg-card border border-white/[0.06] rounded-xl text-sm"
+          className="w-full px-3 py-2 bg-bg-card border border-separator rounded-xl text-sm"
         />
         {searchBusy && <div className="text-xs text-text-secondary mt-1">Searching…</div>}
         {visibleSearchError && (
@@ -1355,12 +1454,12 @@ function QueueSheet({
         {visibleSearchResults.length > 0 && (
           <div className="mt-2 space-y-2 max-h-64 overflow-y-auto">
             {visibleSearchResults.map((r) => (
-              <div key={r.uri} className="flex items-center gap-3 px-2 py-2 bg-bg-card/50 border border-white/[0.06] rounded-xl">
+              <div key={r.uri} className="flex items-center gap-3 px-2 py-2 bg-bg-card/50 border border-separator rounded-xl">
                 {r.image ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={r.image} alt="" className="w-10 h-10 rounded shrink-0" />
                 ) : (
-                  <div className="w-10 h-10 rounded bg-white/[0.06] shrink-0" />
+                  <div className="w-10 h-10 rounded bg-separator shrink-0" />
                 )}
                 <div className="min-w-0 flex-1">
                   <div className="text-sm font-medium truncate">{r.name}</div>
@@ -1375,7 +1474,7 @@ function QueueSheet({
                   </button>
                   <button
                     onClick={() => void insertTrack(r, "end")}
-                    className="px-2 py-1 bg-bg-card border border-white/[0.06] rounded text-xs"
+                    className="px-2 py-1 bg-bg-card border border-separator rounded text-xs"
                   >
                     Add to end
                   </button>
@@ -1404,7 +1503,7 @@ function QueueSheet({
             <button
               onClick={() => void retryImport()}
               disabled={importBusy}
-              className="px-3 py-1 bg-bg-card border border-white/[0.06] rounded text-xs disabled:opacity-40"
+              className="px-3 py-1 bg-bg-card border border-separator rounded text-xs disabled:opacity-40"
             >
               {importBusy ? "…" : "Retry import"}
             </button>
@@ -1434,13 +1533,13 @@ function QueueSheet({
               return (
                 <div
                   key={t.id}
-                  className={`flex items-center gap-3 px-2 py-2 rounded-xl border ${isCurrent ? "border-accent bg-accent/10" : "border-white/[0.06] bg-bg-card/50"}`}
+                  className={`flex items-center gap-3 px-2 py-2 rounded-xl border ${isCurrent ? "border-accent bg-accent/10" : "border-separator bg-bg-card/50"}`}
                 >
                   {t.albumArt ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={t.albumArt} alt="" className="w-10 h-10 rounded shrink-0" />
                   ) : (
-                    <div className="w-10 h-10 rounded bg-white/[0.06] shrink-0" />
+                    <div className="w-10 h-10 rounded bg-separator shrink-0" />
                   )}
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-medium truncate">
@@ -1510,7 +1609,7 @@ function PasteUrlPicker({
         placeholder="https://open.spotify.com/playlist/..."
         value={input}
         onChange={(e) => setInput(e.target.value)}
-        className="w-full px-3 py-2 bg-bg-card border border-white/[0.06] rounded-xl text-sm"
+        className="w-full px-3 py-2 bg-bg-card border border-separator rounded-xl text-sm"
       />
       <input
         type="text"
@@ -1518,7 +1617,7 @@ function PasteUrlPicker({
         value={label}
         onChange={(e) => setLabel(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter" && id) submit(); }}
-        className="w-full mt-2 px-3 py-2 bg-bg-card border border-white/[0.06] rounded-xl text-sm"
+        className="w-full mt-2 px-3 py-2 bg-bg-card border border-separator rounded-xl text-sm"
       />
       <p className="text-text-secondary text-xs mt-2">
         In Spotify, tap the playlist&apos;s … menu → Share → Copy link.
@@ -1584,13 +1683,13 @@ function PlaylistList({
         <button
           key={p.id}
           onClick={() => onPick(p)}
-          className={`w-full flex items-center gap-3 text-left px-3 py-2 rounded-xl border ${selected === p.uri ? "border-accent bg-accent/10" : "border-white/[0.06] bg-bg-card/50"}`}
+          className={`w-full flex items-center gap-3 text-left px-3 py-2 rounded-xl border ${selected === p.uri ? "border-accent bg-accent/10" : "border-separator bg-bg-card/50"}`}
         >
           {p.images?.[0]?.url ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={p.images[0].url} alt="" className="w-10 h-10 rounded" />
           ) : (
-            <div className="w-10 h-10 rounded bg-white/[0.06]" />
+            <div className="w-10 h-10 rounded bg-separator" />
           )}
           <span className="font-medium truncate">{p.name}</span>
         </button>
@@ -1670,7 +1769,7 @@ function ScheduledStopsSheet({
             {stops.map((s) => (
               <li
                 key={s.id}
-                className="flex items-center justify-between gap-3 px-3 py-2 bg-bg-card/50 border border-white/[0.06] rounded-xl text-sm"
+                className="flex items-center justify-between gap-3 px-3 py-2 bg-bg-card/50 border border-separator rounded-xl text-sm"
               >
                 <div className="min-w-0 flex-1">
                   <span className="font-medium tabular-nums">
@@ -1696,7 +1795,7 @@ function ScheduledStopsSheet({
           </ul>
         )}
       </div>
-      <div className="border-t border-white/[0.06] pt-4">
+      <div className="border-t border-separator pt-4">
         <div className="text-sm font-medium mb-3">Add a stop</div>
         <AddStopForm sessionId={sessionId} onSaved={onRefresh} />
       </div>
@@ -1771,7 +1870,7 @@ function AddStopForm({
           type="time"
           value={time}
           onChange={(e) => setTime(e.target.value)}
-          className="w-full px-4 py-3 bg-bg-card border border-white/[0.06] rounded-2xl text-base"
+          className="w-full px-4 py-3 bg-bg-card border border-separator rounded-2xl text-base"
         />
       </Field>
       <Field label="Label (optional)">
@@ -1780,7 +1879,7 @@ function AddStopForm({
           value={label}
           onChange={(e) => setLabel(e.target.value.slice(0, 80))}
           placeholder="e.g. Welcome announcement"
-          className="w-full px-4 py-3 bg-bg-card border border-white/[0.06] rounded-2xl text-base"
+          className="w-full px-4 py-3 bg-bg-card border border-separator rounded-2xl text-base"
         />
       </Field>
       {error ? (
@@ -1815,51 +1914,47 @@ function SettingsForm({
   const commit = (data: Partial<SessionRow>) => onChange(data);
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <Field label={`Max song duration: ${maxSec === 0 ? "off" : `${maxSec}s`}`}>
-        <input
-          type="range"
+        <Slider
           min={0}
           max={300}
           step={5}
-          value={maxSec}
-          onChange={(e) => setMaxSec(Number(e.target.value))}
-          onPointerUp={(e) => commit({ maxSongDurationSec: Number((e.target as HTMLInputElement).value) })}
-          className="w-full accent-accent"
+          value={[maxSec]}
+          onValueChange={([v]) => setMaxSec(v)}
+          onValueCommit={([v]) => commit({ maxSongDurationSec: v })}
+          className="py-2"
         />
-        <div className="text-text-secondary text-xs mt-1">Below 10s = off (auto-fade disabled)</div>
+        <div className="text-text-secondary text-xs mt-2">Below 10s = off (auto-fade disabled)</div>
       </Field>
 
       <Field label={`Fade duration: ${fadeSec}s`}>
-        <input
-          type="range"
+        <Slider
           min={1}
           max={10}
           step={1}
-          value={fadeSec}
-          onChange={(e) => setFadeSec(Number(e.target.value))}
-          onPointerUp={(e) => commit({ fadeDurationSec: Number((e.target as HTMLInputElement).value) })}
-          className="w-full accent-accent"
+          value={[fadeSec]}
+          onValueChange={([v]) => setFadeSec(v)}
+          onValueCommit={([v]) => commit({ fadeDurationSec: v })}
+          className="py-2"
         />
       </Field>
 
       <Field label={`Volume: ${vol}%`}>
-        <input
-          type="range"
+        <Slider
           min={0}
           max={100}
           step={1}
-          value={vol}
-          onChange={(e) => {
-            const v = Number(e.target.value);
+          value={[vol]}
+          onValueChange={([v]) => {
             setVol(v);
             // Live-push to the active Spotify device. Throttled in the
             // parent; skipped server- and client-side while a fade is in
             // flight so the slider can't fight a transition.
             onLiveVolume(v);
           }}
-          onPointerUp={(e) => commit({ targetVolume: Number((e.target as HTMLInputElement).value) })}
-          className="w-full accent-accent"
+          onValueCommit={([v]) => commit({ targetVolume: v })}
+          className="py-2"
         />
       </Field>
     </div>
