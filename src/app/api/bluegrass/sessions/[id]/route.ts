@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getCurrentPlayback, pausePlayback, setVolume } from "@/lib/spotify";
+import { getCurrentPlayback, pausePlayback, setVolume, transferPlayback } from "@/lib/spotify";
 import { buildFadeCurve } from "@/lib/fade-curve";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -116,6 +116,41 @@ export async function PATCH(
       },
       { status: 400 }
     );
+  }
+
+  // Device picker UX: when deviceId changes to a non-null value, actively
+  // transfer Spotify Connect playback to the new target instead of just
+  // recording the preference for the next fade-transition. Without the
+  // transfer, the picker silently appears not to do anything until the
+  // next song change, which reads as a broken control. The transfer
+  // preserves playback state — playing devices keep playing on the new
+  // target, paused devices stay paused. Failure here aborts the whole
+  // PATCH so the DB and Spotify don't drift.
+  if (
+    "deviceId" in data &&
+    data.deviceId &&
+    data.deviceId !== sess.deviceId
+  ) {
+    const accessToken = (auth_ as { accessToken?: string }).accessToken;
+    if (!accessToken) {
+      return NextResponse.json({ error: "no_token" }, { status: 401 });
+    }
+    try {
+      await transferPlayback(accessToken, data.deviceId as string);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "transfer_failed";
+      const status = msg === "device_unavailable" ? 404 : 502;
+      return NextResponse.json(
+        {
+          error: msg,
+          detail:
+            msg === "device_unavailable"
+              ? "That device isn't reachable right now. Open Spotify on it briefly so it appears as active, then try again."
+              : "Spotify rejected the device transfer.",
+        },
+        { status }
+      );
+    }
   }
 
   // Lowering maxSongDurationSec or fadeDurationSec mid-song can leave the

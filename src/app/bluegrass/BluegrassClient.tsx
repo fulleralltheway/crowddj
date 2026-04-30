@@ -522,15 +522,32 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
     }
   };
 
-  const patchSession = async (data: Partial<SessionRow>) => {
+  // Returns true on success, false on error. Errors surface via setError so
+  // the existing toast/banner picks them up — important now that PATCH
+  // deviceId can fail with `device_unavailable` (target device asleep)
+  // and the user needs to see "wake the device" guidance, not a silently-
+  // closed sheet that leaves them on the old device with no feedback.
+  const patchSession = async (data: Partial<SessionRow>): Promise<boolean> => {
     const s = sessRef.current;
-    if (!s) return;
-    const res = await fetch(`/api/bluegrass/sessions/${s.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    });
-    if (res.ok) setSess(await res.json());
+    if (!s) return false;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/bluegrass/sessions/${s.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setError(body.detail || body.error || `${res.status}`);
+        return false;
+      }
+      setSess(await res.json());
+      return true;
+    } finally {
+      setBusy(false);
+    }
   };
 
   const hasStarted = sess?.id != null && startedForSession === sess.id;
@@ -754,7 +771,14 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
           <DeviceList
             devices={devices}
             selected={sess.deviceId}
-            onPick={(id) => { void patchSession({ deviceId: id }); setPicker("none"); }}
+            onPick={async (id) => {
+              const ok = await patchSession({ deviceId: id });
+              // Only close the sheet on success — if the transfer failed
+              // (e.g. device asleep) the error banner is now visible and the
+              // user should still be able to pick a different device or
+              // dismiss manually.
+              if (ok) setPicker("none");
+            }}
             onRefresh={loadDevices}
           />
         </Sheet>

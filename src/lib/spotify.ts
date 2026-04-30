@@ -170,6 +170,36 @@ export async function skipToNext(accessToken: string) {
   if (!res.ok && res.status !== 204) throw new Error("Failed to skip");
 }
 
+/**
+ * Transfer active Spotify Connect playback to `deviceId`. With `play` omitted
+ * (the Spotify default), playback STATE is preserved across the transfer:
+ * playing devices keep playing on the new target, paused devices stay paused.
+ * Set `play: true` to force playback on the new device regardless.
+ *
+ * 404: target device is not currently visible to Spotify Connect (asleep,
+ * Spotify app closed, off-network). Caller should surface this — telling the
+ * user to wake the device is more useful than a generic error.
+ */
+export async function transferPlayback(
+  accessToken: string,
+  deviceId: string,
+  play?: boolean
+) {
+  const res = await fetch(`${SPOTIFY_API}/me/player`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      device_ids: [deviceId],
+      ...(play !== undefined ? { play } : {}),
+    }),
+  });
+  if (res.status === 404) throw new Error("device_unavailable");
+  if (!res.ok && res.status !== 204) throw new Error(`transfer_failed_${res.status}`);
+}
+
 export async function addToQueue(accessToken: string, uri: string) {
   const res = await fetch(
     `${SPOTIFY_API}/me/player/queue?uri=${encodeURIComponent(uri)}`,
