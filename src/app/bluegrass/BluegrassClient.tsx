@@ -155,19 +155,32 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
             const path = s.stopAfterCurrent ? "fade-pause" : "fade-skip";
             void fetch(`/api/bluegrass/sessions/${s.id}/${path}`, { method: "POST" });
             // Mirror the cron-path's stopAfterCurrent reset so behavior is
-            // identical regardless of socket connectivity.
+            // identical regardless of socket connectivity. Optimistically
+            // update local state so the checkbox UI reflects the change
+            // without waiting for refreshSession.
             if (s.stopAfterCurrent) {
               void fetch(`/api/bluegrass/sessions/${s.id}`, {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ stopAfterCurrent: false }),
               });
+              setSess((prev) => prev ? { ...prev, stopAfterCurrent: false } : prev);
             }
           }
         }
       }
     } catch {}
   }, [socketConnected]);
+
+  // Refetch the session row from the server. The cron-driven fade-transition
+  // path mutates server-side fields (e.g. clears stopAfterCurrent after it
+  // pauses), but our local sess state doesn't see that without a refetch.
+  const refreshSession = useCallback(async () => {
+    const s = sessRef.current;
+    if (!s) return;
+    const res = await fetch(`/api/bluegrass/sessions/${s.id}`);
+    if (res.ok) setSess(await res.json());
+  }, []);
 
   // Socket — join the session room, react to push events from the server.
   // Re-joins on reconnect so server-side activeSessions is restored.
@@ -176,7 +189,10 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
     const socket = getSocket();
     const onConnect = () => socket.emit("join-session", sess.id);
     const onSessionEnded = () => setPicker("ended");
-    const onStateChanged = () => { void pollState(); };
+    // session-state-changed fires on any server-driven transition. Refresh
+    // both the playback poll AND the session row so flags like
+    // stopAfterCurrent reflect the just-applied server-side update.
+    const onStateChanged = () => { void pollState(); void refreshSession(); };
     socket.on("connect", onConnect);
     socket.on("session-ended", onSessionEnded);
     socket.on("session-state-changed", onStateChanged);
@@ -187,7 +203,7 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
       socket.off("session-ended", onSessionEnded);
       socket.off("session-state-changed", onStateChanged);
     };
-  }, [sess?.id, pollState]);
+  }, [sess?.id, pollState, refreshSession]);
 
   useEffect(() => {
     if (!sess) return;
