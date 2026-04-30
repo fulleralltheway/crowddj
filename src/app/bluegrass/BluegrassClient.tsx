@@ -812,13 +812,25 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
 // ===== Subcomponents =====
 
 function Shell({ children }: { children: React.ReactNode }) {
+  // The Shell itself is the scroll surface for the bluegrass route. The
+  // global stylesheet locks `html { overflow: hidden }` (so PartyQueue room
+  // views can use full-viewport layouts), which means falling back to body/
+  // html scroll doesn't work here — iOS handles the first fling, then locks
+  // the page once the scroll chain tries to bubble to a container that
+  // can't scroll. With the inline playlist list shipped 2026-04-30, the
+  // picker can easily exceed viewport height (Spotify libraries with 50+
+  // playlists), so this lock surfaced.
+  //
+  // Pattern lifted from room/[code]/page.tsx:944: fixed viewport height +
+  // overflow-y: auto + overscroll-contain + momentum scrolling.
   return (
     <div
-      className="min-h-dvh bg-bg-base text-white px-4 select-none"
+      className="bg-bg-base text-white px-4 select-none overflow-y-auto overscroll-contain"
       style={{
         paddingTop: "max(env(safe-area-inset-top), 1rem)",
         paddingBottom: "max(env(safe-area-inset-bottom), 1rem)",
-        minHeight: "var(--app-height, 100dvh)",
+        height: "var(--app-height, 100dvh)",
+        WebkitOverflowScrolling: "touch",
       }}
     >
       <div className="max-w-md mx-auto">{children}</div>
