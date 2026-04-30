@@ -422,16 +422,9 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
     if (created?.id) {
       setSess(created);
       setPicker("none");
-      // Kick off the playlist import. Failure modes:
-      //   - import endpoint returns 429 → server sets tracksImported=failed
-      //   - import endpoint returns 200 → server sets tracksImported=imported
-      //   - network failure (offline, DNS) → tracksImported stays at pending,
-      //     and the QueueSheet's pending-state UI surfaces a manual Retry
-      //     so the user is never stuck.
-      // refreshSession runs AFTER the request to pull the latest status.
-      void fetch(`/api/bluegrass/sessions/${created.id}/queue/import`, { method: "POST" })
-        .catch(() => {})
-        .finally(() => { void refreshSession(); });
+      // Queue UI is hidden in production right now (per Jonathan, 2026-04-29).
+      // The /queue/import endpoint exists but isn't wired into session start —
+      // re-add the fetch here when the queue UI is re-enabled.
     }
   };
 
@@ -605,16 +598,6 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
         </button>
       </div>
 
-      {/* Queue */}
-      <div className="mt-3">
-        <button
-          onClick={() => setPicker("queue")}
-          className="w-full py-3 bg-bg-card border border-white/[0.06] rounded-2xl text-sm font-medium"
-        >
-          View queue + add songs
-        </button>
-      </div>
-
       {/* Settings + End Session */}
       <div className="mt-6 grid grid-cols-2 gap-3">
         <button
@@ -660,21 +643,9 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
               setStartedForSession(sess.id);
               setPicker("none");
               void pollState();
-              // Re-import queue for the new playlist (replaces existing rows).
-              void fetch(`/api/bluegrass/sessions/${sess.id}/queue/import`, { method: "POST" })
-                .then(() => refreshSession())
-                .catch(() => {});
+              // Queue UI hidden — re-import not fired. See startWithPlaylist
+              // for the symmetrical comment.
             }}
-          />
-        </Sheet>
-      )}
-      {picker === "queue" && (
-        <Sheet onClose={() => setPicker("none")} title="Queue">
-          <QueueSheet
-            sessionId={sess.id}
-            tracksImported={sess.tracksImported ?? "pending"}
-            currentTrackUri={playback?.trackUri}
-            onSessionChanged={refreshSession}
           />
         </Sheet>
       )}
