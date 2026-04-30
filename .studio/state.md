@@ -7,7 +7,13 @@
 
 ## Current Feature
 
-- **Name:** none — between features
+- **Name:** Bluegrass Playback Bug Fixes
+- **Slug:** bluegrass-playback-fixes
+- **Phase:** 3 (build active)
+- **Status:** signed-off
+- **Spec:** `specs/bluegrass-playback-fixes/spec.md`
+- **Tasks:** `specs/bluegrass-playback-fixes/tasks.md` (6 tasks T0-T5)
+- **Branch:** about to create `feature/bluegrass-playback-fixes`
 
 ## Last Completed Step
 
