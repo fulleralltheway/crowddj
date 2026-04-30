@@ -160,23 +160,50 @@ model SongRequest {
 }
 
 model BluegrassSession {
-  id                 String    @id @default(cuid())
+  id                 String                  @id @default(cuid())
   userId             String
-  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  playlistUri        String    // "spotify:playlist:XXX"
+  user               User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  playlistUri        String                  // "spotify:playlist:XXX"
   playlistName       String
-  deviceId           String?   // last selected playback device
-  maxSongDurationSec Int       @default(120)
-  fadeDurationSec    Int       @default(3)
-  targetVolume       Int       @default(75)
-  stopAfterCurrent   Boolean   @default(false)
-  currentTrackUri    String?   // last-seen playing track URI (cron uses this to detect threshold)
-  trackStartedAt     DateTime? // when the current track first started playing (for threshold timing)
-  isActive           Boolean   @default(true)
+  deviceId           String?                 // last selected playback device
+  maxSongDurationSec Int                     @default(120)
+  fadeDurationSec    Int                     @default(3)
+  targetVolume       Int                     @default(75)
+  stopAfterCurrent   Boolean                 @default(false)
+  currentTrackUri    String?                 // last-seen playing track URI (cron uses this to detect threshold)
+  trackStartedAt     DateTime?               // when the current track first started playing (for threshold timing)
+  tracksImported     TrackImportStatus       @default(pending)
+  isActive           Boolean                 @default(true)
   closedAt           DateTime?
-  lastSyncAdvance    DateTime  @default(now()) // debounce, mirrors Room.lastSyncAdvance
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  lastSyncAdvance    DateTime                @default(now()) // debounce, mirrors Room.lastSyncAdvance
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+  tracks             BluegrassSessionTrack[]
 
   @@index([userId, isActive])
+}
+
+enum TrackImportStatus {
+  pending
+  importing
+  imported
+  failed
+}
+
+model BluegrassSessionTrack {
+  id            String           @id @default(cuid())
+  sessionId     String
+  session       BluegrassSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  spotifyUri    String
+  trackName     String
+  artistName    String
+  albumArt      String?
+  durationMs    Int
+  sortOrder     Int
+  isPlaying     Boolean          @default(false)
+  isPlayed      Boolean          @default(false)
+  addedManually Boolean          @default(false)
+  addedAt       DateTime         @default(now())
+
+  @@index([sessionId, isPlayed, sortOrder])
 }
