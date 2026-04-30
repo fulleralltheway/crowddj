@@ -9,6 +9,7 @@ import { useAppHeight } from "@/lib/pwa";
 import { AUTO_DURATION_MIN_SEC } from "@/lib/bluegrass-sync";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Slider } from "@/components/ui/slider";
 
 // Single source of truth for socket connection state, satisfies the
 // react-hooks/set-state-in-effect rule (no synchronous setState in effects).
@@ -1858,51 +1859,47 @@ function SettingsForm({
   const commit = (data: Partial<SessionRow>) => onChange(data);
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <Field label={`Max song duration: ${maxSec === 0 ? "off" : `${maxSec}s`}`}>
-        <input
-          type="range"
+        <Slider
           min={0}
           max={300}
           step={5}
-          value={maxSec}
-          onChange={(e) => setMaxSec(Number(e.target.value))}
-          onPointerUp={(e) => commit({ maxSongDurationSec: Number((e.target as HTMLInputElement).value) })}
-          className="w-full accent-accent"
+          value={[maxSec]}
+          onValueChange={([v]) => setMaxSec(v)}
+          onValueCommit={([v]) => commit({ maxSongDurationSec: v })}
+          className="py-2"
         />
-        <div className="text-text-secondary text-xs mt-1">Below 10s = off (auto-fade disabled)</div>
+        <div className="text-text-secondary text-xs mt-2">Below 10s = off (auto-fade disabled)</div>
       </Field>
 
       <Field label={`Fade duration: ${fadeSec}s`}>
-        <input
-          type="range"
+        <Slider
           min={1}
           max={10}
           step={1}
-          value={fadeSec}
-          onChange={(e) => setFadeSec(Number(e.target.value))}
-          onPointerUp={(e) => commit({ fadeDurationSec: Number((e.target as HTMLInputElement).value) })}
-          className="w-full accent-accent"
+          value={[fadeSec]}
+          onValueChange={([v]) => setFadeSec(v)}
+          onValueCommit={([v]) => commit({ fadeDurationSec: v })}
+          className="py-2"
         />
       </Field>
 
       <Field label={`Volume: ${vol}%`}>
-        <input
-          type="range"
+        <Slider
           min={0}
           max={100}
           step={1}
-          value={vol}
-          onChange={(e) => {
-            const v = Number(e.target.value);
+          value={[vol]}
+          onValueChange={([v]) => {
             setVol(v);
             // Live-push to the active Spotify device. Throttled in the
             // parent; skipped server- and client-side while a fade is in
             // flight so the slider can't fight a transition.
             onLiveVolume(v);
           }}
-          onPointerUp={(e) => commit({ targetVolume: Number((e.target as HTMLInputElement).value) })}
-          className="w-full accent-accent"
+          onValueCommit={([v]) => commit({ targetVolume: v })}
+          className="py-2"
         />
       </Field>
     </div>
