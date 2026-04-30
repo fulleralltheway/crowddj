@@ -117,12 +117,27 @@ export async function executeFadeTransition(
   let originalVolume = sess.targetVolume;
   let currentTrackUri: string | undefined;
   let currentLinkedFromUri: string | undefined;
+  let isPlaying: boolean | undefined;
   try {
     const playback = await getCurrentPlayback(accessToken);
     originalVolume = playback?.device?.volume_percent ?? sess.targetVolume;
     currentTrackUri = playback?.item?.uri;
     currentLinkedFromUri = playback?.item?.linked_from?.uri;
+    isPlaying = playback?.is_playing;
   } catch {}
+
+  // Bail if Spotify reports playback paused. Three things can land us here:
+  //   - User just hit /fade-pause (manual stop) and the socket-server's
+  //     pre-scheduled timer fires anyway because nothing cancels it
+  //   - User paused via Spotify directly (phone, hardware key, AirPlay)
+  //   - Threshold-fallback poll saw is_playing=true a tick ago, then user
+  //     paused before the POST landed
+  // In all three cases, the user expects pause to be respected. Advancing
+  // here would un-pause Spotify and start the next track without consent.
+  if (isPlaying === false) {
+    await releaseCooldown();
+    return { skipped: true, reason: "playback_paused" };
+  }
 
   // Race-safety re-check against LIVE Spotify state. The earlier check
   // against sess.currentTrackUri can pass even when the song already
