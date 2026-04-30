@@ -1,61 +1,156 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+
+/* ============================================================
+   PartyQueue Design System v1
+   Source: design-system/MASTER.md
+   Inspired by: Apple Music (extracted) + venue/ballroom context
+   Dark-only PWA — no light mode
+   ============================================================ */
 
 @theme inline {
-  --color-bg-primary: #0a0a0a;
-  --color-bg-secondary: #141414;
-  --color-bg-card: #1a1a2e;
-  --color-bg-card-hover: #222240;
-  --color-accent: #1db954;
-  --color-accent-hover: #1ed760;
-  --color-text-primary: #ffffff;
-  --color-text-secondary: #a0a0b0;
-  --color-border: #2a2a3e;
-  --color-upvote: #1db954;
-  --color-downvote: #e74c3c;
+  /* shadcn/ui semantic tokens → Tailwind classes (bg-background, text-primary, etc.) */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* PartyQueue surface hierarchy */
+  --color-surface-0: var(--surface-0);
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-surface-4: var(--surface-4);
+
+  /* PartyQueue accents */
+  --color-gold: var(--gold);
+  --color-gold-hover: var(--gold-hover);
+  --color-gold-pressed: var(--gold-pressed);
+  --color-coral: var(--coral);
+  --color-coral-hover: var(--coral-hover);
+  --color-coral-pressed: var(--coral-pressed);
+
+  /* Legacy aliases — existing components keep working, now with new palette */
+  --color-bg-primary: var(--surface-1);
+  --color-bg-secondary: var(--surface-0);
+  --color-bg-card: var(--surface-2);
+  --color-bg-card-hover: var(--surface-3);
+  --color-text-primary: var(--foreground);
+  --color-text-secondary: var(--muted-foreground);
+  --color-upvote: var(--coral);
+  --color-downvote: var(--muted-foreground);
+
+  /* Type */
+  --font-sans: var(--font-inter), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-display: var(--font-fraunces), Georgia, serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, "SF Mono", monospace;
+
+  /* Radius scale */
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --radius-xl: 24px;
+  --radius: 12px;
+
+  /* Glow shadows */
+  --shadow-glow-gold: 0 0 24px rgba(212, 179, 102, 0.3);
+  --shadow-glow-coral: 0 0 32px rgba(250, 88, 106, 0.4);
 }
 
-* {
-  box-sizing: border-box;
+:root {
+  /* shadcn semantic — dark-only */
+  --background: #141414;
+  --foreground: #ffffff;
+  --card: #1c1c1e;
+  --card-foreground: #ffffff;
+  --popover: #1c1c1e;
+  --popover-foreground: #ffffff;
+  --primary: #d4b366;            /* gold */
+  --primary-foreground: #0a0a0a;
+  --secondary: #2c2c2e;
+  --secondary-foreground: #ffffff;
+  --muted: #2c2c2e;
+  --muted-foreground: #a8a8b0;
+  --accent: #fa586a;             /* coral — energy */
+  --accent-foreground: #ffffff;
+  --destructive: #fa586a;
+  --destructive-foreground: #ffffff;
+  --border: #2c2c2e;
+  --input: #3a3a3c;
+  --ring: #d4b366;
+
+  /* PartyQueue surface hierarchy */
+  --surface-0: #0a0a0a;
+  --surface-1: #141414;
+  --surface-2: #1c1c1e;
+  --surface-3: #2c2c2e;
+  --surface-4: #3a3a3c;
+
+  /* PartyQueue accents */
+  --gold: #d4b366;
+  --gold-hover: #e2c47a;
+  --gold-pressed: #b8954a;
+  --coral: #fa586a;
+  --coral-hover: #ff7183;
+  --coral-pressed: #d94556;
 }
 
-html {
-  color-scheme: dark;
-  overflow: hidden;
-  height: 100%;
-  background: #0a0a0a;
-}
+/* ============================================================
+   Base layer — preserved PWA behaviors from prior globals.css
+   ============================================================ */
 
-body {
-  background: var(--color-bg-primary);
-  color: var(--color-text-primary);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  min-height: 100dvh;
-  -webkit-font-smoothing: antialiased;
-  overscroll-behavior: none;
-  -webkit-touch-callout: none;
-  -webkit-tap-highlight-color: transparent;
-  touch-action: manipulation;
-  margin: 0;
-}
+@layer base {
+  * { box-sizing: border-box; }
+  *, ::after, ::before { border-color: var(--border); }
 
-/* Prevent pull-to-refresh and rubber-band bounce in PWA */
-@media all and (display-mode: standalone) {
+  html {
+    color-scheme: dark;
+    overflow: hidden;
+    height: 100%;
+    background: var(--surface-0);
+  }
+
   body {
-    overscroll-behavior-y: contain;
+    background: var(--surface-1);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    min-height: 100dvh;
+    -webkit-font-smoothing: antialiased;
+    overscroll-behavior: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    margin: 0;
   }
 }
 
-/* Double-tap zoom prevention on all interactive elements */
-button, a, input, [role="button"] {
-  touch-action: manipulation;
+/* PWA: prevent pull-to-refresh and rubber-band bounce in standalone */
+@media all and (display-mode: standalone) {
+  body { overscroll-behavior-y: contain; }
 }
 
-/* Momentum scrolling for scroll containers */
-.scroll-native {
-  -webkit-overflow-scrolling: touch;
-}
+/* iOS double-tap-zoom prevention on interactive elements */
+button, a, input, [role="button"] { touch-action: manipulation; }
 
-/* Safe area utilities for notch/home indicator on iOS */
+/* Momentum scrolling for explicit scroll containers */
+.scroll-native { -webkit-overflow-scrolling: touch; }
+
+/* iOS safe-area utilities (notch / home indicator) */
 .safe-top { padding-top: env(safe-area-inset-top); }
 .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
 .safe-area-shell {
@@ -63,60 +158,43 @@ button, a, input, [role="button"] {
   padding-bottom: env(safe-area-inset-bottom);
 }
 
-::-webkit-scrollbar {
-  width: 6px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: #333;
-  border-radius: 3px;
-}
+/* Custom scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--surface-4); border-radius: 3px; }
 
-.song-card {
-  transition: transform 0.3s ease, opacity 0.3s ease;
-}
-
-.vote-btn {
-  transition: all 0.15s ease;
-}
-.vote-btn:active {
-  transform: scale(0.9);
-}
+/* Existing component classes preserved */
+.song-card { transition: transform 0.3s ease, opacity 0.3s ease; }
+.vote-btn { transition: all 0.15s ease; }
+.vote-btn:active { transform: scale(0.9); }
 
 @keyframes slideDown {
   from { opacity: 0; transform: translateY(-1rem); }
   to { opacity: 1; transform: translateY(0); }
 }
-
 @keyframes fadeIn {
   from { opacity: 0; transform: scale(0.95); }
   to { opacity: 1; transform: scale(1); }
 }
-
 @keyframes fadeInDelay {
   0%, 80% { opacity: 0; }
   100% { opacity: 1; }
 }
-.name-form-enter {
-  animation: fadeInDelay 0.6s ease-out both;
-}
+.name-form-enter { animation: fadeInDelay 0.6s ease-out both; }
 
+/* Now-playing pulse — re-tuned to coral (was Spotify green) */
 @keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(29, 185, 84, 0.4); }
-  50% { box-shadow: 0 0 20px 4px rgba(29, 185, 84, 0.2); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(250, 88, 106, 0.4); }
+  50% { box-shadow: 0 0 20px 4px rgba(250, 88, 106, 0.2); }
 }
-.now-playing {
-  animation: pulse-glow 2s ease-in-out infinite;
-}
+.now-playing { animation: pulse-glow 2s ease-in-out infinite; }
 
-
-/* Desktop ambient background and glass card */
+/* Desktop ambient — gold + coral radial wash (was green) */
 @media (min-width: 1024px) {
   body {
-    background: radial-gradient(ellipse at 50% 0%, rgba(29,185,84,0.06) 0%, transparent 50%),
-                radial-gradient(ellipse at 80% 50%, rgba(29,185,84,0.03) 0%, transparent 40%),
-                var(--color-bg-primary);
+    background:
+      radial-gradient(ellipse at 50% 0%, rgba(212, 179, 102, 0.07) 0%, transparent 50%),
+      radial-gradient(ellipse at 80% 50%, rgba(250, 88, 106, 0.04) 0%, transparent 40%),
+      var(--surface-1);
   }
 }
