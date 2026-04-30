@@ -757,24 +757,41 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
 
   return (
     <Shell>
-      {/* HEADER — title + device row */}
+      {/* HEADER — title + stacked device/playlist rows */}
       <header className="pt-1 mb-5">
-        <h1 className="text-[28px] font-bold leading-none tracking-tight mb-3">Bluegrass</h1>
-        <button
-          onClick={() => { setPicker("device"); void loadDevices(); }}
-          className="flex items-center justify-between gap-2 w-full px-4 py-2.5 bg-bg-card/40 border border-separator rounded-xl text-sm hover:border-separator-strong hover:bg-bg-card transition-colors"
-        >
-          <span className="flex items-center gap-2.5 min-w-0">
-            <span className={cn(
-              "w-2 h-2 rounded-full shrink-0 transition-colors",
-              selectedDevice?.isActive
-                ? "bg-primary shadow-[0_0_8px_var(--bb-blue)]"
-                : "bg-text-secondary/40"
-            )} />
-            <span className="font-medium truncate">{selectedDevice?.name ?? "Pick device"}</span>
-          </span>
-          <ChevronRight className="w-4 h-4 text-text-secondary shrink-0" />
-        </button>
+        <h1 className="text-[26px] font-bold leading-none tracking-tight mb-3">Bluegrass Ballroom</h1>
+        <div className="space-y-2">
+          {/* Device row */}
+          <button
+            onClick={() => { setPicker("device"); void loadDevices(); }}
+            className="flex items-center justify-between gap-2 w-full px-4 py-2.5 bg-bg-card/40 border border-separator rounded-xl text-sm hover:border-separator-strong hover:bg-bg-card transition-colors"
+            aria-label="Change playback device"
+          >
+            <span className="flex items-center gap-2.5 min-w-0">
+              <span className={cn(
+                "w-2 h-2 rounded-full shrink-0 transition-colors",
+                selectedDevice?.isActive
+                  ? "bg-primary shadow-[0_0_8px_var(--bb-blue)]"
+                  : "bg-text-secondary/40"
+              )} />
+              <span className="font-medium truncate">{selectedDevice?.name ?? "Pick device"}</span>
+            </span>
+            <ChevronRight className="w-4 h-4 text-text-secondary shrink-0" />
+          </button>
+
+          {/* Playlist row */}
+          <button
+            onClick={() => { setPicker("playlist"); void loadPlaylists(); }}
+            className="flex items-center justify-between gap-2 w-full px-4 py-2.5 bg-bg-card/40 border border-separator rounded-xl text-sm hover:border-separator-strong hover:bg-bg-card transition-colors"
+            aria-label="Change playlist"
+          >
+            <span className="flex items-center gap-2.5 min-w-0">
+              <ListMusic className="w-4 h-4 text-text-secondary shrink-0" />
+              <span className="font-medium truncate">{sess.playlistName}</span>
+            </span>
+            <ChevronRight className="w-4 h-4 text-text-secondary shrink-0" />
+          </button>
+        </div>
       </header>
 
       {/* NOW PLAYING — album art + track + progress */}
@@ -986,36 +1003,12 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
         </div>
       </section>
 
-      {/* PLAYLIST card */}
-      <section className="mt-3">
-        <button
-          onClick={() => { setPicker("playlist"); void loadPlaylists(); }}
-          className="w-full flex items-center justify-between gap-3 px-4 py-3.5 bg-bg-card/40 border border-separator rounded-2xl hover:bg-bg-card hover:border-separator-strong transition-colors text-left"
-        >
-          <span className="flex items-center gap-2.5 min-w-0 flex-1">
-            <ListMusic className="w-4 h-4 text-text-secondary shrink-0" />
-            <span className="text-sm font-medium truncate">{sess.playlistName}</span>
-          </span>
-          <span className="flex items-center gap-1 text-xs text-text-secondary shrink-0">
-            Change
-            <ChevronRight className="w-4 h-4 text-text-secondary/60" />
-          </span>
-        </button>
-      </section>
-
-      {/* FOOTER — text-link sized secondary actions */}
-      <footer className="mt-8 mb-2 flex items-center justify-center gap-5 text-sm">
-        <button
-          onClick={() => setPicker("settings")}
-          className="text-text-secondary hover:text-foreground transition-colors px-2 py-1.5"
-        >
-          Settings
-        </button>
-        <span aria-hidden className="text-text-secondary/30">·</span>
+      {/* FOOTER — End Session only */}
+      <footer className="mt-8 mb-2 flex items-center justify-center text-sm">
         <button
           onClick={endSession}
           disabled={busy}
-          className="text-[#f87171] hover:text-[#fca5a5] transition-colors px-2 py-1.5 disabled:opacity-40"
+          className="text-[#f87171] hover:text-[#fca5a5] transition-colors px-3 py-1.5 disabled:opacity-40"
         >
           End Session
         </button>
