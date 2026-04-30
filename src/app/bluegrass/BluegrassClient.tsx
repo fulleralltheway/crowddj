@@ -751,13 +751,14 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
       {/* Top: device pill */}
       <button
         onClick={() => { setPicker("device"); void loadDevices(); }}
-        className="flex items-center justify-between gap-2 w-full px-4 py-3 bg-bg-card/50 border border-separator rounded-2xl text-sm"
+        className="flex items-center justify-between gap-2 w-full px-4 py-3 bg-bg-card/50 border border-separator rounded-2xl text-sm hover:border-separator-strong hover:bg-bg-card transition-colors"
       >
         <span className="text-text-secondary">Device</span>
         <span className="font-medium truncate">{selectedDevice?.name ?? "Pick device →"}</span>
       </button>
 
-      {/* Now playing — album art with subtle blue glow when playing */}
+      {/* Now playing — album art with subtle blue glow when playing,
+          crossfade on track change */}
       <div className="flex flex-col items-center gap-5 mt-6">
         <div
           className={cn(
@@ -765,16 +766,44 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
             playback?.isPlaying && "shadow-[0_0_48px_rgba(0,87,225,0.32)]"
           )}
         >
-          {playback?.albumArt ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={playback.albumArt} alt="" className="w-full h-full object-cover" />
-          ) : (
-            <div className="text-text-secondary text-sm">No track</div>
-          )}
+          <AnimatePresence mode="wait" initial={false}>
+            {playback?.albumArt ? (
+              <motion.img
+                key={playback.trackUri ?? playback.albumArt}
+                src={playback.albumArt}
+                alt=""
+                initial={{ opacity: 0, scale: 1.04 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.98 }}
+                transition={{ duration: 0.35, ease: [0.4, 0, 0.2, 1] }}
+                className="absolute inset-0 w-full h-full object-cover"
+              />
+            ) : (
+              <motion.div
+                key="no-track"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="text-text-secondary text-sm"
+              >
+                No track
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
         <div className="text-center w-full">
-          <div className="text-xl font-semibold truncate tracking-tight">{playback?.trackName ?? "—"}</div>
-          <div className="text-text-secondary text-sm truncate mt-0.5">{playback?.artistName ?? sess.playlistName}</div>
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.div
+              key={playback?.trackUri ?? playback?.trackName ?? "no-track"}
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.25 }}
+            >
+              <div className="text-xl font-semibold truncate tracking-tight">{playback?.trackName ?? "—"}</div>
+              <div className="text-text-secondary text-sm truncate mt-0.5">{playback?.artistName ?? sess.playlistName}</div>
+            </motion.div>
+          </AnimatePresence>
           <div className="text-text-secondary text-[11px] mt-2 font-mono tabular-nums tracking-wider">
             {fmt(positionSec)} <span className="opacity-40">·</span> {fmt(durationCap)}
             {sess.maxSongDurationSec >= AUTO_DURATION_MIN_SEC && playback?.durationMs && playback.durationMs / 1000 > sess.maxSongDurationSec
@@ -1085,15 +1114,19 @@ function DeviceList({
   }
   return (
     <div className="space-y-2">
-      {devices.map((d) => (
-        <button
+      {devices.map((d, i) => (
+        <motion.button
           key={d.id}
           onClick={() => onPick(d.id)}
-          className={`w-full text-left px-4 py-3 rounded-xl border ${selected === d.id ? "border-accent bg-accent/10" : "border-separator bg-bg-card/50"}`}
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: i * 0.04, duration: 0.2 }}
+          whileTap={{ scale: 0.985 }}
+          className={`w-full text-left px-4 py-3 rounded-xl border transition-colors ${selected === d.id ? "border-accent bg-accent/10" : "border-separator bg-bg-card/50 hover:border-separator-strong hover:bg-bg-card"}`}
         >
           <div className="font-medium">{d.name}</div>
           <div className="text-text-secondary text-xs">{d.type}{d.isActive ? " · active" : ""}</div>
-        </button>
+        </motion.button>
       ))}
       <button onClick={onRefresh} className="w-full mt-2 py-2 text-sm text-accent">Refresh</button>
     </div>
