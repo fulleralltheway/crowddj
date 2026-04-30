@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { getCurrentPlayback, pausePlayback, setVolume, skipToNext, startPlayback } from "@/lib/spotify";
+import { getCurrentPlayback, pausePlayback, setVolume, skipToNext, startPlayback, startPlaybackContext } from "@/lib/spotify";
 import { getNextSessionTrack, markCurrentPlayed } from "@/lib/bluegrass-queue";
 import { buildFadeCurve } from "@/lib/fade-curve";
 import { NextRequest, NextResponse } from "next/server";
@@ -161,7 +161,11 @@ export async function POST(req: NextRequest) {
 
   // ADR 0002: look up next track from the DB queue. Skipped for
   // stopAfterCurrent since we pause.
-  const nextRow = sess.stopAfterCurrent ? null : await getNextSessionTrack(sess.id);
+  // Look up next track regardless of stopAfterCurrent — the stop-after path
+  // also needs it (preloads the new track + pauses, so resume plays the
+  // next song cleanly from position 0 instead of replaying the tail of
+  // the previous one).
+  const nextRow = await getNextSessionTrack(sess.id);
 
   const { multipliers, stepMs } = buildFadeCurve(fadeDurationMs);
 
@@ -173,27 +177,129 @@ export async function POST(req: NextRequest) {
     try { await setVolume(accessToken, 0); } catch {}
   }
 
-  // "Stop after this song" mode: pause instead of advancing.
+  // "Stop after this song" mode: preload the NEXT track in a paused state
+  // so when the user resumes it plays cleanly from position 0. Without
+  // the preload, the OLD track would resume from a position past the
+  // threshold, immediately re-trip the fade, and bleed into the next
+  // track — that's the "tail audible" bug.
+  //
+  // Preload strategy:
+  //   - If we have nextRow (DB queue populated): startPlaybackContext
+  //     with offset.uri = nextRow.spotifyUri. Falls back to skipToNext
+  //     when Spotify rejects (e.g. manually-inserted track not in the
+  //     playlist context).
+  //   - If nextRow is null (queue UI currently hidden, or queue
+  //     exhausted): skipToNext directly. Spotify advances its native
+  //     playlist-context queue to the next track.
+  //   - Both paths land on "next track loaded, paused at progress_ms≈0,
+  //     volume restored" so Resume plays cleanly.
+  //
+  // Sleep timing matches PartyQueue's room-pause reference:
+  //   500ms post-fade cooldown + 200ms pre-load + 300ms post-startup +
+  //   300ms post-pause = 1300ms total. Tight enough timing causes the
+  //   new track to start audibly.
   if (sess.stopAfterCurrent) {
     try { await pausePlayback(accessToken); } catch {}
+    await sleep(500); // post-fade rate-limit cooldown
+    try { await setVolume(accessToken, 0); } catch {}
     await sleep(200);
+
+    // Advance Spotify by one track so the device is positioned on the
+    // NEXT track, paused at near-position-0.
+    let preloadOk = true;
+    let preloadedUri: string | null = null;
+    try {
+      if (nextRow) {
+        try {
+          await startPlaybackContext(
+            accessToken,
+            sess.playlistUri,
+            sess.deviceId ?? undefined,
+            { uri: nextRow.spotifyUri }
+          );
+          preloadedUri = nextRow.spotifyUri;
+        } catch {
+          // offset.uri rejected (manually-inserted track not in the
+          // playlist context, or other 4xx). Fall back to Spotify's
+          // native skipToNext, which advances the playlist context.
+          await skipToNext(accessToken);
+        }
+      } else {
+        await skipToNext(accessToken);
+      }
+    } catch {
+      preloadOk = false;
+    }
+
+    await sleep(300);
+    try { await pausePlayback(accessToken); } catch {}
+    await sleep(300);
     await restoreVolume(accessToken, sess.targetVolume);
-    await prisma.bluegrassSession.update({
-      where: { id: sess.id },
-      data: { stopAfterCurrent: false },
+
+    // DB writes wrapped — even if Postgres flakes, the response still
+    // tells the client what happened. stopAfterCurrent=false is the
+    // critical one (so the next threshold doesn't re-fire stop mode);
+    // retry once if it fails.
+    const updateData: { stopAfterCurrent: false; currentTrackUri?: string; trackStartedAt?: Date } = {
+      stopAfterCurrent: false,
+    };
+    if (preloadedUri) {
+      updateData.currentTrackUri = preloadedUri;
+      updateData.trackStartedAt = new Date();
+    } else {
+      // skipToNext-driven advance — let the next /state poll resolve
+      // currentTrackUri from getCurrentPlayback. Don't write a stale
+      // value here.
+      updateData.currentTrackUri = undefined;
+    }
+    try {
+      await prisma.bluegrassSession.update({ where: { id: sess.id }, data: updateData });
+    } catch {
+      try { await prisma.bluegrassSession.update({ where: { id: sess.id }, data: updateData }); } catch {}
+    }
+    if (preloadedUri && nextRow) {
+      try {
+        await prisma.bluegrassSessionTrack.update({
+          where: { id: nextRow.id },
+          data: { isPlaying: true },
+        });
+      } catch {}
+    }
+
+    return NextResponse.json({
+      ok: true,
+      action: preloadedUri ? "stopped_after_song_preloaded" : "stopped_after_song_advanced",
+      fadedFrom: originalVolume,
+      preloadedUri,
+      preloadOk,
     });
-    return NextResponse.json({ ok: true, action: "stopped_after_song", fadedFrom: originalVolume });
   }
 
-  // Three-tier advance fallback (matches fade-skip):
-  //   1. DB queue → startPlayback with explicit URI
-  //   2. DB queue exhausted → skipToNext (Spotify's native, /me/player/next)
-  //   3. Both fail → restore volume, release cooldown, error
+  // Advance fallback chain:
+  //   1. DB queue → startPlaybackContext({uri: nextUri}) — preserves the
+  //      playlist as queue context so Spotify auto-advances after the
+  //      played track ends. Fixes the "music stops" bug.
+  //   2. If startPlaybackContext rejects (offset.uri not in context —
+  //      e.g. manually-inserted track) → startPlayback(uris:[nextUri]).
+  //      Loses auto-advance for that one track but the next transition
+  //      handles it. Better than failing the skip.
+  //   3. DB queue empty → skipToNext (Spotify's native /me/player/next)
+  //   4. All fail → restore volume, release cooldown, error
   let nextTrackUri: string | undefined;
   try {
     if (nextRow) {
       nextTrackUri = nextRow.spotifyUri;
-      await startPlayback(accessToken, [nextTrackUri], sess.deviceId ?? undefined);
+      try {
+        await startPlaybackContext(
+          accessToken,
+          sess.playlistUri,
+          sess.deviceId ?? undefined,
+          { uri: nextTrackUri }
+        );
+      } catch {
+        // offset.uri not in context — defensive fallback
+        await startPlayback(accessToken, [nextTrackUri], sess.deviceId ?? undefined);
+      }
       await prisma.bluegrassSessionTrack.update({
         where: { id: nextRow.id },
         data: { isPlaying: true },
