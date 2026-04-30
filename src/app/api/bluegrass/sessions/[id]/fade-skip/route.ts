@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getCurrentPlayback, getPlaylistTracks, setVolume, startPlaybackContext } from "@/lib/spotify";
-import { cachedPlaylistTracks } from "@/lib/spotify-cache";
+import { getCurrentPlayback, setVolume, skipToNext, startPlayback } from "@/lib/spotify";
+import { getNextSessionTrack, markCurrentPlayed } from "@/lib/bluegrass-queue";
 import { buildFadeCurve } from "@/lib/fade-curve";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -60,15 +60,9 @@ export async function POST(
     return NextResponse.json({ skipped: true, reason: "concurrent_transition_in_flight" });
   }
 
-  // Determine current track + next track BEFORE fading. Doing this up-front
-  // also catches the "device went silent / Spotify lost the context" case
-  // before we've started ramping volume down.
+  // Capture current device volume + currently-playing URI BEFORE fading.
   let originalVolume = sess.targetVolume;
   let currentTrackUri: string | undefined;
-  // Spotify's track relinking: when a track has a region-specific replacement,
-  // playback.item.uri is the RELINKED uri, while the playlist still stores
-  // the ORIGINAL uri at item.linked_from.uri. Both forms must be considered
-  // when matching the playing track against the playlist.
   let currentLinkedFromUri: string | undefined;
   try {
     const playback = await getCurrentPlayback(accessToken);
@@ -77,39 +71,10 @@ export async function POST(
     currentLinkedFromUri = playback?.item?.linked_from?.uri;
   } catch {}
 
-  // Look up the next track URI in the playlist. PartyQueue's CLAUDE.md flags
-  // skipToNext as unreliable; the proven pattern is startPlayback with an
-  // explicit URI / context+offset. We use context+offset.uri so Spotify
-  // keeps the playlist as the queue context (continued auto-advance + the
-  // user's native crossfade work after our cut).
-  const playlistId = sess.playlistUri.replace(/^spotify:playlist:/, "");
-  let nextTrackUri: string | undefined;
-  // Diagnostic state surfaced in the response so failures are debuggable
-  // from the client without spelunking Vercel logs.
-  let trackCount = 0;
-  let matchKind: "uri" | "linked_from" | "none" = "none";
-  let resolvedIdx = -1;
-  let lookupError: string | undefined;
-  try {
-    const tracks = await cachedPlaylistTracks(playlistId, () => getPlaylistTracks(accessToken, playlistId));
-    trackCount = tracks.length;
-    if (tracks.length > 0) {
-      let idx = -1;
-      if (currentTrackUri) {
-        idx = tracks.findIndex((t: { spotifyUri: string }) => t.spotifyUri === currentTrackUri);
-        if (idx >= 0) matchKind = "uri";
-      }
-      if (idx < 0 && currentLinkedFromUri) {
-        idx = tracks.findIndex((t: { spotifyUri: string }) => t.spotifyUri === currentLinkedFromUri);
-        if (idx >= 0) matchKind = "linked_from";
-      }
-      resolvedIdx = idx;
-      const nextIdx = idx >= 0 ? (idx + 1) % tracks.length : 0;
-      nextTrackUri = tracks[nextIdx].spotifyUri;
-    }
-  } catch (e) {
-    lookupError = e instanceof Error ? e.message : "unknown";
-  }
+  // ADR 0002: look up next track from the DB queue, not from
+  // /v1/playlists/{id}/tracks. After the import endpoint runs once at
+  // session-start, the queue lives entirely in BluegrassSessionTrack rows.
+  const nextRow = await getNextSessionTrack(id);
 
   const { multipliers, stepMs } = buildFadeCurve(fadeDurationMs);
 
@@ -122,12 +87,32 @@ export async function POST(
     try { await setVolume(accessToken, 0); } catch {}
   }
 
-  // Start the next track via the playlist context with explicit offset.
-  // If we couldn't determine a next URI, fall back to "play playlist from
-  // position 0" — better than leaving the user paused at zero volume.
+  // Mark the just-finished track as played in the queue. Try both the
+  // relinked uri and the linked_from uri to handle Spotify's region
+  // relinking (one of them matches the playlist row).
+  if (currentTrackUri) await markCurrentPlayed(id, currentTrackUri);
+  if (currentLinkedFromUri) await markCurrentPlayed(id, currentLinkedFromUri);
+
+  // Three-tier fallback for the actual transition:
+  //   1. DB queue has a next track → startPlayback with explicit URI (ideal)
+  //   2. DB queue empty (import never ran or all played) → Spotify's native
+  //      skipToNext, which advances the playlist context. /me/player/next is
+  //      in a separate rate-limit bucket from /v1/playlists/* so it stays
+  //      available even when playlist endpoints are throttled.
+  //   3. Both fail → restore volume, release cooldown, return error. Do NOT
+  //      restart the playlist from position 0 — that's worse than no skip.
+  let nextTrackUri: string | undefined;
   try {
-    const offset = nextTrackUri ? { uri: nextTrackUri } : { position: 0 };
-    await startPlaybackContext(accessToken, sess.playlistUri, sess.deviceId ?? undefined, offset);
+    if (nextRow) {
+      nextTrackUri = nextRow.spotifyUri;
+      await startPlayback(accessToken, [nextTrackUri], sess.deviceId ?? undefined);
+      await prisma.bluegrassSessionTrack.update({
+        where: { id: nextRow.id },
+        data: { isPlaying: true },
+      });
+    } else {
+      await skipToNext(accessToken);
+    }
   } catch (e) {
     await restoreVolume(accessToken, originalVolume || sess.targetVolume);
     try {
@@ -156,13 +141,6 @@ export async function POST(
     ok: true,
     fadedFrom: originalVolume,
     nextTrackUri,
-    diagnostics: {
-      currentTrackUri,
-      currentLinkedFromUri,
-      matchKind,            // "uri" | "linked_from" | "none"
-      resolvedIdx,          // -1 = current track not in playlist; fell back to position 0
-      trackCount,
-      lookupError,
-    },
+    source: nextRow ? "db_queue" : "spotify_native_skip",
   });
 }
