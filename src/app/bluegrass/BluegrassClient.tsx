@@ -82,6 +82,10 @@ type Playlist = {
 };
 
 const FADE_FIRED_KEY = "bluegrass.lastFadeFiredAt";
+// Persisted across reloads so a PWA reload mid-session (iOS PWA wakes,
+// soft-refresh, etc.) doesn't trick handlePlayPause into firing /play
+// (top-of-playlist) when it should be /fade-resume.
+const STARTED_FOR_SESSION_KEY = "bluegrass.startedForSession";
 const PLAYLIST_CACHE_KEY = "bluegrass.playlistCache";
 const PLAYLIST_CACHE_TTL_MS = 60 * 60 * 1000; // 1h
 // Spotify rate-limit cool-off. When we see a long Retry-After (>120s),
@@ -146,6 +150,17 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
   const sessRef = useRef<SessionRow | null>(initialSession);
   useEffect(() => { sessRef.current = sess; }, [sess]);
 
+  // Refetch the session row from the server. The cron-driven fade-transition
+  // path mutates server-side fields (e.g. clears stopAfterCurrent after it
+  // pauses), but our local sess state doesn't see that without a refetch.
+  // Declared before pollState so the threshold-fallback closure can call it.
+  const refreshSession = useCallback(async () => {
+    const s = sessRef.current;
+    if (!s) return;
+    const res = await fetch(`/api/bluegrass/sessions/${s.id}`);
+    if (res.ok) setSess(await res.json());
+  }, []);
+
   // 1s state poll loop + client-polling threshold fallback (T11). Declared
   // before the socket effect so it's hoisted; the socket effect references it.
   const pollState = useCallback(async () => {
@@ -174,35 +189,27 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
           // Idempotency: don't refire within fadeMs + 2s (transition is in flight).
           if (Date.now() - last > fadeMs + 2000) {
             localStorage.setItem(FADE_FIRED_KEY, String(Date.now()));
-            const path = s.stopAfterCurrent ? "fade-pause" : "fade-skip";
-            void fetch(`/api/bluegrass/sessions/${s.id}/${path}`, { method: "POST" });
-            // Mirror the cron-path's stopAfterCurrent reset so behavior is
-            // identical regardless of socket connectivity. Optimistically
-            // update local state so the checkbox UI reflects the change
-            // without waiting for refreshSession.
-            if (s.stopAfterCurrent) {
-              void fetch(`/api/bluegrass/sessions/${s.id}`, {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ stopAfterCurrent: false }),
-              });
-              setSess((prev) => prev ? { ...prev, stopAfterCurrent: false } : prev);
-            }
+            // Single endpoint for both stopAfterCurrent and normal advance.
+            // The server reads sess.stopAfterCurrent and runs the matching
+            // branch in src/lib/bluegrass-fade.ts — identical to the
+            // socket-driven cron path. Refresh the session row after so
+            // local state mirrors the server-side stopAfterCurrent reset.
+            void (async () => {
+              try {
+                await fetch(`/api/bluegrass/sessions/${s.id}/fade-transition`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ expectedTrackUri: data.trackUri }),
+                });
+              } finally {
+                void refreshSession();
+              }
+            })();
           }
         }
       }
     } catch {}
-  }, [socketConnected]);
-
-  // Refetch the session row from the server. The cron-driven fade-transition
-  // path mutates server-side fields (e.g. clears stopAfterCurrent after it
-  // pauses), but our local sess state doesn't see that without a refetch.
-  const refreshSession = useCallback(async () => {
-    const s = sessRef.current;
-    if (!s) return;
-    const res = await fetch(`/api/bluegrass/sessions/${s.id}`);
-    if (res.ok) setSess(await res.json());
-  }, []);
+  }, [socketConnected, refreshSession]);
 
   // Socket — join the session room, react to push events from the server.
   // Re-joins on reconnect so server-side activeSessions is restored.
@@ -408,9 +415,32 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
   // Track which session id we've already fired /play for. Comparing this
   // against sess?.id lets handlePlayPause distinguish "first start" (calls
   // /play with explicit offset 0) from "resume after pause" (fade-resume).
-  // Storing the id-or-null instead of a boolean avoids the
-  // setState-on-id-change effect that the React lint rule flags.
-  const [startedForSession, setStartedForSession] = useState<string | null>(null);
+  //
+  // Persisted to localStorage so iOS PWA reload / wake-from-background /
+  // soft-refresh doesn't reset us to "first start" and silently restart
+  // the playlist from track 1 when the user hits Play.
+  //
+  // Lazy initializer (not a useEffect-based hydration) closes the 1-frame
+  // tap-during-hydration window where handlePlayPause could see hasStarted
+  // = false and fire /play before localStorage was read. The function only
+  // runs on the client because BluegrassClient is a "use client" component
+  // mounted under Next.js App Router; SSR sees the same null initial value
+  // because initialSession is the prop that drives sess, not this state.
+  const [startedForSession, setStartedForSessionState] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      return localStorage.getItem(STARTED_FOR_SESSION_KEY);
+    } catch {
+      return null;
+    }
+  });
+  const setStartedForSession = useCallback((id: string | null) => {
+    setStartedForSessionState(id);
+    try {
+      if (id) localStorage.setItem(STARTED_FOR_SESSION_KEY, id);
+      else localStorage.removeItem(STARTED_FOR_SESSION_KEY);
+    } catch {}
+  }, []);
   const hasStarted = sess?.id != null && startedForSession === sess.id;
 
   const startWithPlaylist = async (playlist: Playlist, deviceId: string) => {
@@ -466,6 +496,7 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
       if (res.ok) {
         try { getSocket().emit("session-ended", sess.id); } catch {}
         localStorage.removeItem(FADE_FIRED_KEY);
+        setStartedForSession(null);
         setSess(null);
         setPlayback(null);
         setPicker("ended");
