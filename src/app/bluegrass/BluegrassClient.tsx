@@ -3,11 +3,12 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { signOut } from "next-auth/react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Play, Pause } from "lucide-react";
+import { Play, Pause, SkipForward, Square } from "lucide-react";
 import { getSocket } from "@/lib/socket";
 import { useAppHeight } from "@/lib/pwa";
 import { AUTO_DURATION_MIN_SEC } from "@/lib/bluegrass-sync";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 
 // Single source of truth for socket connection state, satisfies the
 // react-hooks/set-state-in-effect rule (no synchronous setState in effects).
@@ -820,29 +821,33 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
       {/* Controls */}
       <div className="mt-7 space-y-4">
         <div className="grid grid-cols-2 gap-3">
-          <button
+          <Button
+            variant="outline"
             onClick={handleSkip}
             disabled={busy || !playback?.isPlaying}
-            className="py-4 bg-bg-card border border-white/[0.06] rounded-2xl font-medium disabled:opacity-40"
+            className="h-14 rounded-2xl bg-bg-card border-[color:var(--surface-3)] text-base font-medium gap-2"
           >
+            <SkipForward className="w-[18px] h-[18px]" />
             Skip
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="outline"
             onClick={handleStop}
             disabled={busy || !playback?.isPlaying}
-            className="py-4 bg-bg-card border border-white/[0.06] rounded-2xl font-medium disabled:opacity-40"
+            className="h-14 rounded-2xl bg-bg-card border-[color:var(--surface-3)] text-base font-medium gap-2"
           >
+            <Square className="w-[14px] h-[14px] fill-current" />
             Stop
-          </button>
+          </Button>
         </div>
-        <div className="bg-bg-card/50 border border-white/[0.06] rounded-2xl divide-y divide-white/[0.06]">
-          <label className="flex items-center justify-between gap-3 px-4 py-3">
+        <div className="bg-bg-card/50 border border-[color:var(--surface-3)] rounded-2xl divide-y divide-[color:var(--surface-3)]">
+          <label className="flex items-center justify-between gap-3 px-4 py-3.5 cursor-pointer">
             <span className="text-sm">Stop after this song</span>
             <input
               type="checkbox"
               checked={sess.stopAfterCurrent}
               onChange={(e) => void patchSession({ stopAfterCurrent: e.target.checked })}
-              className="w-5 h-5 accent-accent"
+              className="w-[18px] h-[18px] accent-primary cursor-pointer"
             />
           </label>
           <ScheduledStopsRow
@@ -865,19 +870,21 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
 
       {/* Settings + End Session */}
       <div className="mt-6 grid grid-cols-2 gap-3">
-        <button
+        <Button
+          variant="outline"
           onClick={() => setPicker("settings")}
-          className="py-3 bg-bg-card border border-white/[0.06] rounded-2xl text-sm"
+          className="h-12 rounded-2xl bg-bg-card border-[color:var(--surface-3)] text-sm font-medium"
         >
           Settings
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="ghost"
           onClick={endSession}
           disabled={busy}
-          className="py-3 bg-red-500/10 border border-red-500/20 text-red-400 rounded-2xl text-sm font-medium disabled:opacity-40"
+          className="h-12 rounded-2xl bg-[rgba(239,68,68,0.1)] hover:bg-[rgba(239,68,68,0.18)] border border-[rgba(239,68,68,0.25)] text-[#f87171] hover:text-[#f87171] text-sm font-medium shadow-none disabled:opacity-40"
         >
           End Session
-        </button>
+        </Button>
       </div>
 
       {error && (
