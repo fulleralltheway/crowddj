@@ -1173,18 +1173,22 @@ function Sheet({ title, children, onClose }: { title: string; children: React.Re
         // hidden, so the chain dies) and the inner panel locks until the
         // sheet is closed and reopened. Symptom: list visible, taps work,
         // pan gestures do nothing — the freeze Jonathan reported.
-        className="w-full max-w-md bg-card border-t border-[color:var(--surface-3)] sm:border rounded-t-3xl sm:rounded-3xl px-5 pt-5 pb-8 max-h-[85vh] overflow-y-auto overscroll-contain shadow-[0_-12px_40px_rgba(0,0,0,0.5)]"
+        className="w-full max-w-md bg-card border-t border-[color:var(--surface-3)] sm:border rounded-t-3xl sm:rounded-3xl px-6 pt-3 pb-8 max-h-[85vh] overflow-y-auto overscroll-contain shadow-[0_-12px_40px_rgba(0,0,0,0.5)]"
         style={{
           paddingBottom: "max(env(safe-area-inset-bottom), 2rem)",
           WebkitOverflowScrolling: "touch",
         }}
       >
-        <div className="sticky top-0 -mt-5 -mx-5 mb-4 px-5 pt-5 pb-3 bg-card/95 backdrop-blur-md border-b border-[color:var(--surface-3)] flex items-center justify-between">
-          <h2 className="text-base font-semibold tracking-tight">{title}</h2>
+        {/* Drag-handle pill — iOS-native cue, even though sheets are tap-to-close */}
+        <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-[color:var(--surface-4)]" />
+
+        {/* Sticky header — generous breathing room top + bottom */}
+        <div className="sticky top-0 -mt-3 -mx-6 mb-6 px-6 pt-4 pb-5 bg-card/95 backdrop-blur-md border-b border-[color:var(--surface-3)] flex items-center justify-between">
+          <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
           <button
             onClick={onClose}
             aria-label="Close"
-            className="w-8 h-8 -mr-1 rounded-full flex items-center justify-center text-text-secondary hover:text-foreground hover:bg-[color:var(--surface-3)] transition-colors"
+            className="w-9 h-9 -mr-1 rounded-full flex items-center justify-center text-text-secondary hover:text-foreground hover:bg-[color:var(--surface-3)] transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
