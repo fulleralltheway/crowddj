@@ -39,7 +39,9 @@ describe("getNextSessionTrack", () => {
     const r = await getNextSessionTrack("sess1");
     expect(r).toBeNull();
     expect(mockTrack.findFirst).toHaveBeenCalledWith({
-      where: { sessionId: "sess1", isPlayed: false },
+      // isPlaying: false excludes the currently-playing row so we don't
+      // return the row that's still playing as "next" (queue-bug fix).
+      where: { sessionId: "sess1", isPlayed: false, isPlaying: false },
       orderBy: { sortOrder: "asc" },
     });
   });
