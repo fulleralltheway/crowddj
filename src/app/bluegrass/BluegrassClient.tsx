@@ -564,6 +564,17 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
       // Queue UI is hidden in production right now (per Jonathan, 2026-04-29).
       // The /queue/import endpoint exists but isn't wired into session start —
       // re-add the fetch here when the queue UI is re-enabled.
+
+      // Park Spotify on track 1 of the new playlist, paused, so the user sees
+      // exactly what will play before tapping Play. setStartedForSession routes
+      // the first Play tap through /fade-resume (resume the loaded track)
+      // instead of /play (which would re-fire startPlaybackContext and could
+      // glitch the now-loaded track).
+      const preloaded = await post(`/api/bluegrass/sessions/${created.id}/preload`);
+      if (preloaded?.ok !== false) {
+        setStartedForSession(created.id);
+        void pollState();
+      }
     }
   };
 
