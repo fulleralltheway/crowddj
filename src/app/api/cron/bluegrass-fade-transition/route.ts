@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db";
-import { getCurrentPlayback, getPlaylistTracks, pausePlayback, setVolume, startPlaybackContext } from "@/lib/spotify";
-import { cachedPlaylistTracks } from "@/lib/spotify-cache";
+import { getCurrentPlayback, pausePlayback, setVolume, skipToNext, startPlayback } from "@/lib/spotify";
+import { getNextSessionTrack, markCurrentPlayed } from "@/lib/bluegrass-queue";
 import { buildFadeCurve } from "@/lib/fade-curve";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -142,8 +142,6 @@ export async function POST(req: NextRequest) {
   const fadeDurationMs = Math.max(500, sess.fadeDurationSec * 1000);
 
   // Capture current volume + currently-playing track URI BEFORE the fade.
-  // Spotify's track relinking surfaces both the relinked uri (item.uri)
-  // and the original playlist uri (item.linked_from.uri). Match on either.
   let originalVolume = sess.targetVolume;
   let currentTrackUri: string | undefined;
   let currentLinkedFromUri: string | undefined;
@@ -154,27 +152,16 @@ export async function POST(req: NextRequest) {
     currentLinkedFromUri = playback?.item?.linked_from?.uri;
   } catch {}
 
-  // Look up next track URI so we can use the explicit-URI transition pattern
-  // PartyQueue's CLAUDE.md prescribes (skipToNext is unreliable). Skipped
-  // for stopAfterCurrent since we're pausing not advancing.
-  const playlistId = sess.playlistUri.replace(/^spotify:playlist:/, "");
-  let nextTrackUri: string | undefined;
-  if (!sess.stopAfterCurrent) {
-    try {
-      const tracks = await cachedPlaylistTracks(playlistId, () => getPlaylistTracks(accessToken, playlistId));
-      if (tracks.length > 0) {
-        let idx = -1;
-        if (currentTrackUri) {
-          idx = tracks.findIndex((t: { spotifyUri: string }) => t.spotifyUri === currentTrackUri);
-        }
-        if (idx < 0 && currentLinkedFromUri) {
-          idx = tracks.findIndex((t: { spotifyUri: string }) => t.spotifyUri === currentLinkedFromUri);
-        }
-        const nextIdx = idx >= 0 ? (idx + 1) % tracks.length : 0;
-        nextTrackUri = tracks[nextIdx].spotifyUri;
-      }
-    } catch {}
-  }
+  // CRITICAL ORDERING: mark the currently-playing row as PLAYED before we
+  // ask for the next one. Otherwise getNextSessionTrack returns the
+  // currently-playing row (lowest sortOrder among isPlayed=false) and we'd
+  // "advance" by replaying it. Idempotent on miss.
+  if (currentTrackUri) await markCurrentPlayed(sess.id, currentTrackUri);
+  if (currentLinkedFromUri) await markCurrentPlayed(sess.id, currentLinkedFromUri);
+
+  // ADR 0002: look up next track from the DB queue. Skipped for
+  // stopAfterCurrent since we pause.
+  const nextRow = sess.stopAfterCurrent ? null : await getNextSessionTrack(sess.id);
 
   const { multipliers, stepMs } = buildFadeCurve(fadeDurationMs);
 
@@ -188,9 +175,6 @@ export async function POST(req: NextRequest) {
 
   // "Stop after this song" mode: pause instead of advancing.
   if (sess.stopAfterCurrent) {
-    // Pause first (volume is at 0, silent), THEN restore volume so a
-    // subsequent resume comes back at target. Without the pause the track
-    // would keep playing audibly the moment volume returns.
     try { await pausePlayback(accessToken); } catch {}
     await sleep(200);
     await restoreVolume(accessToken, sess.targetVolume);
@@ -201,12 +185,22 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, action: "stopped_after_song", fadedFrom: originalVolume });
   }
 
-  // Otherwise, advance via the playlist context with an explicit offset URI.
-  // Falls back to position 0 if we couldn't determine the next track —
-  // better than leaving the user at zero volume.
+  // Three-tier advance fallback (matches fade-skip):
+  //   1. DB queue → startPlayback with explicit URI
+  //   2. DB queue exhausted → skipToNext (Spotify's native, /me/player/next)
+  //   3. Both fail → restore volume, release cooldown, error
+  let nextTrackUri: string | undefined;
   try {
-    const offset = nextTrackUri ? { uri: nextTrackUri } : { position: 0 };
-    await startPlaybackContext(accessToken, sess.playlistUri, sess.deviceId ?? undefined, offset);
+    if (nextRow) {
+      nextTrackUri = nextRow.spotifyUri;
+      await startPlayback(accessToken, [nextTrackUri], sess.deviceId ?? undefined);
+      await prisma.bluegrassSessionTrack.update({
+        where: { id: nextRow.id },
+        data: { isPlaying: true },
+      });
+    } else {
+      await skipToNext(accessToken);
+    }
   } catch {
     await restoreVolume(accessToken, sess.targetVolume);
     await releaseCooldown();
@@ -225,5 +219,11 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  return NextResponse.json({ ok: true, action: "advanced", fadedFrom: originalVolume, nextTrackUri });
+  return NextResponse.json({
+    ok: true,
+    action: "advanced",
+    fadedFrom: originalVolume,
+    nextTrackUri,
+    source: nextRow ? "db_queue" : "spotify_native_skip",
+  });
 }
