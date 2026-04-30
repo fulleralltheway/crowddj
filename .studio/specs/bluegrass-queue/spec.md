@@ -1,9 +1,9 @@
 ---
 name: Bluegrass Queue Management
 slug: bluegrass-queue
-status: draft
+status: signed-off
 created: 2026-04-29
-signed_off: pending
+signed_off: 2026-04-29
 shipped: pending
 ---
 

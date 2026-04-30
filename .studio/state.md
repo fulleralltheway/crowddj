@@ -9,20 +9,19 @@
 
 - **Name:** Bluegrass Queue Management
 - **Slug:** bluegrass-queue
-- **Phase:** 1
-- **Status:** draft
+- **Phase:** 3 (ready)
+- **Status:** signed-off (Phase 2 outputs landed)
 - **Spec:** `specs/bluegrass-queue/spec.md`
-- **Branch:** not yet created (Phase 3 will create `feature/bluegrass-queue` worktree)
+- **Tasks:** `specs/bluegrass-queue/tasks.md` (14 tasks, T0–T13)
+- **Branch:** not yet created — first action of Phase 3 is `git worktree add ../bluegrass-queue -b feature/bluegrass-queue`
 
 ## Last Completed Step
 
-2026-04-29: Phase 1 spec drafted at `specs/bluegrass-queue/spec.md`. Surfaced from a real need — the `/v1/playlists/{id}/tracks` rate-limit episode revealed that per-skip metadata fetches are architecturally fragile, and a DB-backed queue (PartyQueue's pattern) eliminates that pressure while also delivering the in-app queue management Abigail asked for (search + insert + see upcoming). Smell test passes; awaiting sign-off.
-
-bluegrass-dj feature itself shipped earlier today and is in production (paste-URL workaround live in v42; full picker reactivates automatically once Spotify lifts the `/me/playlists` rate limit).
+2026-04-29: Phase 1 sign-off received from Jonathan. Phase 2 outputs landed — `tasks.md` (14 tasks T0-T13, every one with a falsifiable verification criterion) and ADR 0002 explaining why `BluegrassSessionTrack` is its own model rather than a reuse of `RoomSong`.
 
 ## Next Step
 
-🛑 Sign-off gate. Send spec inline to Jonathan. After "go", advance to Phase 2 (tasks.md + ADR 0002 covering the `BluegrassSessionTrack`-vs-RoomSong decision).
+Phase 3 build, starting with T0 (worktree). When Vercel Pro upgrade and the Spotify Dev-mode rate limit are still relevant constraints — but neither blocks Phase 3 since the build doesn't need to hit playlist-metadata endpoints (search and `/me/player/*` are open).
 
 ## Active Sub-Agents
 
@@ -35,6 +34,7 @@ bluegrass-dj feature itself shipped earlier today and is in production (paste-UR
 ## Recent Decisions
 
 - ADR 0001: `BluegrassSession` as a separate Prisma model (status: accepted) — 2026-04-28
+- ADR 0002: `BluegrassSessionTrack` as a separate model from `RoomSong` (status: proposed; flips to accepted at Phase 5 review) — 2026-04-29
 
 ## Shipped Features (most recent 5)
 
