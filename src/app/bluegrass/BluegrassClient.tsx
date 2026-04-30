@@ -3,12 +3,11 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { signOut } from "next-auth/react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Play, Pause, SkipForward, Square, X } from "lucide-react";
+import { Play, Pause, SkipForward, Square, X, Volume1, Volume2, Clock, ListMusic, ChevronRight } from "lucide-react";
 import { getSocket } from "@/lib/socket";
 import { useAppHeight } from "@/lib/pwa";
 import { AUTO_DURATION_MIN_SEC } from "@/lib/bluegrass-sync";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 
 // Single source of truth for socket connection state, satisfies the
@@ -180,6 +179,10 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
   const [picker, setPicker] = useState<"none" | "device" | "playlist" | "settings" | "queue" | "ended" | "scheduled-stops">("none");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Local volume mirror for the always-visible main-panel slider.
+  // Initial value from session row; further changes are user-driven
+  // (slider drag) and committed via patchSession on pointer-up.
+  const [localVol, setLocalVol] = useState<number>(initialSession?.targetVolume ?? 50);
 
   // useSyncExternalStore is the React-idiomatic way to mirror an external
   // singleton's state into a component without doing setState-in-effect.
@@ -745,24 +748,40 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
   const selectedDevice = devices.find((d) => d.id === sess.deviceId);
   const positionSec = Math.floor((playback?.positionMs ?? 0) / 1000);
   const durationCap = sess.maxSongDurationSec || Math.floor((playback?.durationMs ?? 0) / 1000);
+  const progressPct = durationCap > 0 ? Math.min(100, (positionSec / durationCap) * 100) : 0;
+  const limitActive = sess.maxSongDurationSec >= AUTO_DURATION_MIN_SEC
+    && !!playback?.durationMs
+    && playback.durationMs / 1000 > sess.maxSongDurationSec;
+  const stopsCount = sess.scheduledStops?.length ?? 0;
+  const nextStop = sess.scheduledStops?.[0];
 
   return (
     <Shell>
-      {/* Top: device pill */}
-      <button
-        onClick={() => { setPicker("device"); void loadDevices(); }}
-        className="flex items-center justify-between gap-2 w-full px-4 py-3 bg-bg-card/50 border border-separator rounded-2xl text-sm hover:border-separator-strong hover:bg-bg-card transition-colors"
-      >
-        <span className="text-text-secondary">Device</span>
-        <span className="font-medium truncate">{selectedDevice?.name ?? "Pick device →"}</span>
-      </button>
+      {/* HEADER — title + device row */}
+      <header className="pt-1 mb-5">
+        <h1 className="text-[28px] font-bold leading-none tracking-tight mb-3">Bluegrass</h1>
+        <button
+          onClick={() => { setPicker("device"); void loadDevices(); }}
+          className="flex items-center justify-between gap-2 w-full px-4 py-2.5 bg-bg-card/40 border border-separator rounded-xl text-sm hover:border-separator-strong hover:bg-bg-card transition-colors"
+        >
+          <span className="flex items-center gap-2.5 min-w-0">
+            <span className={cn(
+              "w-2 h-2 rounded-full shrink-0 transition-colors",
+              selectedDevice?.isActive
+                ? "bg-primary shadow-[0_0_8px_var(--bb-blue)]"
+                : "bg-text-secondary/40"
+            )} />
+            <span className="font-medium truncate">{selectedDevice?.name ?? "Pick device"}</span>
+          </span>
+          <ChevronRight className="w-4 h-4 text-text-secondary shrink-0" />
+        </button>
+      </header>
 
-      {/* Now playing — album art with subtle blue glow when playing,
-          crossfade on track change */}
-      <div className="flex flex-col items-center gap-5 mt-6">
+      {/* NOW PLAYING — album art + track + progress */}
+      <section className="flex flex-col items-center gap-4">
         <div
           className={cn(
-            "relative aspect-square w-full max-w-xs rounded-2xl bg-bg-card overflow-hidden flex items-center justify-center transition-shadow duration-500",
+            "relative aspect-square w-full max-w-[260px] rounded-2xl bg-bg-card overflow-hidden flex items-center justify-center transition-shadow duration-500",
             playback?.isPlaying && "shadow-[0_0_48px_rgba(0,87,225,0.32)]"
           )}
         >
@@ -791,7 +810,8 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
             )}
           </AnimatePresence>
         </div>
-        <div className="text-center w-full">
+
+        <div className="text-center w-full px-2">
           <AnimatePresence mode="wait" initial={false}>
             <motion.div
               key={playback?.trackUri ?? playback?.trackName ?? "no-track"}
@@ -800,21 +820,52 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
               exit={{ opacity: 0, y: -4 }}
               transition={{ duration: 0.25 }}
             >
-              <div className="text-xl font-semibold truncate tracking-tight">{playback?.trackName ?? "—"}</div>
-              <div className="text-text-secondary text-sm truncate mt-0.5">{playback?.artistName ?? sess.playlistName}</div>
+              <div className="text-[22px] font-semibold leading-tight tracking-tight truncate">
+                {playback?.trackName ?? "—"}
+              </div>
+              <div className="text-text-secondary text-sm truncate mt-1">
+                {playback?.artistName ?? sess.playlistName}
+              </div>
             </motion.div>
           </AnimatePresence>
-          <div className="text-text-secondary text-[11px] mt-2 font-mono tabular-nums tracking-wider">
-            {fmt(positionSec)} <span className="opacity-40">·</span> {fmt(durationCap)}
-            {sess.maxSongDurationSec >= AUTO_DURATION_MIN_SEC && playback?.durationMs && playback.durationMs / 1000 > sess.maxSongDurationSec
-              ? <span className="ml-1.5 text-accent">limit</span>
-              : null}
+        </div>
+
+        {/* Progress bar */}
+        <div className="w-full px-1">
+          <div className="h-1 rounded-full bg-[color:var(--surface-3)] overflow-hidden">
+            <motion.div
+              animate={{ width: `${progressPct}%` }}
+              transition={{ duration: playback?.isPlaying ? 1 : 0.25, ease: "linear" }}
+              className="h-full rounded-full"
+              style={{ background: "linear-gradient(90deg, var(--bb-blue), var(--bb-blue-hover))" }}
+            />
+          </div>
+          <div className="flex justify-between items-center mt-2 font-mono text-[11px] tabular-nums text-text-secondary tracking-wider">
+            <span>{fmt(positionSec)}</span>
+            {limitActive && <span className="text-accent">limit</span>}
+            <span>{fmt(durationCap)}</span>
           </div>
         </div>
-      </div>
+      </section>
 
-      {/* Play/Pause hero — circular, blue, glowing */}
-      <div className="mt-8 flex justify-center">
+      {/* TRANSPORT — Stop · Play/Pause hero · Skip */}
+      <section className="mt-7 flex items-center justify-center gap-5">
+        <motion.button
+          onClick={handleStop}
+          disabled={busy || !playback?.isPlaying}
+          whileTap={{ scale: 0.9 }}
+          transition={{ type: "spring", stiffness: 600, damping: 30 }}
+          aria-label="Stop"
+          className={cn(
+            "w-14 h-14 rounded-full flex items-center justify-center",
+            "bg-bg-card border border-separator-strong text-foreground",
+            "transition-colors hover:bg-[color:var(--surface-3)]",
+            "disabled:opacity-30 disabled:pointer-events-none"
+          )}
+        >
+          <Square className="w-[18px] h-[18px] fill-current" />
+        </motion.button>
+
         <motion.button
           onClick={handlePlayPause}
           disabled={busy}
@@ -824,8 +875,7 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
           className={cn(
             "relative w-20 h-20 rounded-full flex items-center justify-center",
             "bg-primary text-primary-foreground shadow-[var(--shadow-glow-blue)]",
-            "transition-colors duration-200",
-            "hover:bg-[color:var(--bb-blue-hover)]",
+            "transition-colors duration-200 hover:bg-[color:var(--bb-blue-hover)]",
             "disabled:opacity-50 disabled:shadow-none disabled:pointer-events-none"
           )}
         >
@@ -846,33 +896,56 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
             </motion.span>
           </AnimatePresence>
         </motion.button>
-      </div>
 
-      {/* Controls */}
-      <div className="mt-7 space-y-4">
-        <div className="grid grid-cols-2 gap-3">
-          <Button
-            variant="outline"
-            onClick={handleSkip}
-            disabled={busy || !playback?.isPlaying}
-            className="h-14 rounded-2xl bg-bg-card border-[color:var(--surface-3)] text-base font-medium gap-2"
-          >
-            <SkipForward className="w-[18px] h-[18px]" />
-            Skip
-          </Button>
-          <Button
-            variant="outline"
-            onClick={handleStop}
-            disabled={busy || !playback?.isPlaying}
-            className="h-14 rounded-2xl bg-bg-card border-[color:var(--surface-3)] text-base font-medium gap-2"
-          >
-            <Square className="w-[14px] h-[14px] fill-current" />
-            Stop
-          </Button>
+        <motion.button
+          onClick={handleSkip}
+          disabled={busy || !playback?.isPlaying}
+          whileTap={{ scale: 0.9 }}
+          transition={{ type: "spring", stiffness: 600, damping: 30 }}
+          aria-label="Skip"
+          className={cn(
+            "w-14 h-14 rounded-full flex items-center justify-center",
+            "bg-bg-card border border-separator-strong text-foreground",
+            "transition-colors hover:bg-[color:var(--surface-3)]",
+            "disabled:opacity-30 disabled:pointer-events-none"
+          )}
+        >
+          <SkipForward className="w-[18px] h-[18px]" />
+        </motion.button>
+      </section>
+
+      {/* VOLUME — always-visible slider */}
+      <section className="mt-7 px-1">
+        <div className="flex items-center gap-3">
+          <Volume1 className="w-[18px] h-[18px] text-text-secondary shrink-0" />
+          <Slider
+            min={0}
+            max={100}
+            step={1}
+            value={[localVol]}
+            onValueChange={([v]) => {
+              setLocalVol(v);
+              // Live-push to the active Spotify device. Throttled in the
+              // parent; skipped server- and client-side while a fade is
+              // in flight so the slider can't fight a transition.
+              liveVolumePush(v);
+            }}
+            onValueCommit={([v]) => void patchSession({ targetVolume: v })}
+            className="flex-1"
+            aria-label="Volume"
+          />
+          <Volume2 className="w-[18px] h-[18px] text-text-secondary shrink-0" />
+          <span className="font-mono tabular-nums text-xs text-text-secondary w-9 text-right shrink-0">
+            {localVol}%
+          </span>
         </div>
-        <div className="bg-bg-card/50 border border-[color:var(--surface-3)] rounded-2xl divide-y divide-[color:var(--surface-3)]">
-          <label className="flex items-center justify-between gap-3 px-4 py-3.5 cursor-pointer">
-            <span className="text-sm">Stop after this song</span>
+      </section>
+
+      {/* AUTOMATION — stop-after toggle + scheduled stops glanceable */}
+      <section className="mt-7">
+        <div className="bg-bg-card/40 border border-separator rounded-2xl divide-y divide-separator overflow-hidden">
+          <label className="flex items-center justify-between gap-3 px-4 py-3.5 cursor-pointer hover:bg-bg-card transition-colors">
+            <span className="text-sm font-medium">Stop after this song</span>
             <input
               type="checkbox"
               checked={sess.stopAfterCurrent}
@@ -880,42 +953,73 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
               className="w-[18px] h-[18px] accent-primary cursor-pointer"
             />
           </label>
-          <ScheduledStopsRow
-            stops={sess.scheduledStops ?? []}
-            onTap={() => setPicker("scheduled-stops")}
-          />
+          <button
+            onClick={() => setPicker("scheduled-stops")}
+            className="w-full flex items-center justify-between gap-3 px-4 py-3.5 text-left hover:bg-bg-card transition-colors"
+          >
+            <span className="flex items-center gap-2.5 min-w-0">
+              <Clock className={cn(
+                "w-4 h-4 shrink-0 transition-colors",
+                stopsCount > 0 ? "text-accent" : "text-text-secondary"
+              )} />
+              <span className="text-sm font-medium">Scheduled stops</span>
+              {stopsCount > 0 && (
+                <span className="font-mono text-[11px] font-semibold text-accent bg-accent/15 px-1.5 py-0.5 rounded">
+                  {stopsCount}
+                </span>
+              )}
+            </span>
+            <span className="flex items-center gap-1.5 text-xs text-text-secondary min-w-0">
+              {nextStop ? (
+                <span className="tabular-nums truncate">
+                  Next {new Date(nextStop.stopAt).toLocaleTimeString([], {
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })}
+                </span>
+              ) : (
+                <span>Add</span>
+              )}
+              <ChevronRight className="w-4 h-4 text-text-secondary/60 shrink-0" />
+            </span>
+          </button>
         </div>
-      </div>
+      </section>
 
-      {/* Playlist row */}
-      <div className="mt-6 flex items-center justify-between gap-3 text-sm">
-        <span className="text-text-secondary truncate">Playlist: {sess.playlistName}</span>
+      {/* PLAYLIST card */}
+      <section className="mt-3">
         <button
           onClick={() => { setPicker("playlist"); void loadPlaylists(); }}
-          className="text-accent text-sm shrink-0"
+          className="w-full flex items-center justify-between gap-3 px-4 py-3.5 bg-bg-card/40 border border-separator rounded-2xl hover:bg-bg-card hover:border-separator-strong transition-colors text-left"
         >
-          Change
+          <span className="flex items-center gap-2.5 min-w-0 flex-1">
+            <ListMusic className="w-4 h-4 text-text-secondary shrink-0" />
+            <span className="text-sm font-medium truncate">{sess.playlistName}</span>
+          </span>
+          <span className="flex items-center gap-1 text-xs text-text-secondary shrink-0">
+            Change
+            <ChevronRight className="w-4 h-4 text-text-secondary/60" />
+          </span>
         </button>
-      </div>
+      </section>
 
-      {/* Settings + End Session */}
-      <div className="mt-6 grid grid-cols-2 gap-3">
-        <Button
-          variant="outline"
+      {/* FOOTER — text-link sized secondary actions */}
+      <footer className="mt-8 mb-2 flex items-center justify-center gap-5 text-sm">
+        <button
           onClick={() => setPicker("settings")}
-          className="h-12 rounded-2xl bg-bg-card border-[color:var(--surface-3)] text-sm font-medium"
+          className="text-text-secondary hover:text-foreground transition-colors px-2 py-1.5"
         >
           Settings
-        </Button>
-        <Button
-          variant="ghost"
+        </button>
+        <span aria-hidden className="text-text-secondary/30">·</span>
+        <button
           onClick={endSession}
           disabled={busy}
-          className="h-12 rounded-2xl bg-[rgba(239,68,68,0.1)] hover:bg-[rgba(239,68,68,0.18)] border border-[rgba(239,68,68,0.25)] text-[#f87171] hover:text-[#f87171] text-sm font-medium shadow-none disabled:opacity-40"
+          className="text-[#f87171] hover:text-[#fca5a5] transition-colors px-2 py-1.5 disabled:opacity-40"
         >
           End Session
-        </Button>
-      </div>
+        </button>
+      </footer>
 
       {error && (
         <div className="mt-4 px-4 py-3 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl text-sm">
@@ -965,7 +1069,7 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
       <AnimatePresence>
         {picker === "settings" && (
           <Sheet key="settings" onClose={() => setPicker("none")} title="Settings">
-            <SettingsForm sess={sess} onChange={patchSession} onLiveVolume={liveVolumePush} />
+            <SettingsForm sess={sess} onChange={patchSession} />
           </Sheet>
         )}
       </AnimatePresence>
@@ -1698,41 +1802,6 @@ function PlaylistList({
   );
 }
 
-function ScheduledStopsRow({
-  stops,
-  onTap,
-}: {
-  stops: ScheduledStop[];
-  onTap: () => void;
-}) {
-  // Glanceable preview: show next stop's time + a "+N" badge if more are
-  // queued. Single row regardless of count keeps main-player height fixed.
-  const next = stops[0];
-  const more = stops.length > 1 ? ` +${stops.length - 1}` : "";
-  return (
-    <button
-      onClick={onTap}
-      className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left"
-    >
-      <span className="text-sm">Scheduled stops</span>
-      <span className="flex items-center gap-2 text-sm text-text-secondary">
-        {next ? (
-          <span className="tabular-nums">
-            {new Date(next.stopAt).toLocaleTimeString([], {
-              hour: "numeric",
-              minute: "2-digit",
-            })}
-            {more}
-          </span>
-        ) : (
-          <span>None</span>
-        )}
-        <span className="text-text-secondary/60 text-base leading-none">›</span>
-      </span>
-    </button>
-  );
-}
-
 function ScheduledStopsSheet({
   sessionId,
   stops,
@@ -1901,15 +1970,12 @@ function AddStopForm({
 function SettingsForm({
   sess,
   onChange,
-  onLiveVolume,
 }: {
   sess: SessionRow;
   onChange: (data: Partial<SessionRow>) => void;
-  onLiveVolume: (vol: number) => void;
 }) {
   const [maxSec, setMaxSec] = useState(sess.maxSongDurationSec);
   const [fadeSec, setFadeSec] = useState(sess.fadeDurationSec);
-  const [vol, setVol] = useState(sess.targetVolume);
 
   const commit = (data: Partial<SessionRow>) => onChange(data);
 
@@ -1940,23 +2006,9 @@ function SettingsForm({
         />
       </Field>
 
-      <Field label={`Volume: ${vol}%`}>
-        <Slider
-          min={0}
-          max={100}
-          step={1}
-          value={[vol]}
-          onValueChange={([v]) => {
-            setVol(v);
-            // Live-push to the active Spotify device. Throttled in the
-            // parent; skipped server- and client-side while a fade is in
-            // flight so the slider can't fight a transition.
-            onLiveVolume(v);
-          }}
-          onValueCommit={([v]) => commit({ targetVolume: v })}
-          className="py-2"
-        />
-      </Field>
+      <div className="text-xs text-text-secondary">
+        Volume lives on the main panel for quick access.
+      </div>
     </div>
   );
 }
