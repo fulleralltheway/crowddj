@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getCurrentPlayback, setVolume, skipToNext, startPlayback } from "@/lib/spotify";
+import { getCurrentPlayback, setVolume, skipToNext, startPlaybackContext } from "@/lib/spotify";
 import { getNextSessionTrack, markCurrentPlayed } from "@/lib/bluegrass-queue";
 import { buildFadeCurve } from "@/lib/fade-curve";
 import { NextRequest, NextResponse } from "next/server";
@@ -106,7 +106,15 @@ export async function POST(
   try {
     if (nextRow) {
       nextTrackUri = nextRow.spotifyUri;
-      await startPlayback(accessToken, [nextTrackUri], sess.deviceId ?? undefined);
+      // Use context+offset so the playlist stays the queue context. Without
+      // this Spotify ends up with a single-URI queue and stops after the
+      // played track ends — the "music stops with no track" bug.
+      await startPlaybackContext(
+        accessToken,
+        sess.playlistUri,
+        sess.deviceId ?? undefined,
+        { uri: nextTrackUri }
+      );
       await prisma.bluegrassSessionTrack.update({
         where: { id: nextRow.id },
         data: { isPlaying: true },
