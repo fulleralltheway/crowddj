@@ -1,4 +1,4 @@
-const CACHE_NAME = 'partyqueue-v46';
+const CACHE_NAME = 'partyqueue-v47';
 const PRECACHE_URLS = [
   '/',
   '/manifest.json',
