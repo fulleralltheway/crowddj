@@ -57,7 +57,7 @@ export default function DesignPreviewPage() {
           variants={variants.fadeUp}
           className="mb-8"
         >
-          <div className="font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-[color:var(--gold)]">
+          <div className="font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-[color:var(--bb-blue)]">
             Tonight · Live Queue
           </div>
           <h1 className="mt-2 font-display text-[40px] font-semibold leading-[1.05] tracking-[-0.025em]">
@@ -66,9 +66,9 @@ export default function DesignPreviewPage() {
             Ballroom
           </h1>
           <p className="mt-3 text-sm text-muted-foreground">
-            <span className="font-semibold text-[color:var(--gold)]">74</span>{" "}
+            <span className="font-semibold text-[color:var(--bb-blue)]">74</span>{" "}
             dancing ·{" "}
-            <span className="font-semibold text-[color:var(--gold)]">23</span>{" "}
+            <span className="font-semibold text-[color:var(--bb-blue)]">23</span>{" "}
             in queue
           </p>
         </motion.header>
@@ -78,22 +78,22 @@ export default function DesignPreviewPage() {
           initial="hidden"
           animate="show"
           variants={variants.scaleIn}
-          className="relative mb-10 overflow-hidden rounded-2xl border border-[color:var(--surface-3)] bg-[color:var(--surface-2)] p-6 shadow-[var(--shadow-glow-coral)]"
+          className="relative mb-10 overflow-hidden rounded-2xl border border-[color:var(--surface-3)] bg-[color:var(--surface-2)] p-6 shadow-[var(--shadow-glow-blue)]"
         >
           <div
             className="pointer-events-none absolute inset-0"
             style={{
               background:
-                "radial-gradient(circle at top right, rgba(250,88,106,0.18), transparent 60%)",
+                "radial-gradient(circle at top right, rgba(0,87,225,0.22), transparent 60%)",
             }}
           />
           <div className="relative">
-            <div className="mb-3 flex items-center gap-2 font-mono text-[10px] font-medium uppercase tracking-[0.2em] text-[color:var(--coral)]">
+            <div className="mb-3 flex items-center gap-2 font-mono text-[10px] font-medium uppercase tracking-[0.2em] text-[color:var(--amber)]">
               <motion.span
                 animate={{ opacity: [1, 0.4, 1] }}
                 transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
-                className="inline-block h-2 w-2 rounded-full bg-[color:var(--coral)]"
-                style={{ boxShadow: "0 0 10px var(--coral)" }}
+                className="inline-block h-2 w-2 rounded-full bg-[color:var(--amber)]"
+                style={{ boxShadow: "0 0 10px var(--amber)" }}
               />
               Now Playing
             </div>
@@ -110,7 +110,7 @@ export default function DesignPreviewPage() {
                 className="h-full rounded-full"
                 style={{
                   background:
-                    "linear-gradient(90deg, var(--coral), var(--coral-hover))",
+                    "linear-gradient(90deg, var(--bb-blue), var(--bb-blue-hover))",
                 }}
               />
             </div>
@@ -146,7 +146,7 @@ export default function DesignPreviewPage() {
                 className={cn(
                   "flex w-full items-center gap-3 rounded-xl border bg-[color:var(--surface-2)] p-3 text-left transition-colors",
                   track.hot
-                    ? "border-[color:var(--coral-soft,rgba(250,88,106,0.25))] shadow-[0_0_0_1px_rgba(250,88,106,0.15)]"
+                    ? "border-[color:var(--coral-soft,rgba(245,158,11,0.3))] shadow-[0_0_0_1px_rgba(245,158,11,0.18)]"
                     : "border-transparent hover:border-[color:var(--surface-4)] hover:bg-[color:var(--surface-3)]"
                 )}
               >
@@ -154,7 +154,7 @@ export default function DesignPreviewPage() {
                   className={cn(
                     "w-6 shrink-0 text-center font-mono text-sm font-semibold",
                     track.hot
-                      ? "text-[color:var(--coral)]"
+                      ? "text-[color:var(--amber)]"
                       : "text-muted-foreground"
                   )}
                 >
@@ -174,7 +174,7 @@ export default function DesignPreviewPage() {
                   className={cn(
                     "flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 font-mono text-sm font-semibold",
                     track.voted
-                      ? "bg-[rgba(250,88,106,0.15)] text-[color:var(--coral)] shadow-[0_0_0_1px_rgba(250,88,106,0.25)]"
+                      ? "bg-[rgba(245,158,11,0.18)] text-[color:var(--amber)] shadow-[0_0_0_1px_rgba(245,158,11,0.3)]"
                       : "bg-[color:var(--surface-3)] text-foreground"
                   )}
                 >
@@ -248,7 +248,7 @@ export default function DesignPreviewPage() {
             <CardHeader>
               <CardTitle>Buttons</CardTitle>
               <CardDescription>
-                Gold = primary / host / venue. Coral = action / energy.
+                Bluegrass blue = primary / host / venue. Amber = action / energy / heat.
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-wrap gap-2">
@@ -289,13 +289,13 @@ export default function DesignPreviewPage() {
             <CardHeader>
               <CardTitle>Type Scale</CardTitle>
               <CardDescription>
-                Fraunces (display) + Inter (body) + JetBrains Mono (data)
+                Inter (display + body) + JetBrains Mono (data)
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
                 <div className="font-mono text-[10px] uppercase tracking-[0.05em] text-muted-foreground">
-                  Display · Fraunces 700
+                  Display · Inter 800
                 </div>
                 <div className="font-display text-[36px] font-bold leading-[1.05] tracking-[-0.025em]">
                   Bluegrass Ballroom
@@ -303,7 +303,7 @@ export default function DesignPreviewPage() {
               </div>
               <div>
                 <div className="font-mono text-[10px] uppercase tracking-[0.05em] text-muted-foreground">
-                  H1 · Fraunces 600
+                  H1 · Inter 700
                 </div>
                 <div className="font-display text-[26px] font-semibold tracking-[-0.02em]">
                   Tennessee Whiskey
