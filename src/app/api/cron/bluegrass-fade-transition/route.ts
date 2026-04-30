@@ -152,8 +152,15 @@ export async function POST(req: NextRequest) {
     currentLinkedFromUri = playback?.item?.linked_from?.uri;
   } catch {}
 
-  // ADR 0002: look up next track from the DB queue, not from
-  // /v1/playlists/{id}/tracks. Skipped for stopAfterCurrent since we pause.
+  // CRITICAL ORDERING: mark the currently-playing row as PLAYED before we
+  // ask for the next one. Otherwise getNextSessionTrack returns the
+  // currently-playing row (lowest sortOrder among isPlayed=false) and we'd
+  // "advance" by replaying it. Idempotent on miss.
+  if (currentTrackUri) await markCurrentPlayed(sess.id, currentTrackUri);
+  if (currentLinkedFromUri) await markCurrentPlayed(sess.id, currentLinkedFromUri);
+
+  // ADR 0002: look up next track from the DB queue. Skipped for
+  // stopAfterCurrent since we pause.
   const nextRow = sess.stopAfterCurrent ? null : await getNextSessionTrack(sess.id);
 
   const { multipliers, stepMs } = buildFadeCurve(fadeDurationMs);
@@ -165,10 +172,6 @@ export async function POST(req: NextRequest) {
     }
     try { await setVolume(accessToken, 0); } catch {}
   }
-
-  // Mark just-finished track as played in the DB queue.
-  if (currentTrackUri) await markCurrentPlayed(sess.id, currentTrackUri);
-  if (currentLinkedFromUri) await markCurrentPlayed(sess.id, currentLinkedFromUri);
 
   // "Stop after this song" mode: pause instead of advancing.
   if (sess.stopAfterCurrent) {

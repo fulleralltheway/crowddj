@@ -422,13 +422,16 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
     if (created?.id) {
       setSess(created);
       setPicker("none");
-      // Fire-and-forget the playlist import. The queue sheet will show
-      // "Loading queue…" until tracksImported flips to "imported", and
-      // surfaces a Retry button if it lands in "failed". Don't block
-      // session start — user can press Play immediately.
+      // Kick off the playlist import. Failure modes:
+      //   - import endpoint returns 429 → server sets tracksImported=failed
+      //   - import endpoint returns 200 → server sets tracksImported=imported
+      //   - network failure (offline, DNS) → tracksImported stays at pending,
+      //     and the QueueSheet's pending-state UI surfaces a manual Retry
+      //     so the user is never stuck.
+      // refreshSession runs AFTER the request to pull the latest status.
       void fetch(`/api/bluegrass/sessions/${created.id}/queue/import`, { method: "POST" })
-        .then(() => refreshSession())
-        .catch(() => {});
+        .catch(() => {})
+        .finally(() => { void refreshSession(); });
     }
   };
 
@@ -1126,10 +1129,22 @@ function QueueSheet({
         </div>
 
         {tracksImported === "pending" || tracksImported === "importing" ? (
-          <div className="text-sm text-text-secondary">Loading queue…</div>
+          <div className="text-sm space-y-2">
+            <div className="text-text-secondary">Loading queue…</div>
+            {/* Retry is available even during loading because the initial
+                import fetch may have failed at the network layer (in which
+                case tracksImported never advances past "pending"). */}
+            <button
+              onClick={() => void retryImport()}
+              disabled={importBusy}
+              className="px-3 py-1 bg-bg-card border border-white/[0.06] rounded text-xs disabled:opacity-40"
+            >
+              {importBusy ? "…" : "Retry import"}
+            </button>
+          </div>
         ) : tracksImported === "failed" ? (
           <div className="text-sm space-y-2">
-            <div className="text-red-400">Couldn&apos;t import the playlist (Spotify rate-limit).</div>
+            <div className="text-red-400">Couldn&apos;t import the playlist (Spotify rate-limit or error).</div>
             <button
               onClick={() => void retryImport()}
               disabled={importBusy}

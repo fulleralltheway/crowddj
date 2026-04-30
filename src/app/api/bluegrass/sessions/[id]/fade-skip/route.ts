@@ -71,9 +71,16 @@ export async function POST(
     currentLinkedFromUri = playback?.item?.linked_from?.uri;
   } catch {}
 
+  // CRITICAL ORDERING: mark the currently-playing row as PLAYED before we
+  // ask for the next one. Without this, getNextSessionTrack can return the
+  // row that's still playing (lowest sortOrder among isPlayed=false), and
+  // we'd "advance" by replaying the same track. Idempotent on miss.
+  if (currentTrackUri) await markCurrentPlayed(id, currentTrackUri);
+  if (currentLinkedFromUri) await markCurrentPlayed(id, currentLinkedFromUri);
+
   // ADR 0002: look up next track from the DB queue, not from
-  // /v1/playlists/{id}/tracks. After the import endpoint runs once at
-  // session-start, the queue lives entirely in BluegrassSessionTrack rows.
+  // /v1/playlists/{id}/tracks. After import + the markCurrentPlayed above,
+  // this returns the genuinely-next unplayed row.
   const nextRow = await getNextSessionTrack(id);
 
   const { multipliers, stepMs } = buildFadeCurve(fadeDurationMs);
@@ -86,12 +93,6 @@ export async function POST(
     }
     try { await setVolume(accessToken, 0); } catch {}
   }
-
-  // Mark the just-finished track as played in the queue. Try both the
-  // relinked uri and the linked_from uri to handle Spotify's region
-  // relinking (one of them matches the playlist row).
-  if (currentTrackUri) await markCurrentPlayed(id, currentTrackUri);
-  if (currentLinkedFromUri) await markCurrentPlayed(id, currentLinkedFromUri);
 
   // Three-tier fallback for the actual transition:
   //   1. DB queue has a next track → startPlayback with explicit URI (ideal)

@@ -10,10 +10,18 @@
 
 import { prisma } from "@/lib/db";
 
-/** Return the next unplayed track for a session, or null if the queue is exhausted. */
+/**
+ * Return the next unplayed, NOT-currently-playing track for a session, or
+ * null if the queue is exhausted. Excluding `isPlaying: true` is critical:
+ * without it this function returns the currently-playing row (it's the
+ * lowest sortOrder among `isPlayed: false`), which would cause fade-skip
+ * to replay the just-fading track. Caller should still call
+ * `markCurrentPlayed` after the fade so subsequent calls don't return the
+ * same row again.
+ */
 export async function getNextSessionTrack(sessionId: string) {
   return prisma.bluegrassSessionTrack.findFirst({
-    where: { sessionId, isPlayed: false },
+    where: { sessionId, isPlayed: false, isPlaying: false },
     orderBy: { sortOrder: "asc" },
   });
 }
