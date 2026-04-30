@@ -7,23 +7,22 @@
 
 ## Current Feature
 
-- **Name:** none — between features
+- **Name:** Bluegrass Queue Management
+- **Slug:** bluegrass-queue
+- **Phase:** 1
+- **Status:** draft
+- **Spec:** `specs/bluegrass-queue/spec.md`
+- **Branch:** not yet created (Phase 3 will create `feature/bluegrass-queue` worktree)
 
 ## Last Completed Step
 
-2026-04-29: bluegrass-dj **shipped** to production (Phase 7). Merged `feature/bluegrass-dj` → `main` as commit `447685d` (`--no-ff` to preserve the 8 surgical commits). Vercel auto-deploy succeeded in 28s — proves Vercel Pro is active (Hobby would have rejected the 1-min cron). Fly.io socket server redeployed with the new `backgroundSessions` machinery; `/health` returns clean. Three production smoke checks pass: `/bluegrass` → 307 to `/login?callbackUrl=/bluegrass` (auth gate), `/bluegrass-manifest.webmanifest` → 200 with correct scope + theme, `/api/cron/sync-bluegrass` → 401 unauthenticated (security gate).
+2026-04-29: Phase 1 spec drafted at `specs/bluegrass-queue/spec.md`. Surfaced from a real need — the `/v1/playlists/{id}/tracks` rate-limit episode revealed that per-skip metadata fetches are architecturally fragile, and a DB-backed queue (PartyQueue's pattern) eliminates that pressure while also delivering the in-app queue management Abigail asked for (search + insert + see upcoming). Smell test passes; awaiting sign-off.
 
-Spec status flipped draft → signed-off → shipped. ADR 0001 status flipped proposed → accepted.
+bluegrass-dj feature itself shipped earlier today and is in production (paste-URL workaround live in v42; full picker reactivates automatically once Spotify lifts the `/me/playlists` rate limit).
 
 ## Next Step
 
-Phase 6 QA on real hardware (V4–V11 + V14–V15 in `specs/bluegrass-dj/spec.md`) — needs Spotify Premium login + studio laptop with Spotify desktop + a phone. Hand-off list for Jonathan:
-
-1. Add Abigail's Spotify account email to the Spotify Developer dashboard tester list (app is in Development mode).
-2. On iPhone Safari at `https://www.partyqueue.com/bluegrass`, sign in and "Add to Home Screen" — verify standalone launch (V3).
-3. Pick laptop as device + a playlist, press Play. Walk V4–V11.
-4. The hard one: V8 — set max=15s/fade=3s, lock the phone, watch the laptop. Threshold-fade should fire on schedule via the socket server.
-5. V14/V15 — repeat the threshold test with the socket server taken down (`flyctl scale count 0 -a crowddj-socket` in a test slot, or just block the websocket at the network layer); cooldown-guarded fade should still happen via Vercel Cron at up to 60s latency.
+🛑 Sign-off gate. Send spec inline to Jonathan. After "go", advance to Phase 2 (tasks.md + ADR 0002 covering the `BluegrassSessionTrack`-vs-RoomSong decision).
 
 ## Active Sub-Agents
 
