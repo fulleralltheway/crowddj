@@ -64,6 +64,9 @@ type PlaybackState = {
   deviceId?: string | null;
   deviceVolume?: number | null;
   trackUri?: string;
+  // ISO timestamp; when in the future, a server-driven fade is in flight.
+  // Volume slider's live-push skips while this is active.
+  fadingUntil?: string | null;
 };
 
 type Device = {
@@ -172,6 +175,12 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
 
   const sessRef = useRef<SessionRow | null>(initialSession);
   useEffect(() => { sessRef.current = sess; }, [sess]);
+
+  // Mirror playback into a ref so the throttled live-volume push (below) can
+  // re-check fade state at fire time without forcing the callback identity
+  // to change on every poll tick.
+  const playbackRef = useRef<PlaybackState | null>(null);
+  useEffect(() => { playbackRef.current = playback; }, [playback]);
 
   // Wall-clock timestamp of the last user-initiated /play or /fade-resume
   // success. Used by the threshold fallback to suppress an immediate fire
@@ -522,6 +531,58 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
     }
   };
 
+  // Live volume push for the settings slider. Drag fires onChange on every
+  // pixel; we throttle (leading + trailing) to ~200ms so Spotify's volume
+  // endpoint isn't hammered. Skips if a fade is in flight — the server's
+  // /live-volume endpoint enforces the same rule, this just spares the
+  // round trip. Final value lands via patchSession on slider release.
+  const liveVolumeLastRef = useRef(0);
+  const liveVolumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const liveVolumePendingRef = useRef<number | null>(null);
+  const LIVE_VOLUME_THROTTLE_MS = 200;
+  const isFadingNow = useCallback(() => {
+    const f = playbackRef.current?.fadingUntil;
+    return !!(f && new Date(f).getTime() > Date.now());
+  }, []);
+  const sendLiveVolume = useCallback(async (vol: number) => {
+    const s = sessRef.current;
+    if (!s) return;
+    try {
+      await fetch(`/api/bluegrass/sessions/${s.id}/live-volume`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ volume: vol }),
+      });
+    } catch {}
+  }, []);
+  const liveVolumePush = useCallback((vol: number) => {
+    if (isFadingNow()) return;
+    const now = Date.now();
+    const elapsed = now - liveVolumeLastRef.current;
+    if (elapsed >= LIVE_VOLUME_THROTTLE_MS) {
+      liveVolumeLastRef.current = now;
+      liveVolumePendingRef.current = null;
+      if (liveVolumeTimerRef.current) {
+        clearTimeout(liveVolumeTimerRef.current);
+        liveVolumeTimerRef.current = null;
+      }
+      void sendLiveVolume(vol);
+      return;
+    }
+    liveVolumePendingRef.current = vol;
+    if (!liveVolumeTimerRef.current) {
+      liveVolumeTimerRef.current = setTimeout(() => {
+        const pending = liveVolumePendingRef.current;
+        liveVolumeTimerRef.current = null;
+        liveVolumePendingRef.current = null;
+        if (pending == null) return;
+        if (isFadingNow()) return;
+        liveVolumeLastRef.current = Date.now();
+        void sendLiveVolume(pending);
+      }, LIVE_VOLUME_THROTTLE_MS - elapsed);
+    }
+  }, [isFadingNow, sendLiveVolume]);
+
   // Returns true on success, false on error. Errors surface via setError so
   // the existing toast/banner picks them up — important now that PATCH
   // deviceId can fail with `device_unavailable` (target device asleep)
@@ -813,7 +874,7 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
       )}
       {picker === "settings" && (
         <Sheet onClose={() => setPicker("none")} title="Settings">
-          <SettingsForm sess={sess} onChange={patchSession} />
+          <SettingsForm sess={sess} onChange={patchSession} onLiveVolume={liveVolumePush} />
         </Sheet>
       )}
     </Shell>
@@ -1516,7 +1577,15 @@ function PlaylistList({
   );
 }
 
-function SettingsForm({ sess, onChange }: { sess: SessionRow; onChange: (data: Partial<SessionRow>) => void }) {
+function SettingsForm({
+  sess,
+  onChange,
+  onLiveVolume,
+}: {
+  sess: SessionRow;
+  onChange: (data: Partial<SessionRow>) => void;
+  onLiveVolume: (vol: number) => void;
+}) {
   const [maxSec, setMaxSec] = useState(sess.maxSongDurationSec);
   const [fadeSec, setFadeSec] = useState(sess.fadeDurationSec);
   const [vol, setVol] = useState(sess.targetVolume);
@@ -1552,14 +1621,21 @@ function SettingsForm({ sess, onChange }: { sess: SessionRow; onChange: (data: P
         />
       </Field>
 
-      <Field label={`Target volume: ${vol}%`}>
+      <Field label={`Volume: ${vol}%`}>
         <input
           type="range"
           min={0}
           max={100}
           step={1}
           value={vol}
-          onChange={(e) => setVol(Number(e.target.value))}
+          onChange={(e) => {
+            const v = Number(e.target.value);
+            setVol(v);
+            // Live-push to the active Spotify device. Throttled in the
+            // parent; skipped server- and client-side while a fade is in
+            // flight so the slider can't fight a transition.
+            onLiveVolume(v);
+          }}
           onPointerUp={(e) => commit({ targetVolume: Number((e.target as HTMLInputElement).value) })}
           className="w-full accent-accent"
         />
