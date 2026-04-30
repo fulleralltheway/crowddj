@@ -795,10 +795,10 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
       </header>
 
       {/* NOW PLAYING — album art + track + progress */}
-      <section className="flex flex-col items-center gap-4">
+      <section className="flex flex-col items-center gap-3">
         <div
           className={cn(
-            "relative aspect-square w-full max-w-[260px] rounded-2xl bg-bg-card overflow-hidden flex items-center justify-center transition-shadow duration-500",
+            "relative aspect-square w-full max-w-[220px] rounded-2xl bg-bg-card overflow-hidden flex items-center justify-center transition-shadow duration-500",
             playback?.isPlaying && "shadow-[0_0_48px_rgba(0,87,225,0.32)]"
           )}
         >
@@ -866,7 +866,7 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
       </section>
 
       {/* TRANSPORT — Stop · Play/Pause hero · Skip */}
-      <section className="mt-7 flex items-center justify-center gap-5">
+      <section className="mt-5 flex items-center justify-center gap-5">
         <motion.button
           onClick={handleStop}
           disabled={busy || !playback?.isPlaying}
@@ -932,7 +932,7 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
       </section>
 
       {/* VOLUME — always-visible slider */}
-      <section className="mt-7 px-1">
+      <section className="mt-5 px-1">
         <div className="flex items-center gap-3">
           <Volume1 className="w-[18px] h-[18px] text-text-secondary shrink-0" />
           <Slider
@@ -959,7 +959,7 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
       </section>
 
       {/* AUTOMATION — stop-after toggle + auto-fade + scheduled stops */}
-      <section className="mt-7">
+      <section className="mt-6">
         <div className="bg-bg-card/40 border border-separator rounded-2xl divide-y divide-separator overflow-hidden">
           <label className="flex items-center justify-between gap-3 px-4 py-3.5 cursor-pointer hover:bg-bg-card transition-colors">
             <span className="text-sm font-medium">Stop after this song</span>
@@ -1028,7 +1028,7 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
       </section>
 
       {/* FOOTER — End Session only */}
-      <footer className="mt-8 mb-2 flex items-center justify-center text-sm">
+      <footer className="mt-6 mb-2 flex items-center justify-center text-sm">
         <button
           onClick={endSession}
           disabled={busy}
