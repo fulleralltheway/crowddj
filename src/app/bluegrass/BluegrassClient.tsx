@@ -921,7 +921,7 @@ function PlaylistPicker({
   return (
     <div className="pt-8 space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Bluegrass DJ</h1>
+        <h1 className="text-2xl font-bold">Party Player</h1>
         <p className="text-text-secondary text-sm">Pick a device + playlist to start.</p>
       </div>
 
