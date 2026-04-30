@@ -132,10 +132,22 @@ export async function GET(req: NextRequest) {
     // Track current track URI + start time for our own audit trail. Only
     // update when the URI actually changes — same URI means same track,
     // and we don't want to reset trackStartedAt when polling mid-song.
+    // Also reconcile deviceId on every tick: when the user moves Spotify
+    // playback to a different Connect target (Mac → iPhone → speaker),
+    // sess.deviceId is otherwise stuck on the original device and the
+    // next fade calls startPlaybackContext against a dead/wrong target.
+    const sessUpdate: { currentTrackUri?: string; trackStartedAt?: Date; deviceId?: string } = {};
     if (decision.currentTrackUri && decision.currentTrackUri !== sess.currentTrackUri) {
+      sessUpdate.currentTrackUri = decision.currentTrackUri;
+      sessUpdate.trackStartedAt = new Date();
+    }
+    if (decision.deviceId && decision.deviceId !== sess.deviceId) {
+      sessUpdate.deviceId = decision.deviceId;
+    }
+    if (Object.keys(sessUpdate).length > 0) {
       await prisma.bluegrassSession.update({
         where: { id: sess.id },
-        data: { currentTrackUri: decision.currentTrackUri, trackStartedAt: new Date() },
+        data: sessUpdate,
       });
     }
 

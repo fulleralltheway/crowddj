@@ -16,6 +16,7 @@ export type BluegrassSessionShape = {
   maxSongDurationSec: number;
   fadeDurationSec: number;
   isActive: boolean;
+  playlistUri?: string;
 };
 
 export type SpotifyPlaybackShape = {
@@ -25,6 +26,13 @@ export type SpotifyPlaybackShape = {
     uri: string;
     duration_ms: number;
   } | null;
+  context?: {
+    uri: string;
+    type?: string;
+  } | null;
+  device?: {
+    id: string;
+  } | null;
 } | null;
 
 export type SyncStatus =
@@ -33,13 +41,15 @@ export type SyncStatus =
   | "session_ended"
   | "prequeued_maxdur"
   | "needs_fade"
-  | "auto_disabled";
+  | "auto_disabled"
+  | "external_context";
 
 export type SyncDecision = {
   status: SyncStatus;
   fadeInMs?: number;
   fadeDurationMs?: number;
   currentTrackUri?: string;
+  deviceId?: string;
 };
 
 // How many ms before the threshold we surface `prequeued_maxdur` so the
@@ -66,18 +76,32 @@ export function decideSyncStatus(
   }
 
   const currentTrackUri = playback.item.uri;
+  const deviceId = playback.device?.id;
+
+  // External-context detection: user manually started a different playlist
+  // or album in Spotify (not via the DJ app). Don't fire threshold fades on
+  // a context we don't own — that would yank them back to the bluegrass
+  // playlist mid-track. Surface it so the UI can flag the divergence.
+  // sess.playlistUri may be undefined in test fixtures; only check when set.
+  if (
+    sess.playlistUri &&
+    playback.context?.uri &&
+    playback.context.uri !== sess.playlistUri
+  ) {
+    return { status: "external_context", currentTrackUri, deviceId };
+  }
 
   // Auto-fade disabled: just report what's playing so the socket can refresh
   // its TTL.
   if (sess.maxSongDurationSec < AUTO_DURATION_MIN_SEC) {
-    return { status: "auto_disabled", currentTrackUri };
+    return { status: "auto_disabled", currentTrackUri, deviceId };
   }
 
   // Treat paused playback as not-eligible-for-threshold-fade. The fade
   // would interrupt the user's announcement workflow (they paused on
   // purpose), and resume picks back up at the same progress_ms anyway.
   if (!playback.is_playing) {
-    return { status: "playing", currentTrackUri };
+    return { status: "playing", currentTrackUri, deviceId };
   }
 
   const maxMs = sess.maxSongDurationSec * 1000;
@@ -97,6 +121,7 @@ export function decideSyncStatus(
       status: "needs_fade",
       fadeDurationMs: fadeMs,
       currentTrackUri,
+      deviceId,
     };
   }
 
@@ -106,8 +131,9 @@ export function decideSyncStatus(
       fadeInMs: maxMs - progress,
       fadeDurationMs: fadeMs,
       currentTrackUri,
+      deviceId,
     };
   }
 
-  return { status: "playing", currentTrackUri };
+  return { status: "playing", currentTrackUri, deviceId };
 }

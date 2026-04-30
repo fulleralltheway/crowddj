@@ -118,12 +118,16 @@ export async function executeFadeTransition(
   let currentTrackUri: string | undefined;
   let currentLinkedFromUri: string | undefined;
   let isPlaying: boolean | undefined;
+  let livePlaybackContext: string | undefined;
+  let liveDeviceId: string | undefined;
   try {
     const playback = await getCurrentPlayback(accessToken);
     originalVolume = playback?.device?.volume_percent ?? sess.targetVolume;
     currentTrackUri = playback?.item?.uri;
     currentLinkedFromUri = playback?.item?.linked_from?.uri;
     isPlaying = playback?.is_playing;
+    livePlaybackContext = playback?.context?.uri;
+    liveDeviceId = playback?.device?.id;
   } catch {}
 
   // Bail if Spotify reports playback paused. Three things can land us here:
@@ -138,6 +142,24 @@ export async function executeFadeTransition(
     await releaseCooldown();
     return { skipped: true, reason: "playback_paused" };
   }
+
+  // Bail if Spotify is playing a context that's NOT the session's playlist
+  // (e.g. user double-tapped a different album in their phone Spotify
+  // mid-class). Advancing here would yank them back to the bluegrass
+  // playlist mid-track. The /state poll on the client will surface the
+  // divergence; the user can resume the bluegrass flow with /play when
+  // ready.
+  if (livePlaybackContext && livePlaybackContext !== sess.playlistUri) {
+    await releaseCooldown();
+    return { skipped: true, reason: "external_context" };
+  }
+
+  // Resolve the device to use for the advance call. Prefer whatever
+  // Spotify is reporting RIGHT NOW (the user may have moved playback to
+  // a different Connect target since the session was created). Fall back
+  // to the session's persisted deviceId, then to undefined (lets Spotify
+  // route to the active device).
+  const targetDeviceId = liveDeviceId ?? sess.deviceId ?? undefined;
 
   // Race-safety re-check against LIVE Spotify state. The earlier check
   // against sess.currentTrackUri can pass even when the song already
@@ -198,7 +220,7 @@ export async function executeFadeTransition(
           await startPlaybackContext(
             accessToken,
             sess.playlistUri,
-            sess.deviceId ?? undefined,
+            targetDeviceId,
             { uri: nextRow.spotifyUri }
           );
           preloadedUri = nextRow.spotifyUri;
@@ -263,13 +285,13 @@ export async function executeFadeTransition(
         await startPlaybackContext(
           accessToken,
           sess.playlistUri,
-          sess.deviceId ?? undefined,
+          targetDeviceId,
           { uri: nextTrackUri }
         );
       } catch {
         // offset.uri not in context — defensive single-URI fallback. Loses
         // auto-advance for that one track but the next transition handles it.
-        await startPlayback(accessToken, [nextTrackUri], sess.deviceId ?? undefined);
+        await startPlayback(accessToken, [nextTrackUri], targetDeviceId);
       }
       await prisma.bluegrassSessionTrack.update({
         where: { id: nextRow.id },
