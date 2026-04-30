@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { signOut } from "next-auth/react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Play, Pause, SkipForward, Square } from "lucide-react";
+import { Play, Pause, SkipForward, Square, X } from "lucide-react";
 import { getSocket } from "@/lib/socket";
 import { useAppHeight } from "@/lib/pwa";
 import { AUTO_DURATION_MIN_SEC } from "@/lib/bluegrass-sync";
@@ -894,55 +894,63 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
         </div>
       )}
 
-      {/* Sheets */}
-      {picker === "device" && (
-        <Sheet onClose={() => setPicker("none")} title="Pick playback device">
-          <DeviceList
-            devices={devices}
-            selected={sess.deviceId}
-            onPick={async (id) => {
-              const ok = await patchSession({ deviceId: id });
-              // Only close the sheet on success — if the transfer failed
-              // (e.g. device asleep) the error banner is now visible and the
-              // user should still be able to pick a different device or
-              // dismiss manually.
-              if (ok) setPicker("none");
-            }}
-            onRefresh={loadDevices}
-          />
-        </Sheet>
-      )}
-      {picker === "playlist" && (
-        <Sheet onClose={() => setPicker("none")} title="Change playlist">
-          <PasteUrlPicker
-            disabled={busy}
-            onPick={async (p) => {
-              await patchSession({ playlistUri: p.uri, playlistName: p.name });
-              setStartedForSession(null); // /play needs to fire fresh for the new playlist
-              await post(`/api/bluegrass/sessions/${sess.id}/play`);
-              setStartedForSession(sess.id);
-              setPicker("none");
-              void pollState();
-              // Queue UI hidden — re-import not fired. See startWithPlaylist
-              // for the symmetrical comment.
-            }}
-          />
-        </Sheet>
-      )}
-      {picker === "settings" && (
-        <Sheet onClose={() => setPicker("none")} title="Settings">
-          <SettingsForm sess={sess} onChange={patchSession} onLiveVolume={liveVolumePush} />
-        </Sheet>
-      )}
-      {picker === "scheduled-stops" && (
-        <Sheet onClose={() => setPicker("none")} title="Scheduled stops">
-          <ScheduledStopsSheet
-            sessionId={sess.id}
-            stops={sess.scheduledStops ?? []}
-            onRefresh={refreshSession}
-          />
-        </Sheet>
-      )}
+      {/* Sheets — each in its own AnimatePresence so enter+exit animate cleanly */}
+      <AnimatePresence>
+        {picker === "device" && (
+          <Sheet key="device" onClose={() => setPicker("none")} title="Pick playback device">
+            <DeviceList
+              devices={devices}
+              selected={sess.deviceId}
+              onPick={async (id) => {
+                const ok = await patchSession({ deviceId: id });
+                // Only close the sheet on success — if the transfer failed
+                // (e.g. device asleep) the error banner is now visible and the
+                // user should still be able to pick a different device or
+                // dismiss manually.
+                if (ok) setPicker("none");
+              }}
+              onRefresh={loadDevices}
+            />
+          </Sheet>
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {picker === "playlist" && (
+          <Sheet key="playlist" onClose={() => setPicker("none")} title="Change playlist">
+            <PasteUrlPicker
+              disabled={busy}
+              onPick={async (p) => {
+                await patchSession({ playlistUri: p.uri, playlistName: p.name });
+                setStartedForSession(null); // /play needs to fire fresh for the new playlist
+                await post(`/api/bluegrass/sessions/${sess.id}/play`);
+                setStartedForSession(sess.id);
+                setPicker("none");
+                void pollState();
+                // Queue UI hidden — re-import not fired. See startWithPlaylist
+                // for the symmetrical comment.
+              }}
+            />
+          </Sheet>
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {picker === "settings" && (
+          <Sheet key="settings" onClose={() => setPicker("none")} title="Settings">
+            <SettingsForm sess={sess} onChange={patchSession} onLiveVolume={liveVolumePush} />
+          </Sheet>
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {picker === "scheduled-stops" && (
+          <Sheet key="scheduled-stops" onClose={() => setPicker("none")} title="Scheduled stops">
+            <ScheduledStopsSheet
+              sessionId={sess.id}
+              stops={sess.scheduledStops ?? []}
+              onRefresh={refreshSession}
+            />
+          </Sheet>
+        )}
+      </AnimatePresence>
     </Shell>
   );
 }
@@ -1009,13 +1017,21 @@ function Sheet({ title, children, onClose }: { title: string; children: React.Re
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center justify-center"
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.2 }}
+      className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center"
       onPointerDown={onBackdropPointerDown}
       onPointerMove={onBackdropPointerMove}
       onClick={onBackdropClick}
     >
-      <div
+      <motion.div
+        initial={{ y: "100%" }}
+        animate={{ y: 0 }}
+        exit={{ y: "100%" }}
+        transition={{ type: "spring", stiffness: 320, damping: 34 }}
         onClick={(e) => e.stopPropagation()}
         // overscroll-contain + -webkit-overflow-scrolling:touch are both
         // load-bearing on iOS PWA. Without them, a fling-scroll inside the
@@ -1024,19 +1040,25 @@ function Sheet({ title, children, onClose }: { title: string; children: React.Re
         // hidden, so the chain dies) and the inner panel locks until the
         // sheet is closed and reopened. Symptom: list visible, taps work,
         // pan gestures do nothing — the freeze Jonathan reported.
-        className="w-full max-w-md bg-bg-card border-t border-white/[0.06] rounded-t-3xl sm:rounded-3xl px-4 pt-4 pb-8 max-h-[80vh] overflow-y-auto overscroll-contain"
+        className="w-full max-w-md bg-card border-t border-[color:var(--surface-3)] sm:border rounded-t-3xl sm:rounded-3xl px-5 pt-5 pb-8 max-h-[85vh] overflow-y-auto overscroll-contain shadow-[0_-12px_40px_rgba(0,0,0,0.5)]"
         style={{
           paddingBottom: "max(env(safe-area-inset-bottom), 2rem)",
           WebkitOverflowScrolling: "touch",
         }}
       >
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-lg font-semibold">{title}</h2>
-          <button onClick={onClose} className="text-text-secondary text-sm">Close</button>
+        <div className="sticky top-0 -mt-5 -mx-5 mb-4 px-5 pt-5 pb-3 bg-card/95 backdrop-blur-md border-b border-[color:var(--surface-3)] flex items-center justify-between">
+          <h2 className="text-base font-semibold tracking-tight">{title}</h2>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            className="w-8 h-8 -mr-1 rounded-full flex items-center justify-center text-text-secondary hover:text-foreground hover:bg-[color:var(--surface-3)] transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
         {children}
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }
 
