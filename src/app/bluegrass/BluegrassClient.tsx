@@ -834,15 +834,51 @@ function fmt(seconds: number): string {
 }
 
 function Sheet({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
+  // Track touch movement on the backdrop so a fling-scroll inside the panel
+  // that ends with the user's finger crossing into the backdrop region
+  // doesn't fire the close handler. Without this, scrolling near the panel
+  // edge can dismiss the sheet mid-gesture on iOS.
+  const dragRef = useRef<{ x: number; y: number; moved: boolean } | null>(null);
+  const onBackdropPointerDown = (e: React.PointerEvent) => {
+    dragRef.current = { x: e.clientX, y: e.clientY, moved: false };
+  };
+  const onBackdropPointerMove = (e: React.PointerEvent) => {
+    const start = dragRef.current;
+    if (!start) return;
+    if (Math.abs(e.clientX - start.x) > 6 || Math.abs(e.clientY - start.y) > 6) {
+      start.moved = true;
+    }
+  };
+  const onBackdropClick = () => {
+    if (dragRef.current?.moved) {
+      dragRef.current = null;
+      return;
+    }
+    dragRef.current = null;
+    onClose();
+  };
+
   return (
     <div
       className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center justify-center"
-      onClick={onClose}
+      onPointerDown={onBackdropPointerDown}
+      onPointerMove={onBackdropPointerMove}
+      onClick={onBackdropClick}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md bg-bg-card border-t border-white/[0.06] rounded-t-3xl sm:rounded-3xl px-4 pt-4 pb-8 max-h-[80vh] overflow-y-auto"
-        style={{ paddingBottom: "max(env(safe-area-inset-bottom), 2rem)" }}
+        // overscroll-contain + -webkit-overflow-scrolling:touch are both
+        // load-bearing on iOS PWA. Without them, a fling-scroll inside the
+        // panel that hits the top or bottom boundary leaves iOS thinking
+        // the scroll was "consumed" by an ancestor (html has overflow:
+        // hidden, so the chain dies) and the inner panel locks until the
+        // sheet is closed and reopened. Symptom: list visible, taps work,
+        // pan gestures do nothing — the freeze Jonathan reported.
+        className="w-full max-w-md bg-bg-card border-t border-white/[0.06] rounded-t-3xl sm:rounded-3xl px-4 pt-4 pb-8 max-h-[80vh] overflow-y-auto overscroll-contain"
+        style={{
+          paddingBottom: "max(env(safe-area-inset-bottom), 2rem)",
+          WebkitOverflowScrolling: "touch",
+        }}
       >
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-semibold">{title}</h2>
