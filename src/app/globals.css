@@ -2,14 +2,14 @@
 @import "tw-animate-css";
 
 /* ============================================================
-   PartyQueue Design System v1
-   Source: design-system/MASTER.md
-   Inspired by: Apple Music (extracted) + venue/ballroom context
+   PartyQueue Design System v2 — Bluegrass Ballroom rebrand
+   Source tokens: bluegrassballroom.app (live extraction)
+   Brand: --bb-blue-cta #0057e1 (primary), --bb-amber #f59e0b (energy)
    Dark-only PWA — no light mode
    ============================================================ */
 
 @theme inline {
-  /* shadcn/ui semantic tokens → Tailwind classes (bg-background, text-primary, etc.) */
+  /* shadcn/ui semantic tokens → Tailwind classes */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -30,34 +30,44 @@
   --color-input: var(--input);
   --color-ring: var(--ring);
 
-  /* PartyQueue surface hierarchy */
+  /* PartyQueue surface hierarchy — tuned to match Bluegrass #1a1a1a bg */
   --color-surface-0: var(--surface-0);
   --color-surface-1: var(--surface-1);
   --color-surface-2: var(--surface-2);
   --color-surface-3: var(--surface-3);
   --color-surface-4: var(--surface-4);
 
-  /* PartyQueue accents */
-  --color-gold: var(--gold);
-  --color-gold-hover: var(--gold-hover);
-  --color-gold-pressed: var(--gold-pressed);
-  --color-coral: var(--coral);
-  --color-coral-hover: var(--coral-hover);
-  --color-coral-pressed: var(--coral-pressed);
+  /* Bluegrass brand tokens — direct from bluegrassballroom.app */
+  --color-bb-blue: var(--bb-blue);
+  --color-bb-blue-hover: var(--bb-blue-hover);
+  --color-bb-blue-pressed: var(--bb-blue-pressed);
+  --color-periwinkle: var(--periwinkle);
+  --color-periwinkle-dark: var(--periwinkle-dark);
+  --color-periwinkle-light: var(--periwinkle-light);
+  --color-amber: var(--amber);
+  --color-amber-hover: var(--amber-hover);
+  --color-amber-pressed: var(--amber-pressed);
 
-  /* Legacy aliases — existing components keep working, now with new palette */
+  /* Legacy aliases — existing components keep working with new palette */
   --color-bg-primary: var(--surface-1);
   --color-bg-secondary: var(--surface-0);
   --color-bg-card: var(--surface-2);
   --color-bg-card-hover: var(--surface-3);
   --color-text-primary: var(--foreground);
   --color-text-secondary: var(--muted-foreground);
-  --color-upvote: var(--coral);
+  --color-upvote: var(--amber);
   --color-downvote: var(--muted-foreground);
+  /* Old token names kept for v1-tokens-still-in-tree */
+  --color-gold: var(--bb-blue);
+  --color-gold-hover: var(--bb-blue-hover);
+  --color-gold-pressed: var(--bb-blue-pressed);
+  --color-coral: var(--amber);
+  --color-coral-hover: var(--amber-hover);
+  --color-coral-pressed: var(--amber-pressed);
 
-  /* Type */
+  /* Type — Bluegrass is Inter-only, no serif (matches their brand) */
   --font-sans: var(--font-inter), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-display: var(--font-fraunces), Georgia, serif;
+  --font-display: var(--font-inter), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-mono: var(--font-jetbrains-mono), ui-monospace, "SF Mono", monospace;
 
   /* Radius scale */
@@ -67,51 +77,58 @@
   --radius-xl: 24px;
   --radius: 12px;
 
-  /* Glow shadows */
-  --shadow-glow-gold: 0 0 24px rgba(212, 179, 102, 0.3);
-  --shadow-glow-coral: 0 0 32px rgba(250, 88, 106, 0.4);
+  /* Glow shadows — blue primary + amber energy */
+  --shadow-glow-blue: 0 0 28px rgba(0, 87, 225, 0.45);
+  --shadow-glow-amber: 0 0 28px rgba(245, 158, 11, 0.4);
+  --shadow-glow-periwinkle: 0 0 32px rgba(142, 167, 226, 0.3);
+  /* Old name aliases */
+  --shadow-glow-gold: var(--shadow-glow-blue);
+  --shadow-glow-coral: var(--shadow-glow-amber);
 }
 
 :root {
-  /* shadcn semantic — dark-only */
-  --background: #141414;
+  /* shadcn semantic — dark-only Bluegrass palette */
+  --background: #1a1a1a;          /* matches bb-black */
   --foreground: #ffffff;
-  --card: #1c1c1e;
+  --card: #232327;
   --card-foreground: #ffffff;
-  --popover: #1c1c1e;
+  --popover: #232327;
   --popover-foreground: #ffffff;
-  --primary: #d4b366;            /* gold */
-  --primary-foreground: #0a0a0a;
-  --secondary: #2c2c2e;
+  --primary: #0057e1;             /* bb-blue-cta */
+  --primary-foreground: #ffffff;
+  --secondary: #2c2c30;
   --secondary-foreground: #ffffff;
-  --muted: #2c2c2e;
-  --muted-foreground: #a8a8b0;
-  --accent: #fa586a;             /* coral — energy */
-  --accent-foreground: #ffffff;
-  --destructive: #fa586a;
+  --muted: #2c2c30;
+  --muted-foreground: #9ca3af;    /* bb-gray-dark */
+  --accent: #f59e0b;              /* bb-amber */
+  --accent-foreground: #1a1a1a;
+  --destructive: #ef4444;         /* bb-red */
   --destructive-foreground: #ffffff;
-  --border: #2c2c2e;
-  --input: #3a3a3c;
-  --ring: #d4b366;
+  --border: #2c2c30;
+  --input: #3a3a40;
+  --ring: #0057e1;
 
   /* PartyQueue surface hierarchy */
   --surface-0: #0a0a0a;
-  --surface-1: #141414;
-  --surface-2: #1c1c1e;
-  --surface-3: #2c2c2e;
-  --surface-4: #3a3a3c;
+  --surface-1: #1a1a1a;           /* page bg = brand bg */
+  --surface-2: #232327;
+  --surface-3: #2c2c30;
+  --surface-4: #3a3a40;
 
-  /* PartyQueue accents */
-  --gold: #d4b366;
-  --gold-hover: #e2c47a;
-  --gold-pressed: #b8954a;
-  --coral: #fa586a;
-  --coral-hover: #ff7183;
-  --coral-pressed: #d94556;
+  /* Bluegrass brand tokens */
+  --bb-blue: #0057e1;
+  --bb-blue-hover: #1f6df0;
+  --bb-blue-pressed: #0046b5;
+  --periwinkle: #8ea7e2;
+  --periwinkle-dark: #6b87c7;
+  --periwinkle-light: #b8caf0;
+  --amber: #f59e0b;
+  --amber-hover: #fbb237;
+  --amber-pressed: #c97f08;
 }
 
 /* ============================================================
-   Base layer — preserved PWA behaviors from prior globals.css
+   Base layer — preserved PWA behaviors
    ============================================================ */
 
 @layer base {
@@ -122,7 +139,7 @@
     color-scheme: dark;
     overflow: hidden;
     height: 100%;
-    background: var(--surface-0);
+    background: var(--surface-1);
   }
 
   body {
@@ -139,18 +156,14 @@
   }
 }
 
-/* PWA: prevent pull-to-refresh and rubber-band bounce in standalone */
+/* PWA: prevent pull-to-refresh and rubber-band bounce */
 @media all and (display-mode: standalone) {
   body { overscroll-behavior-y: contain; }
 }
 
-/* iOS double-tap-zoom prevention on interactive elements */
 button, a, input, [role="button"] { touch-action: manipulation; }
-
-/* Momentum scrolling for explicit scroll containers */
 .scroll-native { -webkit-overflow-scrolling: touch; }
 
-/* iOS safe-area utilities (notch / home indicator) */
 .safe-top { padding-top: env(safe-area-inset-top); }
 .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
 .safe-area-shell {
@@ -158,12 +171,10 @@ button, a, input, [role="button"] { touch-action: manipulation; }
   padding-bottom: env(safe-area-inset-bottom);
 }
 
-/* Custom scrollbar */
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--surface-4); border-radius: 3px; }
 
-/* Existing component classes preserved */
 .song-card { transition: transform 0.3s ease, opacity 0.3s ease; }
 .vote-btn { transition: all 0.15s ease; }
 .vote-btn:active { transform: scale(0.9); }
@@ -182,19 +193,19 @@ button, a, input, [role="button"] { touch-action: manipulation; }
 }
 .name-form-enter { animation: fadeInDelay 0.6s ease-out both; }
 
-/* Now-playing pulse — re-tuned to coral (was Spotify green) */
+/* Now-playing pulse — Bluegrass blue */
 @keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(250, 88, 106, 0.4); }
-  50% { box-shadow: 0 0 20px 4px rgba(250, 88, 106, 0.2); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(0, 87, 225, 0.4); }
+  50% { box-shadow: 0 0 22px 4px rgba(0, 87, 225, 0.22); }
 }
 .now-playing { animation: pulse-glow 2s ease-in-out infinite; }
 
-/* Desktop ambient — gold + coral radial wash (was green) */
+/* Desktop ambient — blue + amber radial wash */
 @media (min-width: 1024px) {
   body {
     background:
-      radial-gradient(ellipse at 50% 0%, rgba(212, 179, 102, 0.07) 0%, transparent 50%),
-      radial-gradient(ellipse at 80% 50%, rgba(250, 88, 106, 0.04) 0%, transparent 40%),
+      radial-gradient(ellipse at 50% 0%, rgba(0, 87, 225, 0.10) 0%, transparent 50%),
+      radial-gradient(ellipse at 80% 50%, rgba(245, 158, 11, 0.04) 0%, transparent 40%),
       var(--surface-1);
   }
 }
