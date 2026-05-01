@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { signOut } from "next-auth/react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useDragControls } from "framer-motion";
 import { Play, Pause, SkipForward, Square, X, Volume1, Volume2, Clock, Timer, ListMusic, ChevronRight } from "lucide-react";
 import { getSocket } from "@/lib/socket";
 import { useAppHeight } from "@/lib/pwa";
@@ -1207,6 +1207,14 @@ function Sheet({ title, children, onClose }: { title: string; children: React.Re
     onClose();
   };
 
+  // Drag-to-close. dragListener=false + manual dragControls.start on the
+  // header chrome means the gesture is ONLY initiated from the pill/title
+  // area — content below scrolls normally because pointerdown events there
+  // never reach dragControls. Threshold: 120px offset OR 500px/s velocity
+  // (flick-down dismiss). dragConstraints.top:0 pins the top so the panel
+  // can't be dragged upward; dragElastic.bottom gives a soft pull feel.
+  const dragControls = useDragControls();
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -1223,6 +1231,14 @@ function Sheet({ title, children, onClose }: { title: string; children: React.Re
         animate={{ y: 0 }}
         exit={{ y: "100%" }}
         transition={{ type: "spring", stiffness: 320, damping: 34 }}
+        drag="y"
+        dragControls={dragControls}
+        dragListener={false}
+        dragConstraints={{ top: 0, bottom: 0 }}
+        dragElastic={{ top: 0, bottom: 0.4 }}
+        onDragEnd={(_, info) => {
+          if (info.offset.y > 120 || info.velocity.y > 500) onClose();
+        }}
         onClick={(e) => e.stopPropagation()}
         // overscroll-contain + -webkit-overflow-scrolling:touch are both
         // load-bearing on iOS PWA. Without them, a fling-scroll inside the
@@ -1237,19 +1253,28 @@ function Sheet({ title, children, onClose }: { title: string; children: React.Re
           WebkitOverflowScrolling: "touch",
         }}
       >
-        {/* Drag-handle pill — iOS-native cue, even though sheets are tap-to-close */}
-        <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-[color:var(--surface-4)]" />
+        {/* Drag origin — pill + sticky header. Pointerdown here starts the
+            drag; pointerdown anywhere below (the scrollable content) does
+            not, so list scrolling is unaffected. The X button's onClick
+            still fires because no drag movement = no gesture consumed. */}
+        <div
+          onPointerDown={(e) => dragControls.start(e)}
+          className="touch-none"
+        >
+          {/* Drag-handle pill — iOS-native cue, now actually draggable */}
+          <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-[color:var(--surface-4)]" />
 
-        {/* Sticky header — generous breathing room top + bottom */}
-        <div className="sticky top-0 -mt-3 -mx-6 mb-6 px-6 pt-4 pb-5 bg-card/95 backdrop-blur-md border-b border-[color:var(--surface-3)] flex items-center justify-between">
-          <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
-          <button
-            onClick={onClose}
-            aria-label="Close"
-            className="w-9 h-9 -mr-1 rounded-full flex items-center justify-center text-text-secondary hover:text-foreground hover:bg-[color:var(--surface-3)] transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          {/* Sticky header — generous breathing room top + bottom */}
+          <div className="sticky top-0 -mt-3 -mx-6 mb-6 px-6 pt-4 pb-5 bg-card/95 backdrop-blur-md border-b border-[color:var(--surface-3)] flex items-center justify-between">
+            <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
+            <button
+              onClick={onClose}
+              aria-label="Close"
+              className="w-9 h-9 -mr-1 rounded-full flex items-center justify-center text-text-secondary hover:text-foreground hover:bg-[color:var(--surface-3)] transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
         {children}
       </motion.div>
