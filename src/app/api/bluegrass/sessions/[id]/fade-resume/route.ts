@@ -1,12 +1,50 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { resumePlayback, setVolume } from "@/lib/spotify";
+import { resumePlayback, setVolume, transferPlayback } from "@/lib/spotify";
 import { buildFadeCurve } from "@/lib/fade-curve";
 import { NextRequest, NextResponse } from "next/server";
 
 export const maxDuration = 60;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// Spotify Connect deactivates an idle device after ~10–15 min of no
+// heartbeat. After a long pause, PUT /me/player/play with no device_id
+// returns 404 NO_ACTIVE_DEVICE. We attempt to wake the saved deviceId via
+// transferPlayback and retry once before surfacing a structured error so
+// the client can open the device picker instead of dumping a red banner.
+async function resumeWithRecovery(
+  accessToken: string,
+  deviceId: string | null
+): Promise<{ ok: true } | { ok: false; reason: "device_unavailable" | "resume_failed"; detail: string }> {
+  try {
+    await resumePlayback(accessToken);
+    return { ok: true };
+  } catch (firstErr) {
+    if (!deviceId) {
+      return { ok: false, reason: "resume_failed", detail: firstErr instanceof Error ? firstErr.message : "" };
+    }
+    try {
+      await transferPlayback(accessToken, deviceId);
+    } catch (transferErr) {
+      const msg = transferErr instanceof Error ? transferErr.message : "";
+      // Spotify reports device_unavailable when the saved deviceId is no
+      // longer reachable on the network. Bubble that up so the picker opens.
+      if (msg === "device_unavailable") {
+        return { ok: false, reason: "device_unavailable", detail: "The saved playback device isn't reachable. Pick another device." };
+      }
+      return { ok: false, reason: "resume_failed", detail: msg };
+    }
+    // Spotify needs a beat after transferPlayback before it'll accept play.
+    await sleep(500);
+    try {
+      await resumePlayback(accessToken);
+      return { ok: true };
+    } catch (retryErr) {
+      return { ok: false, reason: "device_unavailable", detail: retryErr instanceof Error ? retryErr.message : "" };
+    }
+  }
+}
 
 export async function POST(
   _req: NextRequest,
@@ -44,14 +82,21 @@ export async function POST(
 
   // Start at 0 and resume, then ramp up. Reverse the down-curve to get an up-curve.
   try { await setVolume(accessToken, 0); } catch {}
-  try { await resumePlayback(accessToken); } catch (e) {
+  const resumeResult = await resumeWithRecovery(accessToken, sess.deviceId);
+  if (!resumeResult.ok) {
     try {
       await prisma.bluegrassSession.update({
         where: { id: sess.id },
         data: { fadingUntil: null },
       });
     } catch {}
-    return NextResponse.json({ error: "resume_failed", detail: e instanceof Error ? e.message : "" }, { status: 502 });
+    // Restore audible volume so the user isn't stranded with the device
+    // muted to 0% from the pre-resume setVolume(0) call. Best-effort.
+    try { await setVolume(accessToken, sess.targetVolume); } catch {}
+    return NextResponse.json(
+      { error: resumeResult.reason, detail: resumeResult.detail },
+      { status: 502 }
+    );
   }
 
   try {

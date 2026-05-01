@@ -675,9 +675,26 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
           lastResumeAtRef.current = Date.now();
         }
       } else {
-        // Mid-session: smoothly resume whatever's loaded.
-        const r = await post(`/api/bluegrass/sessions/${sess.id}/fade-resume`);
-        if (r?.ok !== false) lastResumeAtRef.current = Date.now();
+        // Mid-session: smoothly resume whatever's loaded. Inline fetch so we
+        // can inspect the structured error from fade-resume — when Spotify
+        // Connect has deactivated the saved device after a long pause, the
+        // route now reports `device_unavailable`. Open the picker so the
+        // operator can wake/swap the target instead of staring at a red
+        // banner with no obvious next step.
+        setError(null);
+        const res = await fetch(`/api/bluegrass/sessions/${sess.id}/fade-resume`, { method: "POST" });
+        if (res.ok) {
+          lastResumeAtRef.current = Date.now();
+        } else {
+          const body = await res.json().catch(() => ({}));
+          if (body?.error === "device_unavailable") {
+            setError("That device isn't reachable. Pick another below.");
+            setPicker("device");
+            void loadDevices();
+          } else {
+            setError(body?.detail || body?.error || `${res.status}`);
+          }
+        }
       }
       void pollState();
     } finally {
