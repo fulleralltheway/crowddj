@@ -9,6 +9,20 @@ import { NextRequest, NextResponse } from "next/server";
 // up to ~5 concurrent active sessions before risking a Vercel timeout.
 export const maxDuration = 60;
 
+// Orphan reaper thresholds. A session row stays isActive=true forever unless
+// the operator taps End Session — closing the tab leaves a zombie that the
+// cron keeps polling against Spotify (~1 call/min via Vercel + ~6/min via the
+// Fly.io socket server). These two checks auto-close stale rows so the
+// polling pipeline drains itself.
+//
+// IDLE_CLOSE_MS: how long Spotify must report "no playback" before we treat
+// the session as abandoned. 60 min keeps real-world coffee breaks safe.
+// WALL_CLOCK_MAX_MS: hard cap from session creation. Catches the case where
+// Spotify *is* still playing somehow (looped playlist, autoplay) but no
+// human is operating it. 12h is well past any plausible class.
+const IDLE_CLOSE_MS = 60 * 60 * 1000;
+const WALL_CLOCK_MAX_MS = 12 * 60 * 60 * 1000;
+
 function isAuthorized(req: NextRequest): boolean {
   const expected = process.env.CRON_SECRET;
   if (!expected) return false;
@@ -106,6 +120,19 @@ export async function GET(req: NextRequest) {
   const firePromises: Promise<unknown>[] = [];
 
   for (const sess of sessions) {
+    // Wall-clock cap: any session older than WALL_CLOCK_MAX_MS gets reaped
+    // regardless of playback state. Comes BEFORE the token + Spotify calls
+    // so a runaway session can't keep burning cycles even if the operator's
+    // Spotify token is healthy.
+    if (Date.now() - sess.createdAt.getTime() > WALL_CLOCK_MAX_MS) {
+      await prisma.bluegrassSession.update({
+        where: { id: sess.id },
+        data: { isActive: false, closedAt: new Date(), fadingUntil: null, noPlaybackSince: null },
+      });
+      results.push({ id: sess.id, status: "session_ended" });
+      continue;
+    }
+
     const account = await prisma.account.findFirst({
       where: { userId: sess.userId, provider: "spotify" },
     });
@@ -158,6 +185,38 @@ export async function GET(req: NextRequest) {
     }
 
     const decision = decideSyncStatus(sess, playback);
+
+    // Idle reaper: if Spotify reports nothing playing (paused, stopped, or no
+    // active device), start a streak timer; close the session when the streak
+    // hits IDLE_CLOSE_MS. Any non-idle status clears the streak so a brief
+    // pause for an announcement doesn't accumulate. `playback` being null
+    // (Spotify API hiccup) is treated like idle for streak-counting purposes —
+    // self-corrects on the next tick if it was transient.
+    if (decision.status === "no_playback") {
+      if (sess.noPlaybackSince) {
+        if (Date.now() - sess.noPlaybackSince.getTime() >= IDLE_CLOSE_MS) {
+          await prisma.bluegrassSession.update({
+            where: { id: sess.id },
+            data: { isActive: false, closedAt: new Date(), fadingUntil: null, noPlaybackSince: null },
+          });
+          results.push({ id: sess.id, status: "session_ended" });
+          continue;
+        }
+      } else {
+        await prisma.bluegrassSession.update({
+          where: { id: sess.id },
+          data: { noPlaybackSince: new Date() },
+        });
+        sess.noPlaybackSince = new Date();
+      }
+    } else if (sess.noPlaybackSince) {
+      // Streak broken — clear the marker so future idle stretches start fresh.
+      await prisma.bluegrassSession.update({
+        where: { id: sess.id },
+        data: { noPlaybackSince: null },
+      });
+      sess.noPlaybackSince = null;
+    }
 
     // Track current track URI + start time for our own audit trail. Only
     // update when the URI actually changes — same URI means same track,

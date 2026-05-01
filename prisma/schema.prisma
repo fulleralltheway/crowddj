@@ -176,6 +176,7 @@ model BluegrassSession {
   tracksImported     TrackImportStatus       @default(pending)
   isActive           Boolean                 @default(true)
   closedAt           DateTime?
+  noPlaybackSince    DateTime?               // first cron tick that saw no_playback in the current idle streak; cleared on any non-idle status. Cron auto-closes the session when this gets older than IDLE_CLOSE_MS.
   lastSyncAdvance    DateTime                @default(now()) // debounce, mirrors Room.lastSyncAdvance
   createdAt          DateTime                @default(now())
   updatedAt          DateTime                @updatedAt

@@ -537,6 +537,11 @@ async function syncSessionsList(sessionIds: string[]) {
     const data = await res.json();
     for (const result of data.results || []) {
       if (result.status === "session_ended") {
+        // Broadcast first so any connected client (operator's tab) routes to
+        // the "Session ended" screen. The cron flips isActive=false either by
+        // operator action (DELETE) or by the orphan reaper (idle/wall-clock);
+        // both cases want the same client-side reset.
+        io.to(`session:${result.id}`).emit("session-ended");
         backgroundSessions.delete(result.id);
         activeSessions.delete(result.id);
         if (scheduledSessionFades.has(result.id)) {
