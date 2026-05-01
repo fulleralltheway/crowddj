@@ -178,6 +178,11 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
   const [playlistsError, setPlaylistsError] = useState<string | null>(null);
   const [picker, setPicker] = useState<"none" | "device" | "playlist" | "auto-fade" | "queue" | "ended" | "scheduled-stops">("none");
   const [busy, setBusy] = useState(false);
+  // Separate gate for playback transport (play/skip/stop/end session). Lets
+  // settings writes (volume commit, stop-after-song toggle, device picker)
+  // run via patchSession without dimming the play button's blue glow or the
+  // End Session button.
+  const [transportBusy, setTransportBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Local volume mirror for the always-visible main-panel slider.
   // Initial value from session row; further changes are user-driven
@@ -656,41 +661,56 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
 
   const handlePlayPause = async () => {
     if (!sess) return;
-    if (playback?.isPlaying) {
-      await post(`/api/bluegrass/sessions/${sess.id}/fade-pause`);
-    } else if (!hasStarted) {
-      // First play of this session: /play sets the playlist context with
-      // offset 0 so we always start at track 1 of the chosen playlist
-      // (regardless of whatever Spotify was doing before).
-      const r = await post(`/api/bluegrass/sessions/${sess.id}/play`);
-      if (r?.ok !== false) {
-        setStartedForSession(sess.id);
-        lastResumeAtRef.current = Date.now();
+    setTransportBusy(true);
+    try {
+      if (playback?.isPlaying) {
+        await post(`/api/bluegrass/sessions/${sess.id}/fade-pause`);
+      } else if (!hasStarted) {
+        // First play of this session: /play sets the playlist context with
+        // offset 0 so we always start at track 1 of the chosen playlist
+        // (regardless of whatever Spotify was doing before).
+        const r = await post(`/api/bluegrass/sessions/${sess.id}/play`);
+        if (r?.ok !== false) {
+          setStartedForSession(sess.id);
+          lastResumeAtRef.current = Date.now();
+        }
+      } else {
+        // Mid-session: smoothly resume whatever's loaded.
+        const r = await post(`/api/bluegrass/sessions/${sess.id}/fade-resume`);
+        if (r?.ok !== false) lastResumeAtRef.current = Date.now();
       }
-    } else {
-      // Mid-session: smoothly resume whatever's loaded.
-      const r = await post(`/api/bluegrass/sessions/${sess.id}/fade-resume`);
-      if (r?.ok !== false) lastResumeAtRef.current = Date.now();
+      void pollState();
+    } finally {
+      setTransportBusy(false);
     }
-    void pollState();
   };
 
   const handleSkip = async () => {
     if (!sess) return;
-    await post(`/api/bluegrass/sessions/${sess.id}/fade-skip`);
-    void pollState();
+    setTransportBusy(true);
+    try {
+      await post(`/api/bluegrass/sessions/${sess.id}/fade-skip`);
+      void pollState();
+    } finally {
+      setTransportBusy(false);
+    }
   };
 
   const handleStop = async () => {
     if (!sess) return;
-    await post(`/api/bluegrass/sessions/${sess.id}/fade-pause`);
-    void pollState();
+    setTransportBusy(true);
+    try {
+      await post(`/api/bluegrass/sessions/${sess.id}/fade-pause`);
+      void pollState();
+    } finally {
+      setTransportBusy(false);
+    }
   };
 
   const endSession = async () => {
     if (!sess) return;
     if (!confirm("End this session? Spotify will pause and the app will release control.")) return;
-    setBusy(true);
+    setTransportBusy(true);
     try {
       const res = await fetch(`/api/bluegrass/sessions/${sess.id}`, { method: "DELETE" });
       if (res.ok) {
@@ -702,7 +722,7 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
         setPicker("ended");
       }
     } finally {
-      setBusy(false);
+      setTransportBusy(false);
     }
   };
 
@@ -869,7 +889,7 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
       <section className="mt-5 flex items-center justify-center gap-5">
         <motion.button
           onClick={handleStop}
-          disabled={busy || !playback?.isPlaying}
+          disabled={transportBusy || !playback?.isPlaying}
           whileTap={{ scale: 0.9 }}
           transition={{ type: "spring", stiffness: 600, damping: 30 }}
           aria-label="Stop"
@@ -885,7 +905,7 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
 
         <motion.button
           onClick={handlePlayPause}
-          disabled={busy}
+          disabled={transportBusy}
           whileTap={{ scale: 0.92 }}
           transition={{ type: "spring", stiffness: 600, damping: 30 }}
           aria-label={playback?.isPlaying ? "Pause" : "Play"}
@@ -916,7 +936,7 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
 
         <motion.button
           onClick={handleSkip}
-          disabled={busy || !playback?.isPlaying}
+          disabled={transportBusy || !playback?.isPlaying}
           whileTap={{ scale: 0.9 }}
           transition={{ type: "spring", stiffness: 600, damping: 30 }}
           aria-label="Skip"
@@ -1031,7 +1051,7 @@ export default function BluegrassClient({ initialSession }: { initialSession: Se
       <footer className="mt-6 mb-2 flex items-center justify-center text-sm">
         <button
           onClick={endSession}
-          disabled={busy}
+          disabled={transportBusy}
           className="text-[#f87171] hover:text-[#fca5a5] transition-colors px-3 py-1.5 disabled:opacity-40"
         >
           End Session
