@@ -2122,7 +2122,7 @@ function AutoFadeForm({
       <Field label={`Fade duration: ${fadeSec}s`}>
         <Slider
           min={1}
-          max={10}
+          max={15}
           step={1}
           value={[fadeSec]}
           onValueChange={([v]) => setFadeSec(v)}

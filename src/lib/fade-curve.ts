@@ -7,11 +7,12 @@
  *
  * Step rate adapts to fade duration to stay under Spotify's setVolume rate
  * limit: 4 steps/sec for fades ≤3s, 2 steps/sec for longer fades, capped at
- * 24 total steps regardless of duration.
+ * 30 total steps regardless of duration (sustains 2 calls/sec — well under
+ * Spotify's ~5/sec setVolume threshold).
  */
 export function buildFadeCurve(durationMs: number): { multipliers: number[]; stepMs: number } {
   const stepsPerSec = durationMs <= 3000 ? 4 : 2;
-  const totalSteps = Math.max(2, Math.min(24, Math.round((durationMs / 1000) * stepsPerSec)));
+  const totalSteps = Math.max(2, Math.min(30, Math.round((durationMs / 1000) * stepsPerSec)));
   const stepMs = Math.round(durationMs / totalSteps);
 
   const multipliers: number[] = [];

@@ -28,9 +28,9 @@ describe("buildFadeCurve", () => {
     expect(stepMs).toBe(500);
   });
 
-  it("caps at 24 total steps regardless of duration (rate-limit safety)", () => {
+  it("caps at 30 total steps regardless of duration (rate-limit safety)", () => {
     const { multipliers } = buildFadeCurve(60_000); // 60s fade — would be 120 steps un-capped
-    expect(multipliers.length).toBe(24);
+    expect(multipliers.length).toBe(30);
   });
 
   it("has at least 2 steps for very short fades", () => {
