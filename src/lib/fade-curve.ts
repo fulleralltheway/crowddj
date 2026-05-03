@@ -23,3 +23,40 @@ export function buildFadeCurve(durationMs: number): { multipliers: number[]; ste
 
   return { multipliers, stepMs };
 }
+
+/**
+ * Run a fade curve under a wall-clock budget.
+ *
+ * Each setVolume() call to Spotify takes ~100-300ms over the network, so a
+ * naive `for (mult of multipliers) { await setVolume(); await sleep(stepMs); }`
+ * overruns the declared duration by N × api_latency. For a 10s/20-step fade
+ * with 200ms-avg latency, that's ~14s of actual fade — songs bleed past the
+ * max-duration limit by 4s.
+ *
+ * This helper anchors each step to a wall-clock target (step i should complete
+ * at (i+1) × stepMs from start), so any latency in setVolume() is absorbed by
+ * shortening the next sleep instead of pushing the schedule later. If the
+ * cumulative budget is exhausted before all steps run (slow network), we
+ * break early — the caller's final `setVolume(0)` (or equivalent) still fires,
+ * so the fade always reaches its endpoint within the declared duration.
+ */
+export async function runFadeStepsWithBudget(opts: {
+  multipliers: number[];
+  stepMs: number;
+  budgetMs: number;
+  applyVolume: (mult: number) => Promise<void>;
+}): Promise<void> {
+  const { multipliers, stepMs, budgetMs, applyVolume } = opts;
+  const startTime = Date.now();
+  for (let i = 0; i < multipliers.length; i++) {
+    await applyVolume(multipliers[i]);
+    const elapsed = Date.now() - startTime;
+    if (elapsed >= budgetMs) break;
+    const targetMs = (i + 1) * stepMs;
+    const remaining = budgetMs - elapsed;
+    const sleepFor = Math.min(remaining, Math.max(0, targetMs - elapsed));
+    if (sleepFor > 0) {
+      await new Promise((r) => setTimeout(r, sleepFor));
+    }
+  }
+}

@@ -2,7 +2,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getCurrentPlayback, setVolume, skipToNext, startPlayback, startPlaybackContext } from "@/lib/spotify";
 import { getNextSessionTrack, markCurrentPlayed } from "@/lib/bluegrass-queue";
-import { buildFadeCurve } from "@/lib/fade-curve";
+import { buildFadeCurve, runFadeStepsWithBudget } from "@/lib/fade-curve";
 import { NextRequest, NextResponse } from "next/server";
 
 export const maxDuration = 60;
@@ -92,10 +92,14 @@ export async function POST(
 
   // Fade out, but never below 0
   if (originalVolume >= 10) {
-    for (const mult of multipliers) {
-      try { await setVolume(accessToken, Math.round(originalVolume * mult)); } catch {}
-      await sleep(stepMs);
-    }
+    await runFadeStepsWithBudget({
+      multipliers,
+      stepMs,
+      budgetMs: fadeDurationMs,
+      applyVolume: async (mult) => {
+        try { await setVolume(accessToken, Math.round(originalVolume * mult)); } catch {}
+      },
+    });
     try { await setVolume(accessToken, 0); } catch {}
   }
 

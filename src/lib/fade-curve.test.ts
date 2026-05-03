@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildFadeCurve } from "./fade-curve";
+import { buildFadeCurve, runFadeStepsWithBudget } from "./fade-curve";
 
 describe("buildFadeCurve", () => {
   it("ends at zero volume", () => {
@@ -54,5 +54,40 @@ describe("buildFadeCurve", () => {
     const startDelta = multipliers[0] - multipliers[1];
     const endDelta = multipliers[multipliers.length - 3] - multipliers[multipliers.length - 2];
     expect(startDelta).toBeGreaterThan(endDelta);
+  });
+});
+
+describe("runFadeStepsWithBudget", () => {
+  it("never exceeds the wall-clock budget when applyVolume is slow", async () => {
+    const { multipliers, stepMs } = buildFadeCurve(1000);
+    const budgetMs = 1000;
+    const start = Date.now();
+    // Simulate ~80ms Spotify setVolume latency per call — would push a naive
+    // loop over budget by N × 80ms.
+    await runFadeStepsWithBudget({
+      multipliers,
+      stepMs,
+      budgetMs,
+      applyVolume: () => new Promise((r) => setTimeout(r, 80)),
+    });
+    const elapsed = Date.now() - start;
+    // Allow one final apply to complete past the budget cutoff (we check
+    // budget AFTER applyVolume), so cap is budgetMs + one apply latency.
+    expect(elapsed).toBeLessThanOrEqual(budgetMs + 200);
+  });
+
+  it("calls applyVolume in order and finishes the curve when budget allows", async () => {
+    const { multipliers, stepMs } = buildFadeCurve(800);
+    const seen: number[] = [];
+    await runFadeStepsWithBudget({
+      multipliers,
+      stepMs,
+      budgetMs: 800,
+      applyVolume: async (mult) => {
+        seen.push(mult);
+      },
+    });
+    // Fast applyVolume should let the full curve run.
+    expect(seen).toEqual(multipliers);
   });
 });

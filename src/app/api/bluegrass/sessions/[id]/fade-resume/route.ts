@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { resumePlayback, setVolume, transferPlayback } from "@/lib/spotify";
-import { buildFadeCurve } from "@/lib/fade-curve";
+import { buildFadeCurve, runFadeStepsWithBudget } from "@/lib/fade-curve";
 import { NextRequest, NextResponse } from "next/server";
 
 export const maxDuration = 60;
@@ -104,10 +104,14 @@ export async function POST(
     // multipliers ramps ~1 → 0 (down). For an up-ramp, walk it in reverse so
     // the multiplier we pass to setVolume goes 0 → ~1.
     const upMults = [...multipliers].reverse();
-    for (const mult of upMults) {
-      try { await setVolume(accessToken, Math.round(target * mult)); } catch {}
-      await sleep(stepMs);
-    }
+    await runFadeStepsWithBudget({
+      multipliers: upMults,
+      stepMs,
+      budgetMs: fadeDurationMs,
+      applyVolume: async (mult) => {
+        try { await setVolume(accessToken, Math.round(target * mult)); } catch {}
+      },
+    });
     try { await setVolume(accessToken, target); } catch {}
   } finally {
     try {

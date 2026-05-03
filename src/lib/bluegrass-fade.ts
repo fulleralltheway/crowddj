@@ -8,7 +8,7 @@ import {
   startPlaybackContext,
 } from "@/lib/spotify";
 import { getNextSessionTrack, markCurrentPlayed } from "@/lib/bluegrass-queue";
-import { buildFadeCurve } from "@/lib/fade-curve";
+import { buildFadeCurve, runFadeStepsWithBudget } from "@/lib/fade-curve";
 import type { BluegrassSession } from "@/generated/prisma/client";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -193,10 +193,14 @@ export async function executeFadeTransition(
   const { multipliers, stepMs } = buildFadeCurve(fadeDurationMs);
 
   if (originalVolume >= 10) {
-    for (const mult of multipliers) {
-      try { await setVolume(accessToken, Math.round(originalVolume * mult)); } catch {}
-      await sleep(stepMs);
-    }
+    await runFadeStepsWithBudget({
+      multipliers,
+      stepMs,
+      budgetMs: fadeDurationMs,
+      applyVolume: async (mult) => {
+        try { await setVolume(accessToken, Math.round(originalVolume * mult)); } catch {}
+      },
+    });
     try { await setVolume(accessToken, 0); } catch {}
   }
 
